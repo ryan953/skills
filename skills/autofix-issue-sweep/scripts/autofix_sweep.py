@@ -7,7 +7,8 @@ whole pipeline (root_cause -> solution -> code_changes -> open_pr) server-side.
 
 Uses only the Python stdlib so it runs under the repo .venv with no extra deps.
 
-Auth: pass a Sentry auth token via --token or the SENTRY_AUTH_TOKEN env var. Create
+Auth: resolve a Sentry auth token from --token, then the SENTRY_AUTH_TOKEN env var,
+then `auth.token` in ~/.sentryclirc (the sentry-cli config), in that order. Create
 one at https://sentry.io/settings/account/api/auth-tokens/ with `event:read` and
 `event:write` scopes (write is needed to trigger autofix).
 
@@ -28,6 +29,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import configparser
 import json
 import os
 import sys
@@ -143,6 +145,19 @@ def poll_until_terminal(
     return state
 
 
+def token_from_sentryclirc() -> str | None:
+    """Read `auth.token` from ~/.sentryclirc, the sentry-cli config file."""
+    path = os.path.expanduser("~/.sentryclirc")
+    if not os.path.isfile(path):
+        return None
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path)
+    except configparser.Error:
+        return None
+    return parser.get("auth", "token", fallback=None)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -181,7 +196,13 @@ def main() -> int:
     args = parser.parse_args()
 
     if not args.token:
-        print("ERROR: no auth token. Pass --token or set SENTRY_AUTH_TOKEN.", file=sys.stderr)
+        args.token = token_from_sentryclirc()
+    if not args.token:
+        print(
+            "ERROR: no auth token. Pass --token, set SENTRY_AUTH_TOKEN, or add "
+            "auth.token to ~/.sentryclirc.",
+            file=sys.stderr,
+        )
         return 2
     if not args.issues and not args.query:
         print("ERROR: provide --query or --issues.", file=sys.stderr)
