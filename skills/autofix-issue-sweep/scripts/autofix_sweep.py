@@ -97,8 +97,20 @@ class SentryClient:
             path = None  # Pagination via Link headers is omitted; one page covers our case.
         return issues[:limit]
 
+    def resolve_issue_id(self, org: str, short_id: str) -> str:
+        """Map a short id (e.g. CODING-CONVENTIONS-34T) to its numeric group id."""
+        params = {"query": short_id, "limit": "1"}
+        path = f"/api/0/organizations/{org}/issues/?{urllib.parse.urlencode(params)}"
+        status, payload = self._request("GET", path)
+        if status != 200 or not payload:
+            raise RuntimeError(f"resolve_issue_id failed for {short_id} ({status}): {payload}")
+        return payload[0]["id"]
+
     def get_autofix_state(self, issue_id: str) -> dict | None:
         status, payload = self._request("GET", f"/api/0/issues/{issue_id}/autofix/")
+        if status == 404:
+            # No autofix run exists yet for this issue; not an error.
+            return None
         if status != 200:
             raise RuntimeError(f"get_autofix_state failed ({status}): {payload}")
         return payload.get("autofix")
@@ -211,12 +223,19 @@ def main() -> int:
     client = SentryClient(args.token, args.host)
 
     if args.issues:
-        issues = [{"shortId": s, "title": s} for s in args.issues]
+        # Autofix endpoints key on the numeric group id, so resolve short ids first.
+        issues = [
+            {"id": client.resolve_issue_id(args.org, s), "shortId": s, "title": s}
+            for s in args.issues
+        ]
     else:
         raw = client.list_issues(
             args.org, args.query, args.project, args.stats_period, args.sort, args.limit
         )
-        issues = [{"shortId": i.get("shortId"), "title": i.get("title", "")} for i in raw]
+        issues = [
+            {"id": i.get("id"), "shortId": i.get("shortId"), "title": i.get("title", "")}
+            for i in raw
+        ]
 
     if not issues:
         print("No issues matched.")
@@ -225,9 +244,10 @@ def main() -> int:
     results = []
     for idx, issue in enumerate(issues, 1):
         short_id = issue["shortId"]
+        group_id = issue["id"]
         title = (issue.get("title") or "").splitlines()[0][:80]
         try:
-            state = client.get_autofix_state(short_id)
+            state = client.get_autofix_state(group_id)
         except RuntimeError as e:
             results.append({"issue": short_id, "action": "error", "detail": str(e)})
             print(f"[{idx}/{len(issues)}] {short_id}  ERROR reading state: {e}")
@@ -239,12 +259,12 @@ def main() -> int:
             if args.only_unstarted and already_started:
                 action = "skipped (already started)"
             else:
-                code, payload = client.trigger_autofix(short_id, args.run_to)
+                code, payload = client.trigger_autofix(group_id, args.run_to)
                 if code == 202:
                     action = f"triggered -> {args.run_to}"
                     if args.poll:
                         state = poll_until_terminal(
-                            client, short_id, args.poll_timeout, args.poll_interval
+                            client, group_id, args.poll_timeout, args.poll_interval
                         )
                 else:
                     action = f"trigger failed ({code}): {payload.get('detail', payload)}"
