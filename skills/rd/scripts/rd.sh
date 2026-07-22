@@ -30,9 +30,20 @@ if [ -z "$REVDIFF_BIN" ]; then
 fi
 
 # ---- resolve the running tmux server socket --------------------------------
-# Prefer an inherited $TMUX (socket is the part before the first comma). Otherwise
-# probe the conventional locations for a live server owned by this uid.
+# Resolution order:
+#   1. $RD_TMUX_SOCKET — explicit override (pin it in ~/.claude/settings.json to skip probing).
+#      NOTE: this is the *tmux server* socket (`tmux -S`), NOT $SSH_AUTH_SOCK / ssh-agent.
+#   2. $TMUX — inherited when already inside tmux; socket is the part before the first comma.
+#   3. probe the conventional per-uid locations for a live server.
 find_socket() {
+    if [ -n "${RD_TMUX_SOCKET:-}" ]; then
+        if [ -S "$RD_TMUX_SOCKET" ] && tmux -S "$RD_TMUX_SOCKET" list-sessions >/dev/null 2>&1; then
+            printf '%s\n' "$RD_TMUX_SOCKET"
+            return 0
+        fi
+        echo "error: RD_TMUX_SOCKET=$RD_TMUX_SOCKET is not a live tmux server socket" >&2
+        return 1
+    fi
     if [ -n "${TMUX:-}" ]; then
         printf '%s\n' "${TMUX%%,*}"
         return 0

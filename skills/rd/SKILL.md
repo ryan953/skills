@@ -124,12 +124,17 @@ The launch needs values that mostly can't be baked into `~/.claude/settings.json
   not a CLI flag (an old revdiff binary would reject the flag). Set inside the window's
   command so it applies to revdiff only.
 - **tmux socket** — `/tmp/tmux-$(id -u)/default` (macOS may resolve it under `/private/tmp`).
-  `id -u` is stable but the *server must be running*; `rd.sh` prefers an inherited `$TMUX`
-  and otherwise probes `$TMUX_TMPDIR`, `/tmp`, `/private/tmp` for a live server.
+  `id -u` is stable but the *server must be running*. `rd.sh` resolves it in order:
+  `$RD_TMUX_SOCKET` (explicit override) → inherited `$TMUX` → probe `$TMUX_TMPDIR`/`/tmp`/`/private/tmp`.
+  The probe short-circuits on the first live server, so it's normally a single `tmux list-sessions`.
+  **To pin it and skip probing entirely**, export `RD_TMUX_SOCKET=/tmp/tmux-$(id -u)/default`
+  (e.g. in `~/.claude/settings.json` `env`). This is the *tmux server* socket used by `tmux -S`
+  — **not** `$SSH_AUTH_SOCK` / `/tmp/ssh-agent-$USER-screen`, which is the unrelated ssh-agent
+  key-forwarding socket and will not connect to a tmux server.
 - `--output=<file>` — per-run temp path (job-local under `$CLAUDE_JOB_DIR/tmp`).
 - The stock launcher's window mode also wants `TMUX=<socket>,<server_pid>,<session_id>`
   reconstructed and `REVDIFF_TMUX_WINDOW=1`. Even then it returned instantly without opening
   a window in testing, which is why `rd.sh` drives `tmux new-window` directly instead.
 
-So the reusable config surface is essentially just `REVDIFF_EXIT_CODE_ON_ANNOTATIONS`; the
-rest is runtime state, which is exactly what this skill's script exists to compute.
+Reusable config surface: `REVDIFF_EXIT_CODE_ON_ANNOTATIONS=true` and, if you want to skip
+socket probing, `RD_TMUX_SOCKET`. The rest is runtime state the script computes.
