@@ -1,10 +1,10 @@
 ---
-name: rd
-description: Review a diff in revdiff, opened in a persistent tmux window, with the diff range inferred automatically. Use when asked to "rd", "review diff", "review my changes", "review the branch", "revdiff in a window", "compare to <ref>", or to review changes without specifying two explicit commits. Defaults to the full current-branch-vs-main range and never steals terminal focus.
+name: diff
+description: Review a diff in revdiff, opened in a persistent tmux window, with the diff range inferred automatically. Use when asked to "diff", "review diff", "review my changes", "review the branch", "revdiff in a window", "compare to <ref>", or to review changes without specifying two explicit commits. Defaults to the full current-branch-vs-main range and never steals terminal focus.
 allowed-tools: Bash, Read, Monitor
 ---
 
-# rd — windowed diff review with inferred range
+# diff — windowed diff review with inferred range
 
 Open [revdiff](https://github.com/umputun/revdiff) on an inferred diff range in a
 **persistent tmux window**, capture the reviewer's inline annotations, and address them.
@@ -34,27 +34,27 @@ command -v revdiff || echo "install: brew install umputun/apps/revdiff"
 Resolve this skill's script directory (installed user-scope, or from a repo checkout):
 
 ```bash
-RD="$HOME/.claude/skills/rd/scripts/rd.sh"
-[ -f "$RD" ] || RD="$HOME/.agents/skills/rd/scripts/rd.sh"
-[ -f "$RD" ] || RD="$(git -C ~/code/skills rev-parse --show-toplevel 2>/dev/null)/skills/rd/scripts/rd.sh"
+DIFF="$HOME/.claude/skills/diff/scripts/diff.sh"
+[ -f "$DIFF" ] || DIFF="$HOME/.agents/skills/diff/scripts/diff.sh"
+[ -f "$DIFF" ] || DIFF="$(git -C ~/code/skills rev-parse --show-toplevel 2>/dev/null)/skills/diff/scripts/diff.sh"
 ```
 
 Run the launcher with the user's argument (verbatim), or no argument for the implied range:
 
 ```bash
-"$RD" [ARGS]
+"$DIFF" [ARGS]
 ```
 
 Argument forms:
 
 | User said | Pass | Diffs |
 |---|---|---|
-| "review my changes" / "rd" / nothing | *(no args)* | inferred range (below) |
-| "compare to master" / "rd HEAD~3" | `master` / `HEAD~3` | that ref → working tree |
-| "diff A to B" / "rd A B" | `A B` | explicit two-ref range |
+| "review my changes" / "diff" / nothing | *(no args)* | inferred range (below) |
+| "compare to master" / "diff HEAD~3" | `master` / `HEAD~3` | that ref → working tree |
+| "diff A to B" / "diff A B" | `A B` | explicit two-ref range |
 | "review this file" / a path | `path/to/file.tsx` | single file, context-only |
 
-**Inferred range (no args)** — `rd.sh` decides:
+**Inferred range (no args)** — `diff.sh` decides:
 - **feature branch** → `git merge-base <main> HEAD` → HEAD, i.e. the *entire branch diff vs main*, including uncommitted work. This is the default and the common case.
 - **on main, dirty** → uncommitted working-tree changes.
 - **on main, clean** → `HEAD~1` (last commit).
@@ -62,7 +62,7 @@ Argument forms:
 The launcher prints `KEY=VALUE` lines. Capture them:
 
 ```bash
-eval "$("$RD" $ARGS)"   # sets WID OUT DONE WINDOW SOCKET RANGE
+eval "$("$DIFF" $ARGS)"   # sets WID OUT DONE WINDOW SOCKET RANGE
 ```
 
 Then tell the user which tmux window to switch to, e.g.:
@@ -111,7 +111,7 @@ don't drop this validation
 After edits, relaunch with the **same** args so the reviewer sees the new state:
 
 ```bash
-eval "$("$RD" $ARGS)"
+eval "$("$DIFF" $ARGS)"
 ```
 
 Quit with no annotations → review complete.
@@ -124,12 +124,13 @@ The launch needs values that mostly can't be baked into `~/.claude/settings.json
   not a CLI flag (an old revdiff binary would reject the flag). Set inside the window's
   command so it applies to revdiff only.
 - **tmux socket** — `/tmp/tmux-$(id -u)/default` (macOS may resolve it under `/private/tmp`).
-  `id -u` is stable but the *server must be running*; `rd.sh` prefers an inherited `$TMUX`
-  and otherwise probes `$TMUX_TMPDIR`, `/tmp`, `/private/tmp` for a live server.
+  `id -u` is stable but the *server must be running*; `diff.sh` prefers an inherited `$TMUX`
+  and otherwise probes `$TMUX_TMPDIR`, `/tmp`, `/private/tmp` for a live server (short-circuits
+  on the first hit — normally a single `tmux list-sessions`).
 - `--output=<file>` — per-run temp path (job-local under `$CLAUDE_JOB_DIR/tmp`).
 - The stock launcher's window mode also wants `TMUX=<socket>,<server_pid>,<session_id>`
   reconstructed and `REVDIFF_TMUX_WINDOW=1`. Even then it returned instantly without opening
-  a window in testing, which is why `rd.sh` drives `tmux new-window` directly instead.
+  a window in testing, which is why `diff.sh` drives `tmux new-window` directly instead.
 
 So the reusable config surface is essentially just `REVDIFF_EXIT_CODE_ON_ANNOTATIONS`; the
 rest is runtime state, which is exactly what this skill's script exists to compute.

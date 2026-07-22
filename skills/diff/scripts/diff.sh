@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# rd.sh — detect an implied diff range and open revdiff in a persistent tmux window.
+# diff.sh — detect an implied diff range and open revdiff in a persistent tmux window.
 #
 # Why a tmux *window* and not the stock revdiff launcher: in a headless / background
 # agent shell there is no $TMUX and no controlling TTY, so revdiff's own launcher prints
@@ -8,10 +8,10 @@
 # the user switches to it on their own schedule (Ctrl-b <n> / Ctrl-b w).
 #
 # Usage:
-#   rd.sh                 # implied range (see detection below)
-#   rd.sh <base>          # diff <base> against the working tree
-#   rd.sh <base> <against># explicit two-ref diff
-#   rd.sh <path>          # single-file context review (--only)
+#   diff.sh                 # implied range (see detection below)
+#   diff.sh <base>          # diff <base> against the working tree
+#   diff.sh <base> <against># explicit two-ref diff
+#   diff.sh <path>          # single-file context review (--only)
 #
 # Output (stdout, KEY=VALUE lines the caller parses):
 #   WID=<tmux window id>
@@ -123,11 +123,11 @@ esac
 TMPDIR_JOB="${CLAUDE_JOB_DIR:+$CLAUDE_JOB_DIR/tmp}"
 TMPDIR_JOB="${TMPDIR_JOB:-${TMPDIR:-/tmp}}"
 mkdir -p "$TMPDIR_JOB"
-OUT="$(mktemp "$TMPDIR_JOB/rd-output-XXXXXX")"
+OUT="$(mktemp "$TMPDIR_JOB/diff-output-XXXXXX")"
 DONE="$OUT.done"; rm -f "$DONE"
 
 # window name: last path segment of cwd + the range summary
-WINNAME="rd: ${PWD##*/} [$RANGE]"
+WINNAME="diff: ${PWD##*/} [$RANGE]"
 
 # Build a single-quoted, sh-safe command string for the window.
 sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
@@ -138,7 +138,7 @@ CMD="$CMD; printf '%s' \"\$?\" > $(sq "$DONE")"
 WID="$(tmux -S "$SOCKET" new-window -d -P -F '#{window_id}' -c "$PWD" -n "$WINNAME" -- sh -c "$CMD")"
 WINDOW="$(tmux -S "$SOCKET" list-windows -a -F '#{window_id}|#{session_name}:#{window_index}' | grep "^$WID|" | cut -d'|' -f2)"
 
-# Emit eval-safe KEY='value' lines (values hold spaces/parens; caller does `eval "$(rd.sh)"`).
+# Emit eval-safe KEY='value' lines (values hold spaces/parens; caller does `eval "$(diff.sh)"`).
 emit() { printf "%s=%s\n" "$1" "$(sq "$2")"; }
 emit WID    "$WID"
 emit OUT    "$OUT"
