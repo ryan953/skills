@@ -138,9 +138,11 @@ CMD="$CMD; printf '%s' \"\$?\" > $(sq "$DONE")"
 WID="$(tmux -S "$SOCKET" new-window -d -P -F '#{window_id}' -c "$PWD" -n "$WINNAME" -- sh -c "$CMD")"
 WINDOW="$(tmux -S "$SOCKET" list-windows -a -F '#{window_id}|#{session_name}:#{window_index}' | grep "^$WID|" | cut -d'|' -f2)"
 
-printf 'WID=%s\n'    "$WID"
-printf 'OUT=%s\n'    "$OUT"
-printf 'DONE=%s\n'   "$DONE"
-printf 'WINDOW=%s\n' "$WINDOW"
-printf 'SOCKET=%s\n' "$SOCKET"
-printf 'RANGE=%s\n'  "$RANGE"
+# Emit eval-safe KEY='value' lines (values hold spaces/parens; caller does `eval "$(rd.sh)"`).
+emit() { printf "%s=%s\n" "$1" "$(sq "$2")"; }
+emit WID    "$WID"
+emit OUT    "$OUT"
+emit DONE   "$DONE"
+emit WINDOW "$WINDOW"
+emit SOCKET "$SOCKET"
+emit RANGE  "$RANGE"
