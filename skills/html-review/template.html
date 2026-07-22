@@ -1,0 +1,126 @@
+<!--
+  html-review artifact template.
+  Fill in the placeholders, then INLINE this into the PR description per SKILL.md:
+  strip every blank line and every HTML comment (including this one) before embedding.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR review: {{PR_TITLE}}</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --card: #f6f8fa;
+    --border: #d1d9e0; --link: #0969da;
+    --critical: #cf222e; --high: #bc4c00; --medium: #9a6700; --low: #1a7f37; --info: #6e7781;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --card: #161b22;
+    --border: #30363d; --link: #4493f8;
+    --critical: #ff7b72; --high: #ffa657; --medium: #e3b341; --low: #3fb950; --info: #8b949e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
+  header h1 { font-size: 18px; margin: 0; }
+  .toggle { cursor: pointer; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 6px; padding: 4px 10px; font-size: 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    border-radius: 999px; padding: 2px 9px; color: #fff; }
+  .badge.critical { background: var(--critical); }
+  .badge.high { background: var(--high); }
+  .badge.medium { background: var(--medium); }
+  .badge.low { background: var(--low); }
+  .badge.info { background: var(--info); }
+  section { margin-bottom: 28px; }
+  section > h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .card { border: 1px solid var(--border); border-left-width: 4px; border-radius: 6px;
+    background: var(--card); padding: 12px 14px; margin: 12px 0; }
+  .card.critical { border-left-color: var(--critical); }
+  .card.high { border-left-color: var(--high); }
+  .card.medium { border-left-color: var(--medium); }
+  .card.low { border-left-color: var(--low); }
+  .card.info { border-left-color: var(--info); }
+  .card .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .card .kind { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .card p { margin: 6px 0; }
+  .card .ref { font-size: 12px; color: var(--muted); }
+  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 10px; overflow: auto; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .moved { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .moved .col h3 { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+  ol.tests { padding-left: 20px; }
+  ol.tests li { margin-bottom: 10px; }
+  .was { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="{{PR_URL}}">{{PR_TITLE}}</a></h1>
+  <button class="toggle" id="theme">◐ theme</button>
+</header>
+
+<div class="legend">
+  <span class="badge critical">critical</span>
+  <span class="badge high">high</span>
+  <span class="badge medium">medium</span>
+  <span class="badge low">low</span>
+  <span class="badge info">info</span>
+</div>
+
+<section>
+  <h2>Logical changes</h2>
+  <!-- Repeat one .card per logical change. severity ∈ {critical,high,medium,low,info}.
+       kind ∈ {added,removed,replaced}. Describe the change first; cite code second with a
+       deep link back to the PR. -->
+  <div class="card {{SEVERITY}}">
+    <div class="head">
+      <span class="badge {{SEVERITY}}">{{SEVERITY}}</span>
+      <span class="kind">{{KIND}}</span>
+    </div>
+    <p>{{WHAT_CHANGED_AND_WHY}}</p>
+    <p class="ref">↳ <a href="{{PR_LINE_PERMALINK}}">{{PATH}}:{{LINES}}</a></p>
+  </div>
+</section>
+
+<section>
+  <h2>Moved lines</h2>
+  <!-- One .moved block per moved-but-unchanged region. Omit this section if nothing moved. -->
+  <div class="moved">
+    <div class="col"><h3>was — {{OLD_PATH}}:{{OLD_LINES}}</h3><pre>{{MOVED_CODE}}</pre></div>
+    <div class="col"><h3>now — {{NEW_PATH}}:{{NEW_LINES}}</h3><pre>{{MOVED_CODE}}</pre></div>
+  </div>
+</section>
+
+<section>
+  <h2>Testing notes</h2>
+  <ol class="tests">
+    <!-- One li per step: example URL/format, what to click, expected result, prior behavior. -->
+    <li>
+      <p>{{STEP_DESCRIPTION}}</p>
+      <p class="ref">URL: <code>{{EXAMPLE_URL_OR_FORMAT}}</code></p>
+      <p>Expected: {{EXPECTED}}</p>
+      <p class="was">Previously: {{PRIOR_BEHAVIOR}}</p>
+    </li>
+  </ol>
+</section>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    root.setAttribute("data-theme", prefersDark ? "dark" : "light");
+    document.getElementById("theme").addEventListener("click", function () {
+      root.setAttribute("data-theme", root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    });
+  })();
+</script>
+</body>
+</html>
