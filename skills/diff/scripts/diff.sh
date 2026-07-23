@@ -55,69 +55,21 @@ if ! SOCKET="$(find_socket)"; then
 fi
 
 # ---- decide what to diff ---------------------------------------------------
-# REVDIFF_ARGS is the argv passed to revdiff; RANGE is a human summary.
+# Range detection lives in detect-range.sh (git-only, tmux/revdiff-free) so it
+# can be unit-tested in isolation. It prints TAB-separated `range` and `arg`
+# records; we collect the args into REVDIFF_ARGS and keep the range summary.
+DETECT="${0%/*}/detect-range.sh"
+[ -f "$DETECT" ] || { echo "error: detect-range.sh not found next to diff.sh" >&2; exit 1; }
+
+DETECT_OUT="$(bash "$DETECT" "$@")" || exit $?
 REVDIFF_ARGS=()
 RANGE=""
-
-is_ref() { git rev-parse --verify --quiet "$1^{commit}" >/dev/null 2>&1; }
-
-main_branch() {
-    local rh
-    if rh="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)"; then
-        printf '%s\n' "${rh##refs/remotes/origin/}"
-    elif git show-ref --verify --quiet refs/heads/master 2>/dev/null; then
-        echo master
-    else
-        echo main
-    fi
-}
-
-case "$#" in
-    0)
-        # Implied range. Feature branch (the common case) → the WHOLE branch vs main,
-        # no prompting. On main, fall back to working-tree / last-commit like revdiff does.
-        MB="$(main_branch)"
-        BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-        DIRTY=""
-        [ -n "$(git status --porcelain 2>/dev/null)" ] && DIRTY=1
-        if [ "$BRANCH" = "$MB" ]; then
-            if [ -n "$DIRTY" ]; then
-                REVDIFF_ARGS=()                       # uncommitted changes
-                RANGE="working tree (uncommitted on $MB)"
-            else
-                REVDIFF_ARGS=(HEAD~1)                 # last commit
-                RANGE="HEAD~1..HEAD (last commit on $MB)"
-            fi
-        else
-            # full branch: merge-base of main..HEAD, including any uncommitted work
-            BASE="$(git merge-base "$MB" HEAD 2>/dev/null || echo "$MB")"
-            REVDIFF_ARGS=("$BASE")
-            if [ -n "$DIRTY" ]; then
-                RANGE="$MB..$BRANCH branch diff + uncommitted (base $BASE)"
-            else
-                RANGE="$MB..$BRANCH full branch diff (base $BASE)"
-            fi
-        fi
-        ;;
-    1)
-        ARG="$1"
-        if [ -f "$ARG" ] || { [ ! -e "$ARG" ] && ! is_ref "$ARG" && printf '%s' "$ARG" | grep -q '[/.]'; }; then
-            REVDIFF_ARGS=(--only="$ARG")
-            RANGE="single file: $ARG"
-        else
-            REVDIFF_ARGS=("$ARG")
-            RANGE="$ARG..working tree"
-        fi
-        ;;
-    2)
-        REVDIFF_ARGS=("$1" "$2")
-        RANGE="$1..$2"
-        ;;
-    *)
-        echo "error: expected 0, 1, or 2 arguments, got $#" >&2
-        exit 1
-        ;;
-esac
+while IFS=$'\t' read -r kind val; do
+    case "$kind" in
+        range) RANGE="$val" ;;
+        arg)   REVDIFF_ARGS+=("$val") ;;
+    esac
+done <<< "$DETECT_OUT"
 
 # ---- launch in a background tmux window ------------------------------------
 TMPDIR_JOB="${CLAUDE_JOB_DIR:+$CLAUDE_JOB_DIR/tmp}"

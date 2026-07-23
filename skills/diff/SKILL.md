@@ -50,14 +50,23 @@ Argument forms:
 | User said | Pass | Diffs |
 |---|---|---|
 | "review my changes" / "diff" / nothing | *(no args)* | inferred range (below) |
-| "compare to master" / "diff HEAD~3" | `master` / `HEAD~3` | that ref → working tree |
-| "diff A to B" / "diff A B" | `A B` | explicit two-ref range |
+| "compare to master" / "diff HEAD~3" | `master` / `HEAD~3` | that ref → working tree, `--untracked` |
+| "diff A to B" / "diff A B" | `A B` | explicit two-ref range (historical, no working tree) |
 | "review this file" / a path | `path/to/file.tsx` | single file, context-only |
 
-**Inferred range (no args)** — `diff.sh` decides:
-- **feature branch** → `git merge-base <main> HEAD` → HEAD, i.e. the *entire branch diff vs main*, including uncommitted work. This is the default and the common case.
-- **on main, dirty** → uncommitted working-tree changes.
-- **on main, clean** → `HEAD~1` (last commit).
+Range detection is git-only and lives in `scripts/detect-range.sh` (sourced by
+`diff.sh`), kept separate so it can be unit-tested without tmux or revdiff — see
+`scripts/detect-range.test.sh`.
+
+**Inferred range (no args)** — `detect-range.sh` decides:
+- **fresh repo (no commits)** → `--all-files` (browse everything; there's no base to diff against).
+- **feature branch** → `git merge-base <main> HEAD` → working tree, plus `--untracked`. The *entire branch diff vs main*, including staged, unstaged, and brand-new files. The default and common case.
+- **on trunk, dirty** → `HEAD` → working tree, plus `--untracked`. Using `HEAD` as the base (not revdiff's no-arg default) means **staged-only** changes show up too, not just unstaged ones.
+- **on trunk, clean** → `HEAD~1` (last commit).
+
+Two things that make this robust:
+- **`--untracked` on every working-tree-ending range** so new, not-yet-`git add`-ed files appear in the tree. Omitted only for explicit two-ref (historical) diffs, where the working tree isn't involved.
+- **Trunk is `main` *or* `master`**, resolved from `origin/HEAD` first, then a real local `main`/`master`. If none resolves, detection never fabricates a ref — it falls back to the trunk arm (`HEAD` / `HEAD~1`) instead of passing a nonexistent `main`.
 
 The launcher prints `KEY=VALUE` lines. Capture them:
 
