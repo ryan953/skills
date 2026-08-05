@@ -1,192 +1,278 @@
 ---
 name: local-pr-review
-description: Review a GitHub pull request locally end-to-end — check it out, run existing review skills scaled to its size, open it in revdiff for inline annotation, route those annotations by author (apply-and-push for bot-authored PRs, post as GitHub review comments for human-authored PRs), then ask the reviewer for a verdict (approved/rejected/neither) and post it to GitHub. If the verdict is approved and the PR was authored by a bot, mark it Ready for Review and apply the "Trigger: getsentry tests" label. Use when asked to "review this PR locally", "check out and review PR #N", "review <github PR URL>", or to review a Seer/autofix/bot-authored PR end-to-end including the ready-for-review + trigger-label step.
-allowed-tools: Bash, Read, Grep, Glob, Agent, Skill, EnterWorktree, ExitWorktree, AskUserQuestion, Monitor
+description: Review a GitHub PR or a local branch in a tmux diff window and act on it. One script resolves whether there's a PR, whether it's pushed, and whether I wrote it, a bot did, or another human did — then opens revdiff (plus a PR-description pane, plus review-output panes for someone else's PR), plans which review skills to run from a measured complexity tier, caches their output, routes revdiff annotations (apply-and-push for my own or a bot's, post as GitHub review comments for another human's), iterates fix-and-re-review, and records a verdict. Use when asked to "review this PR locally", "review PR #N", "review <github PR URL>", "review this branch", or to review a Seer/autofix/bot PR end-to-end including the ready-for-review + trigger-label step.
+allowed-tools: Bash, Read, Grep, Glob, Agent, Skill, AskUserQuestion, Monitor
 ---
 
 # Local PR review
 
-Check out a PR locally, run existing review skills at a depth matched to its
-size, open it in revdiff so the reviewer can read the code and leave inline
-comments, route those comments by author, then ask for a verdict and act on
-GitHub.
+Look at a PR or a branch in a local diff view, run review skills scaled to the
+change, and act on what comes back.
 
-This composes existing review skills and the `diff` (revdiff) skill rather
-than re-implementing review or annotation logic: it decides *how much* review
-to run, *what to do with revdiff's annotations*, and *what to do with the
-verdict*.
+Everything that can be decided without judgement is a script in `scripts/`. The
+model's job is the three things that actually need a model: pick a complexity
+tier from measured facts, run the skills the plan names, and act on the
+annotations. Nothing else should be re-derived in prose — if you find yourself
+inferring who wrote the PR or which base to diff against, read `$STATE` instead.
 
-## Step 1: Gather PR metadata
+## The flow
 
-```bash
-gh pr view <url-or-number> --json number,title,url,author,isDraft,state,baseRefName,headRefName,additions,deletions,changedFiles,labels,body [--repo owner/repo]
+```mermaid
+flowchart TD
+    A["start.sh [pr|branch]"] --> B{PR exists?}
+    B -- no --> B1["KIND=branch<br/>CLASS=mine, ROUTE=apply<br/>PUSHED=yes/no reported"]
+    B -- "yes, MERGED/CLOSED" --> STOP([stop: nothing to review])
+    B -- yes --> C{"author?"}
+    C -- me --> C1["CLASS=mine"]
+    C -- bot --> C2["CLASS=bot<br/>+ desc pane"]
+    C -- other human --> C3["CLASS=other<br/>+ desc pane<br/>+ review panes"]
+    B1 & C1 & C2 & C3 --> D["checkout.sh<br/>cwd | reuse | add worktree"]
+    D --> E["complexity-facts.sh<br/>measure the diff"]
+    E --> F["review-window.sh open<br/>tmux: desc / diff / reviews"]
+    F --> G["Haiku subagent reads facts<br/>-> tier"]
+    G --> H["review-plan.sh<br/>tier -> skills, cached"]
+    H --> I{"REVIEW_PANES?"}
+    I -- yes --> I1["add-review-pane per report<br/>read alongside the code"]
+    I -- no --> I2["consume findings<br/>and act on them"]
+    I1 & I2 --> J["Monitor $DONE<br/>revdiff session ends"]
+    J --> K["annotations.sh parse"]
+    K --> L{ROUTE}
+    L -- comment --> M["post-annotations.sh<br/>one GitHub review, inline"]
+    L -- apply --> N["edit, lint, test, commit, push"]
+    N --> O{"ITERATE and<br/>more to check?"}
+    O -- yes --> P["review-window.sh relaunch<br/>same window, ITER+1"]
+    P --> J
+    O -- no --> Q
+    M --> Q["AskUserQuestion: verdict"]
+    Q --> R["verdict.sh<br/>approve | request-changes | comment | none"]
+    R --> S{"approved AND bot?"}
+    S -- yes --> T["gh pr ready<br/>+ trigger-tests label"]
+    S -- no --> U([done])
+    T --> U
 ```
 
-Note especially:
-- `author.is_bot` — determines both the annotation-routing in Step 5 and the
-  ready-for-review/label step in Step 7.
-- `isDraft` — bot-authored Seer/autofix PRs are typically opened as drafts.
-- `additions` + `deletions` + `changedFiles` — drives the depth decision in Step 3.
-- `state` — if already `MERGED` or `CLOSED`, tell the reviewer and stop; there's nothing to review.
-
-## Step 2: Check the PR out locally
-
-Prefer a worktree so this never disturbs other in-progress work in the repo checkout:
+## Step 1: one call for everything mechanical
 
 ```bash
-cd <repo-checkout>            # e.g. ~/code/sentry
-git fetch origin <headRefName>
-git worktree add -b pr-<number>-review .claude/worktrees/pr-<number>-review FETCH_HEAD
+scripts/start.sh [<pr-url|pr-number|branch>] [--repo owner/name]
 ```
 
-Then `EnterWorktree` with `path` set to that directory. If a worktree can't be created
-(e.g. not a git repo the harness manages), fall back to `gh pr checkout <number>` directly
-in the existing checkout — but say so, since it mutates the reviewer's working branch.
+Run it from inside the repo checkout. With no argument it resolves the PR for the
+current branch, and falls back to branch mode when there is none. It resolves the
+target, classifies the author, gets the code on disk, measures the diff, opens the
+tmux window, and writes every fact to `$STATE`.
 
-## Step 3: Run existing review skills, scaled to PR size
+`eval` its output (or read `$STATE`) and keep these:
 
-Don't default to maximum thoroughness — see [[feedback_scale_pr_review_depth]]. Use
-`changedFiles`/`additions`+`deletions` from Step 1, plus whether the PR body cites a
-specific issue with concrete evidence (a stack trace, a linked Sentry/Linear ticket),
-to pick one of:
+| key | meaning |
+|---|---|
+| `KIND` / `HAS_PR` / `PUSHED` | PR or local branch; is it on origin at all |
+| `AUTHOR_CLASS` | `mine` \| `bot` \| `other` — drives every branch below |
+| `ROUTE` | `apply` (edit locally) \| `comment` (post to GitHub) |
+| `ITERATE` | is the fix-and-re-review loop allowed |
+| `REVIEW_PANES` | show review output in panes, or consume it |
+| `FACTS` | markdown diff measurements for Step 2 |
+| `FRONTEND` | adds `frontend-conventions` to the plan |
+| `OUT` / `DONE` | revdiff annotations file, and its completion sentinel |
+| `CACHE_DIR` / `STATE` | per-head-SHA cache; the state file later calls read |
+| `WORKTREE` / `MODE` | where the code is (`cwd` \| `reused` \| `created`) |
 
-- **Small, well-evidenced** (roughly ≤5 files, ≤~50 lines changed, and a clear
-  issue/stack-trace match — this is the common case for Seer/autofix bot PRs like
-  pure-render-function fixes): read the diff directly (`gh pr diff <number>`), confirm
-  the fix matches the cited issue, check it compiles/lints, and run any directly
-  relevant existing tests. Skip full multi-angle fan-out.
-- **Larger or architecturally risky** (many files, new abstractions, auth/payments/
-  migrations touched, or no clear single-issue match): invoke the `deep-pr-review`
-  skill for the full multi-angle treatment (correctness, alternatives, CI status,
-  proof-by-test).
-- **Frontend-only PRs** at either depth: also run `frontend-conventions` on the diff
-  — a bot fix that "adheres to pure-render-functions" convention is exactly the kind
-  of PR that convention drift hides in.
+If it emits `STOP`, the PR is merged or closed. Say so and stop.
 
-When unsure which bucket a PR falls into, err toward the lighter pass and say
-explicitly what was and wasn't checked.
+**Classification is the script's call, not yours.** `mine` means my own login;
+`bot` covers `author.is_bot`, `[bot]` logins, known automation accounts
+(`seer-by-sentry`, `renovate`, …) and `seer/`, `autofix/`, `renovate/`,
+`dependabot/` branch prefixes; everything else is `other`. Extend the login list
+with `$LPR_BOT_LOGINS` rather than special-casing in conversation.
 
-**Present these findings to the reviewer before opening revdiff** — they should have
-the automated review's conclusions in hand while deciding what, if anything, to
-annotate directly on the code.
+The window is detached — it never steals focus. Tell the user it's open and that
+`Ctrl-b w` gets them there.
 
-## Step 4: Open the PR in revdiff for inline annotation
+## Step 2: pick a complexity tier (Haiku subagent)
 
-Invoke the `diff` skill with no arguments from inside the worktree. Because the worktree
-is on a feature branch checked out from the PR's head, `diff`'s inferred range (merge-base
-of the trunk branch → working tree) is exactly the PR's diff — no explicit range needed.
+Spawn one `claude` subagent with `model: haiku`. Give it the contents of `$FACTS`
+and nothing else — not the diff. Ask for exactly one word:
 
-Wait for the revdiff session to finish using the `diff` skill's `$DONE`-file Monitor
-pattern (Step 2 of that skill), then read `$OUT` for annotations (Step 3 of that skill).
-If `$OUT` is empty, there's nothing to route in Step 5 — proceed straight to Step 6.
+> Read these diff measurements and answer with one word only:
+> `trivial`, `small`, `medium`, `large`, or `risky`.
+> - `trivial`: docs/comments/config only, or a few lines with no logic change
+> - `small`: one concern, few files, no risky surfaces
+> - `medium`: several files or a new code path
+> - `large`: many files, new abstractions, or cross-cutting change
+> - `risky`: touches auth, payments, secrets, migrations, or CI — regardless of size
 
-## Step 5: Route annotations by author
+Keeping the diff out of its context is what makes this cheap and reproducible.
+`normalize_tier` accepts near-misses and maps anything unrecognized to `medium`,
+so a fuzzy answer is safe: over-reviewing a small change is cheap, under-reviewing
+a large one is not.
 
-Read each annotation (`file:line (+/-)` plus comment text, or `(file-level)`). Use the
-`diff` skill's Step 4 classification first: explanation requests (`explain`/`describe`/
-`what is`/`how does`/`??`) get answered in chat and are **not** routed anywhere below —
-only code-change directives are.
-
-**If `author.is_bot` is `true`:** apply the annotations as edits directly in the
-worktree, the same way `deep-pr-review`'s Step 7 lands fixes:
+## Step 3: plan and run the review skills
 
 ```bash
-# edit the files per each annotation
-# run lint/typecheck/relevant tests
+scripts/review-plan.sh --tier <tier> --class "$AUTHOR_CLASS" --frontend "$FRONTEND" \
+    --cache-dir "$CACHE_DIR" [--pr "$PR_NUMBER"] [--repo "$REPO"] \
+    [--add <skill>] [--skip <skill>] [--only <skill>] [--refresh]
 ```
 
-Commit with the `commit` skill's conventions, then push to the PR's own branch:
+TSV out: `skill  runner  cache_path  hit|miss|skip  command  note`.
 
-```bash
-git push origin HEAD:<headRefName>
-```
+- `hit` — a report for this exact head SHA already exists. Read `cache_path`. Do
+  not re-run it.
+- `miss` + `runner=script` — `command` is runnable now and writes `cache_path`.
+- `miss` + `runner=skill` — invoke `command` (a slash skill), then **write its
+  report to `cache_path`** so the next pass over the same commit is a hit.
+- `skip` — ruled out, with the reason in `note`. Don't work around it.
+- A single `#` record means the tier plans nothing: reading the diff *is* the
+  review at `trivial`.
 
-Do **not** force-push (this adds a commit on top of the bot's branch, not rewriting it).
-Do **not** run the ready-for-review/label step here — that stays gated on the Step 7
-verdict below, even for bot PRs whose annotations you just pushed.
+Depth is a table, not a mood ([[feedback_scale_pr_review_depth]]): `small` →
+`review`; `medium` → `review` + `meat-pr-review`; `large` → `deep-pr-review` +
+`meat-pr-review`; `risky` → both plus `review`. Frontend diffs add
+`frontend-conventions` at every tier above trivial. `simplify` is added only for
+`mine`/`bot` — and refused for `other` even if you pass `--add simplify`, because
+rewriting someone else's PR is not reviewing it.
 
-**If `author.is_bot` is `false`:** do not touch the code. Instead post the annotations
-as a single GitHub PR review with inline comments:
+Then, by `REVIEW_PANES`:
 
-```bash
-gh api --method POST repos/<owner>/<repo>/pulls/<number>/reviews --input - <<'EOF'
-{
-  "event": "COMMENT",
-  "body": "Inline comments from local review.",
-  "comments": [
-    {"path": "<file>", "line": <line>, "side": "RIGHT", "body": "<comment text>"}
-  ]
-}
-EOF
-```
-
-Use `"side": "RIGHT"` for `(+)` annotations (added/current lines) and `"side": "LEFT"`
-for `(-)` annotations (removed/old lines). Any `(file-level)` annotation has no line to
-attach to — fold its text into the review's top-level `body` instead of a `comments` entry.
-This call is separate from — and does not by itself constitute — the approve/request-changes
-verdict in Step 7; it posts as a plain `COMMENT` review.
-
-## Step 6: Loop if edits were made
-
-If Step 5 applied edits (bot-authored case), relaunch the `diff` skill with the same
-(no-arg) invocation so the reviewer sees the new state before finalizing a verdict.
-Repeat Steps 4–6 until a revdiff session ends with no new annotations.
-
-## Step 7: Ask for a verdict
-
-Once annotation routing has settled, use `AskUserQuestion` (not a plain text question)
-to ask for exactly one of three outcomes:
-
-- **Approved** — the PR is correct and ready to proceed.
-- **Rejected** — request changes; capture what needs to change as the review body.
-- **Neither** — no verdict yet. Nothing further happens on GitHub.
-
-Summarize what was checked (Step 3's findings) and what was done with any annotations
-(Step 5) before asking, so the verdict is an informed choice.
-
-## Step 8: Post the verdict to GitHub
-
-- **Approved**:
+- **`yes` (another human's PR)** — one pane per report, so they're read beside the
+  code rather than summarized at the user:
   ```bash
-  gh pr review <number> --approve --body "<summary of what was reviewed>" [--repo owner/repo]
+  scripts/review-window.sh add-review-pane --state "$STATE" --file <cache_path> --label <skill>
   ```
-- **Rejected**:
-  ```bash
-  gh pr review <number> --request-changes --body "<specific changes needed>" [--repo owner/repo]
-  ```
-- **Neither**: post nothing. Report the review findings and stop.
+- **`no` (mine or a bot's)** — read the reports yourself and fold their findings
+  into the work in Step 5. Panes would just be output someone has to close.
 
-## Step 9: Bot-authored PR — only on approval
+Either way, tell the user what ran and what it found **before** they start
+annotating, so they're reading the code with the findings already in hand.
 
-If (and only if) the verdict was **Approved** *and* `author.is_bot` was `true` in Step 1:
+## Step 4: wait for the diff session, then parse
 
-```bash
-gh pr ready <number> [--repo owner/repo]
-gh pr edit <number> --add-label "Trigger: getsentry tests" [--repo owner/repo]
+The user reads and annotates in the diff pane. Wait with a Monitor on the
+sentinel — never a foreground poll:
+
+```
+Monitor: until [ -f "$DONE" ]; do sleep 1; done; echo "diff session finished"
 ```
 
-Skip this step entirely on Rejected or Neither, and skip it for human-authored PRs
-regardless of verdict — the label triggers CI spend and Ready-for-Review visibly
-changes review-queue state for others, so it's gated strictly on "a human approved
-this" ([[feedback_draft_prs]] discusses the same instinct in the other direction —
-default to caution around shared-state changes). This is independent of whether Step 5
-already pushed a commit — pushing fixes and approving the PR are different actions.
+`$DONE` holds revdiff's exit code (10 = annotations were written). Then:
 
-## Step 10: Clean up
+```bash
+scripts/annotations.sh summary "$OUT"   # one line, for reporting
+scripts/annotations.sh parse   "$OUT"   # file  start  end  side  kind  text
+```
 
-If a worktree was created in Step 2 and no further edits are expected there, use
-`ExitWorktree` with `action: "remove"` once the reviewer confirms they're done —
-don't remove it while the reviewer might still want to poke at the checkout.
+`kind` is `question` or `directive`. **Questions are answered in chat and go
+nowhere else** — not to GitHub, not into an edit. Asking myself "why is this
+here?" and publishing that question on the author's PR are different acts.
+
+If `$OUT` is empty there's nothing to route: go to Step 6.
+
+## Step 5: route the directives
+
+`ROUTE` already decided this. Don't re-decide it.
+
+**`comment` (another human's PR):**
+
+```bash
+scripts/post-annotations.sh --pr "$PR_NUMBER" --out "$OUT" --repo "$REPO" \
+    --commit "$HEAD_SHA" [--body "<framing>"] --dry-run   # inspect the payload first
+scripts/post-annotations.sh --pr "$PR_NUMBER" --out "$OUT" --repo "$REPO" --commit "$HEAD_SHA"
+```
+
+One review with all the inline comments, not N separate comments — one
+notification, in diff order, in one place. `(+)` lands on `RIGHT`, `(-)` on
+`LEFT`, and file-level notes fold into the review body since GitHub has no line to
+hang them on. Pinning `--commit` means a push mid-review gets the comments
+rejected rather than silently attached to lines that moved. **Never edit the code
+in this branch of the flow.**
+
+**`apply` (my own or a bot's):** make the edits, then check them —
+`~/.claude/lint.sh` for lint errors ([[feedback_lint_script]]), typecheck, and the
+tests that actually cover the change. Commit via the `commit` skill
+([[feedback_commit_messages]]), then, for a PR:
+
+```bash
+git push origin HEAD:"$HEAD_REF"     # never force-push a bot's branch
+```
+
+This adds a commit on top; it doesn't rewrite the bot's history. Pushing fixes is
+not approving — the ready/label step stays gated on Step 7.
+
+## Step 6: iterate
+
+Only when `ITERATE=yes` (`mine` or `bot`) and something changed:
+
+```bash
+scripts/review-window.sh relaunch --state "$STATE"
+```
+
+Fresh revdiff in the *same* pane — the window keeps its identity, its place in the
+window list, and the description/review panes beside it. `ITER` increments and
+`$OUT`/`$DONE` become new paths, so re-read them from the output (or `$STATE`)
+rather than reusing the old ones. Then repeat Steps 4–6 until a session ends with
+no new annotations.
+
+`scripts/review-window.sh status --state "$STATE"` reports panes and whether
+revdiff is still open, if the state is ever unclear.
+
+## Step 7: verdict
+
+Use `AskUserQuestion` — not a plain text question — offering exactly:
+**Approve**, **Request changes**, **Comment only**, **No verdict**. Summarize
+what ran, what was found, and what was done with the annotations first, so the
+choice is informed. Then:
+
+```bash
+scripts/verdict.sh --pr "$PR_NUMBER" --repo "$REPO" --class "$AUTHOR_CLASS" \
+    --verdict approve|request-changes|comment|none [--body "<text>"]
+```
+
+- `none` posts nothing. It's a real outcome, not a failure to decide.
+- `request-changes` requires `--body` — say what to change.
+- `approve` + `--class mine` degrades to a comment (`DEGRADED=yes`): GitHub won't
+  let you approve your own PR.
+- **Approved + `bot` only:** the script also runs `gh pr ready` and adds
+  `Trigger: getsentry tests` (override with `$LPR_TEST_LABEL`). This is the one
+  place the flow changes shared state — CI spend and the review queue — so it's
+  gated strictly on a human approving. It fires for no other class and no other
+  verdict.
+
+## Step 8: leave things tidy
+
+Report what the review found, where the cached reports are (`$CACHE_DIR`), and
+what was posted or pushed. Then:
+
+- `scripts/review-window.sh close --state "$STATE"` closes the tmux window —
+  only once the user says they're done looking.
+- `MODE=created` means a worktree was added at `$WORKTREE`. Leave it unless the
+  user asks; `git worktree remove` is theirs to run, and it may hold work.
+- The cache is keyed by head SHA, so re-running this flow on the same commit
+  reuses the reports and re-running after a push does not.
+
+## Scripts
+
+| script | does |
+|---|---|
+| `start.sh` | Steps 1's whole chain in one call; writes `$STATE` |
+| `pr-context.sh` | PR-or-branch, pushed?, author class, and every routing decision |
+| `classify.sh` | the pure decision table (sourced, side-effect free, fully tested) |
+| `checkout.sh` | code on disk: current checkout, existing worktree, or a new one |
+| `complexity-facts.sh` | measures the diff into the markdown the Haiku pass reads |
+| `review-plan.sh` | tier → skills → cache paths → hit/miss/skip |
+| `review-window.sh` | `open` / `relaunch` / `add-review-pane` / `status` / `close` |
+| `annotations.sh` | `parse` / `summary` of revdiff's annotation file |
+| `post-annotations.sh` | annotations → one GitHub review with inline comments |
+| `verdict.sh` | the verdict, plus the bot-only ready + label follow-through |
+
+Tests: `classify.test.sh`, `annotations.test.sh`, `review-plan.test.sh` — plain
+bash, no network, no repo. Run all three before changing the routing table.
 
 ## Notes
 
-- This skill edits the PR's code **only** for bot-authored PRs, and only in direct
-  response to revdiff annotations (Step 5) — never speculatively. For human-authored
-  PRs it never edits code; findings go back as GitHub comments, not commits.
-- `gh pr view --json author` returns `author.is_bot` directly; no need to guess from
-  the username (though Seer/autofix bots on sentry conventionally use branch prefixes
-  like `seer/fix/...`).
-- If `gh pr ready` reports the PR is already ready (not a draft), that's a no-op, not
-  an error — just don't run it for PRs that were never drafts.
-- `gh api .../reviews` with `"event": "COMMENT"` posts comments without approving or
-  requesting changes — the actual verdict always goes through Step 8's separate call.
+- Range detection is delegated to the `diff` skill's `detect-range.sh`, so the
+  facts, the diff pane, and the review all describe the same range.
+- `--dry-run` exists on `post-annotations.sh` and `verdict.sh`. Use it before the
+  first real post on any PR you didn't open.
+- `glow` isn't installed here; the markdown panes fall back to `bat`. Either way
+  the pane is a pager, not an editor.
+- `gh pr ready` on an already-ready PR is a no-op, not an error.
