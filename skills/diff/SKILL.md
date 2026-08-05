@@ -60,13 +60,16 @@ Range detection is git-only and lives in `scripts/detect-range.sh` (sourced by
 
 **Inferred range (no args)** — `detect-range.sh` decides:
 - **fresh repo (no commits)** → `--all-files` (browse everything; there's no base to diff against).
-- **feature branch** → `git merge-base <main> HEAD` → working tree, plus `--untracked`. The *entire branch diff vs main*, including staged, unstaged, and brand-new files. The default and common case.
+- **feature branch** → the branch's **fork point** → working tree, plus `--untracked`. The *entire branch diff vs trunk*, including staged, unstaged, and brand-new files. The default and common case.
 - **on trunk, dirty** → `HEAD` → working tree, plus `--untracked`. Using `HEAD` as the base (not revdiff's no-arg default) means **staged-only** changes show up too, not just unstaged ones.
 - **on trunk, clean** → `HEAD~1` (last commit).
 
-Two things that make this robust:
+Three things that make this robust:
 - **`--untracked` on every working-tree-ending range** so new, not-yet-`git add`-ed files appear in the tree. Omitted only for explicit two-ref (historical) diffs, where the working tree isn't involved.
-- **Trunk is `main` *or* `master`**, resolved from `origin/HEAD` first, then a real local `main`/`master`. If none resolves, detection never fabricates a ref — it falls back to the trunk arm (`HEAD` / `HEAD~1`) instead of passing a nonexistent `main`.
+- **Trunk is `main` *or* `master`**, named from `origin/HEAD` first, then a `main`/`master` that actually exists locally or on origin. If none resolves, detection never fabricates a ref — it falls back to the trunk arm (`HEAD` / `HEAD~1`) instead of passing a nonexistent `main`.
+- **The base is the fork point, not `merge-base <trunk> HEAD`.** *Both* spellings of the trunk get a merge-base — `origin/master` **and** a local `master` — and the **descendant-most** result wins (ties go to the remote ref). A local trunk goes stale the moment you fetch without pulling, and basing on it replays every upstream commit since as if this branch had authored it: in a 55-commits-behind checkout that turned a 7-file branch diff into 322 files. The reverse is covered too — a local trunk holding unpushed commits, or a rewritten origin, wins when *it* is the fresher one. A fork point equal to `HEAD` (branch holds nothing of its own) falls through to the trunk arm instead of showing an empty range.
+
+Being **on** trunk is decided by branch name, so unpushed commits on `master` still get `HEAD~1` rather than a diff against `origin/master`.
 
 The launcher prints `KEY=VALUE` lines. Capture them:
 

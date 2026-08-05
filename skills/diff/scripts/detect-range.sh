@@ -20,11 +20,14 @@
 #
 # Detection rules (no args), all git:
 #   - no commits yet          → --all-files            (browse everything)
-#   - feature branch          → <merge-base main HEAD> --untracked
-#                               (whole branch vs main, incl. staged/unstaged/new)
+#   - feature branch          → <fork point> --untracked
+#                               (whole branch vs trunk, incl. staged/unstaged/new)
 #   - on trunk, dirty         → HEAD --untracked
 #                               (HEAD..worktree: staged + unstaged + new files)
 #   - on trunk, clean         → HEAD~1                 (last commit)
+#
+# The feature-branch base is the branch's *fork point* — where it actually left
+# the trunk — not a plain `merge-base master HEAD`. See resolve_fork_point.
 #
 # "Working-tree-ending" ranges get --untracked so brand-new unstaged files show
 # up. Using an explicit base (HEAD / merge-base) rather than no-arg means STAGED
@@ -37,17 +40,57 @@ emit_arg()   { printf 'arg\t%s\n' "$1"; }
 
 is_ref() { git rev-parse --verify --quiet "$1^{commit}" >/dev/null 2>&1; }
 
-# Echo the trunk branch name, or nothing if none is resolvable. Never fabricates
-# a name: origin/HEAD is authoritative; otherwise probe for a real local branch.
-resolve_main() {
-    local rh
+# Echo the trunk branch name(s) this repo plausibly uses, one per line, most
+# authoritative first. Never fabricates a name: origin/HEAD's target wins, then
+# main/master but only if they exist locally or on origin.
+trunk_names() {
+    local rh name
     if rh="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)"; then
         printf '%s\n' "${rh##refs/remotes/origin/}"
-    elif git show-ref --verify --quiet refs/heads/main 2>/dev/null; then
-        echo main
-    elif git show-ref --verify --quiet refs/heads/master 2>/dev/null; then
-        echo master
     fi
+    for name in main master; do
+        if git show-ref --verify --quiet "refs/heads/$name" 2>/dev/null \
+            || git show-ref --verify --quiet "refs/remotes/origin/$name" 2>/dev/null; then
+            printf '%s\n' "$name"
+        fi
+    done
+}
+
+# Echo "<sha><TAB><ref>": the commit this branch actually forked off the trunk at,
+# and the trunk ref that produced it. Reads trunk names (one per line) from $1.
+#
+# Why not just `merge-base master HEAD`: BOTH refs that spell the trunk have to be
+# considered. A local `master` goes stale the second you fetch without pulling, and
+# `merge-base` against a stale local trunk lands far behind the real fork point —
+# dragging in every upstream commit since as if this branch had authored it (in a
+# 55-commit-behind checkout: 322 files instead of 7). The reverse also happens: a
+# local trunk can hold work that origin hasn't seen, or origin can be rewritten.
+#
+# So: take the merge-base against every candidate ref and keep the descendant-most
+# one. Whichever ref is fresher, the latest commit the branch shares with any
+# spelling of the trunk IS where it forked off.
+resolve_fork_point() {
+    local names="$1" name ref base best="" best_ref=""
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        for ref in "origin/$name" "$name"; do
+            is_ref "$ref" || continue
+            base="$(git merge-base "$ref" HEAD 2>/dev/null)" || continue
+            [ -n "$base" ] || continue
+            # Strictly descendant-most; on a tie the earlier (more authoritative)
+            # ref keeps the label, so an up-to-date local trunk doesn't shadow
+            # origin/<trunk> in the range summary.
+            if [ -z "$best" ] \
+                || { [ "$best" != "$base" ] \
+                    && git merge-base --is-ancestor "$best" "$base" 2>/dev/null; }; then
+                best="$base"; best_ref="$ref"
+            fi
+        done
+    done <<EOF
+$names
+EOF
+    [ -n "$best" ] || return 1
+    printf '%s\t%s\n' "$best" "$best_ref"
 }
 
 has_commits() { git rev-parse --verify --quiet HEAD >/dev/null 2>&1; }
@@ -61,26 +104,32 @@ detect_implied() {
         return
     fi
 
-    local mb branch base
-    mb="$(resolve_main)"
+    local names branch fp base base_ref
+    names="$(trunk_names | awk 'NF && !seen[$0]++')"
     branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
 
-    # Feature branch: whole branch vs main. Requires a resolvable main AND a
-    # real merge-base; either missing → fall through to the trunk/worktree arm
-    # rather than passing a ref that doesn't exist.
-    if [ -n "$mb" ] && [ "$branch" != "$mb" ] \
-        && base="$(git merge-base "$mb" HEAD 2>/dev/null)"; then
-        emit_arg "$base"
-        emit_arg "--untracked"
-        if is_dirty; then
-            emit_range "$mb..$branch branch diff + uncommitted (base $base)"
-        else
-            emit_range "$mb..$branch full branch diff (base $base)"
+    # Feature branch: the whole branch, based at its fork point off the trunk.
+    # Requires a resolvable trunk that isn't the branch we're on, and a fork point
+    # that isn't HEAD itself (a branch holding nothing of its own has no branch
+    # diff to show) — any of those missing falls through to the trunk arm rather
+    # than passing a ref that doesn't exist or an empty range.
+    if [ -n "$names" ] && ! printf '%s\n' "$names" | grep -qxF -- "$branch" \
+        && fp="$(resolve_fork_point "$names")"; then
+        base="${fp%%$'\t'*}"
+        base_ref="${fp##*$'\t'}"
+        if [ "$base" != "$(git rev-parse HEAD)" ]; then
+            emit_arg "$base"
+            emit_arg "--untracked"
+            if is_dirty; then
+                emit_range "$base_ref..$branch branch diff + uncommitted (fork point $base)"
+            else
+                emit_range "$base_ref..$branch full branch diff (fork point $base)"
+            fi
+            return
         fi
-        return
     fi
 
-    # Trunk (or no resolvable main): dirty → HEAD..worktree, clean → last commit.
+    # Trunk (or no resolvable trunk): dirty → HEAD..worktree, clean → last commit.
     if is_dirty; then
         emit_arg "HEAD"
         emit_arg "--untracked"
