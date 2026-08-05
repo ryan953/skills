@@ -1,10 +1,10 @@
 ---
-name: autofix-issue-sweep
+name: trigger-autofix
 description: Run Seer autofix across a set of Sentry issues, driving each through all steps (root cause → solution → code changes → PR). Use when asked to "run autofix on these issues", "seer autofix over a query", "autofix the awaiting-input queue", "batch autofix", or "sweep a project's issues with Seer". Prefers a stdlib script for fetching + iteration over per-issue inference.
 allowed-tools: Bash, Read, mcp__sentry__search_issues, mcp__sentry__get_sentry_resource, mcp__sentry__analyze_issue_with_seer
 ---
 
-# Autofix Issue Sweep
+# Trigger Autofix
 
 Run Seer autofix over many Sentry issues efficiently. The core idea: **let a script
 do the fetching and iteration**, so you don't spend an inference round-trip per issue.
@@ -56,7 +56,7 @@ Always start read-only so the user sees the scope before anything triggers. Omit
 `--run-to`:
 
 ```bash
-.venv/bin/python .agents/skills/autofix-issue-sweep/scripts/autofix_sweep.py \
+.venv/bin/python .agents/skills/trigger-autofix/scripts/autofix_sweep.py \
   --org sentry --project 4511567035432960 \
   --query 'is:unresolved [static-component-definitions]' --stats-period 30d
 ```
@@ -71,7 +71,7 @@ so the server runs root_cause → solution → code_changes → open_pr automati
 Use `--only-unstarted` to skip issues that already have a run:
 
 ```bash
-.venv/bin/python .agents/skills/autofix-issue-sweep/scripts/autofix_sweep.py \
+.venv/bin/python .agents/skills/trigger-autofix/scripts/autofix_sweep.py \
   --org sentry --project 4511567035432960 \
   --query 'is:unresolved [static-component-definitions]' --stats-period 30d \
   --run-to open_pr --only-unstarted
