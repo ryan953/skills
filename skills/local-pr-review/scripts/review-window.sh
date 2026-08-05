@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# review-window.sh — build and drive the review window: revdiff, the PR
+# description, and the review outputs, side by side in one detached tmux window.
+#
+# Layout (panes appear only when the author class calls for them):
+#
+#   +--------------------------------------------------+
+#   |  desc   PR description (bot / other authors)  25%|
+#   +---------------------------------+----------------+
+#   |                                 |  review:<name> |
+#   |  diff   revdiff                 +----------------+
+#   |                                 |  review:<name> |
+#   +---------------------------------+----------------+
+#                                        35% (other only)
+#
+# Every pane is tagged with a `@lpr_role` user option, so later calls find the
+# pane they mean by role instead of by index — indexes shift the moment a pane is
+# added or closed, and the iterate loop does both.
+#
+# Detached (-d) throughout: opening a review must never yank the terminal away
+# from what the user was doing. They switch with Ctrl-b w on their own schedule.
+#
+# Subcommands:
+#   open   --state <f> [--desc <md>] [--cache-dir <d>] [--title <s>] [-- <revdiff args>...]
+#   relaunch --state <f>                  # fresh revdiff in the same pane, new output file
+#   add-review-pane --state <f> --file <md> --label <name>
+#   status --state <f>
+#   close  --state <f>
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+. "$HERE/lib.sh"
+
+CMD="${1:-}"; shift || true
+[ -n "$CMD" ] || die "usage: review-window.sh {open|relaunch|add-review-pane|status|close} --state <file> [...]"
+
+STATE="" DESC="" CACHE="" TITLE="" FILE="" LABEL="" START_ITER=1 RANGE_ARG=""
+RD_ARGS=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --state) STATE="$2"; shift 2 ;;
+        --desc) DESC="$2"; shift 2 ;;
+        --cache-dir) CACHE="$2"; shift 2 ;;
+        --title) TITLE="$2"; shift 2 ;;
+        --iter) START_ITER="$2"; shift 2 ;;
+        --range) RANGE_ARG="$2"; shift 2 ;;
+        --file) FILE="$2"; shift 2 ;;
+        --label) LABEL="$2"; shift 2 ;;
+        --) shift; RD_ARGS=("$@"); break ;;
+        *) RD_ARGS+=("$1"); shift ;;
+    esac
+done
+[ -n "$STATE" ] || die "--state <file> is required"
+
+tm() { tmux -S "$SOCKET" "$@"; }
+
+# Find a pane in this window by its @lpr_role tag. Roles survive splits and
+# closes; pane indexes do not.
+pane_by_role() {
+    tm list-panes -t "$WID" -F '#{pane_id} #{@lpr_role}' 2>/dev/null \
+        | awk -v r="$1" '$2==r {print $1; exit}'
+}
+
+window_alive() { [ -n "${WID:-}" ] && tm list-panes -t "$WID" >/dev/null 2>&1; }
+
+# The revdiff command for a pane. REVDIFF_EXIT_CODE_ON_ANNOTATIONS makes exit 10
+# mean "annotations were written"; the trailing redirect drops the real exit code
+# into $DONE the instant revdiff quits, which is what callers Monitor for.
+revdiff_cmd() {
+    local out="$1" done_file="$2"; shift 2
+    local c a
+    c="REVDIFF_EXIT_CODE_ON_ANNOTATIONS=true $(sq "$REVDIFF_BIN") $(sq "--output=$out")"
+    for a in "$@"; do c="$c $(sq "$a")"; done
+    printf '%s; printf %s > %s\n' "$c" '"$?"' "$(sq "$done_file")"
+}
+
+new_out_paths() {   # sets OUT/DONE for iteration $1 under $WORK_DIR
+    OUT="$WORK_DIR/annotations-$1.txt"
+    DONE="$OUT.done"
+    rm -f "$OUT" "$DONE"
+}
+
+case "$CMD" in
+open)
+    REVDIFF_BIN="$(command -v revdiff 2>/dev/null || true)"
+    [ -n "$REVDIFF_BIN" ] || die "revdiff not found in PATH (brew install umputun/apps/revdiff)"
+    SOCKET="$(find_tmux_socket)" || die "no running tmux server (start one with: tmux new-session -d)"
+
+    WORK_DIR="${CACHE:-$(job_tmp)}"
+    mkdir -p "$WORK_DIR"
+
+    # Reuse the diff skill's range detection rather than reimplementing fork-point
+    # resolution here; degrade to plain revdiff args if it isn't installed.
+    #
+    # --range means the caller already ran detection and is handing back its
+    # result (this is how `relaunch` rebuilds a closed window). Detection is not
+    # idempotent — it emits flags like --untracked alongside the ref, and feeding
+    # two args back in reads as an explicit two-ref historical diff — so resolved
+    # args must never be re-detected.
+    RANGE="$RANGE_ARG"
+    DETECT=""
+    [ -z "$RANGE" ] && DETECT="$(find_sibling_script diff detect-range.sh || true)"
+    if [ -n "$DETECT" ]; then
+        DETECTED=()
+        while IFS=$'\t' read -r kind val; do
+            case "$kind" in
+                range) RANGE="$val" ;;
+                arg)   DETECTED+=("$val") ;;
+            esac
+        done < <(bash "$DETECT" ${RD_ARGS[0]+"${RD_ARGS[@]}"})
+        RD_ARGS=(${DETECTED[0]+"${DETECTED[@]}"})
+    fi
+    [ -n "$RANGE" ] || RANGE="${RD_ARGS[*]:-working tree}"
+
+    ITER="$START_ITER"
+    new_out_paths "$ITER"
+
+    WINNAME="${TITLE:-review: ${PWD##*/}}"
+    WID="$(tm new-window -d -P -F '#{window_id}' -c "$PWD" -n "$WINNAME" \
+        -- sh -c "$(revdiff_cmd "$OUT" "$DONE" ${RD_ARGS[0]+"${RD_ARGS[@]}"})")"
+    WINDOW="$(tm list-windows -a -F '#{window_id}|#{session_name}:#{window_index}' \
+        | awk -F'|' -v w="$WID" '$1==w {print $2; exit}')"
+
+    DIFF_PANE="$(tm list-panes -t "$WID" -F '#{pane_id}' | head -1)"
+    tm set-option -p -t "$DIFF_PANE" @lpr_role diff
+    tm select-pane -t "$DIFF_PANE" -T "diff [$RANGE]" 2>/dev/null || true
+    # Pane labels are only useful if the border shows them.
+    tm set-option -w -t "$WID" pane-border-status top 2>/dev/null || true
+    tm set-option -w -t "$WID" pane-border-format ' #{@lpr_role} #{pane_title} ' 2>/dev/null || true
+
+    # The description goes above the diff, not beside it: it's read once for
+    # intent, while the diff is scrolled for the whole session.
+    DESC_PANE_ID=""
+    if [ -n "$DESC" ] && [ -s "$DESC" ]; then
+        DESC_PANE_ID="$(tm split-window -d -v -b -l 25% -t "$DIFF_PANE" -P -F '#{pane_id}' \
+            -c "$PWD" -- sh -c "$(md_pager_cmd) $(sq "$DESC")")"
+        tm set-option -p -t "$DESC_PANE_ID" @lpr_role desc
+        tm select-pane -t "$DESC_PANE_ID" -T "PR description" 2>/dev/null || true
+    fi
+
+    # Append, never truncate. `relaunch` re-execs `open` when the user closed the
+    # window, and the state file by then also holds the context keys start.sh
+    # appended (AUTHOR_CLASS, ROUTE, PR_NUMBER, ...) that Steps 5 and 7 read.
+    # Truncating here would silently drop them. Every key written below is a
+    # state_set, which replaces in place, so nothing stale survives anyway.
+    mkdir -p "$(dirname "$STATE")"
+    state_set "$STATE" SOCKET       "$SOCKET"
+    state_set "$STATE" WID          "$WID"
+    state_set "$STATE" WINDOW       "$WINDOW"
+    state_set "$STATE" DIFF_PANE    "$DIFF_PANE"
+    state_set "$STATE" DESC_PANE_ID "$DESC_PANE_ID"
+    state_set "$STATE" WORK_DIR     "$WORK_DIR"
+    state_set "$STATE" RANGE        "$RANGE"
+    state_set "$STATE" ITER         "$ITER"
+    state_set "$STATE" OUT          "$OUT"
+    state_set "$STATE" DONE         "$DONE"
+    # Store the revdiff argv pre-quoted so `relaunch` can rebuild the array with
+    # `eval` — re-splitting a space-joined string would mangle any arg with a space.
+    RD_QUOTED=""
+    for a in ${RD_ARGS[0]+"${RD_ARGS[@]}"}; do RD_QUOTED="$RD_QUOTED $(sq "$a")"; done
+    state_set "$STATE" RD_ARGS      "${RD_QUOTED# }"
+    state_set "$STATE" REVIEW_PANES ""
+    # Stored so a rebuild reuses the original title (which names the PR and the
+    # author class) instead of falling back to a generic one.
+    state_set "$STATE" WINNAME      "$WINNAME"
+    state_set "$STATE" DESC_MD      "$DESC"
+
+    emit SOCKET "$SOCKET"; emit WID "$WID"; emit WINDOW "$WINDOW"
+    emit OUT "$OUT"; emit DONE "$DONE"; emit RANGE "$RANGE"; emit ITER "$ITER"
+    emit DESC_PANE_ID "$DESC_PANE_ID"
+    ;;
+
+relaunch)
+    state_load "$STATE" || die "no state at $STATE — run 'open' first"
+    SOCKET="${SOCKET:?}"
+    REVDIFF_BIN="$(command -v revdiff)"
+    eval "RD=(${RD_ARGS:-})"
+
+    ITER=$(( ${ITER:-1} + 1 ))
+    new_out_paths "$ITER"
+
+    # respawn-pane -k reuses the existing pane, so the window keeps its identity,
+    # its position in the window list, and the description/review panes beside it.
+    # Only if the whole window is gone (user closed it) do we rebuild.
+    if window_alive && [ -n "$(pane_by_role diff)" ]; then
+        DIFF_PANE="$(pane_by_role diff)"
+        tm respawn-pane -k -t "$DIFF_PANE" -c "$PWD" \
+            -- sh -c "$(revdiff_cmd "$OUT" "$DONE" ${RD[0]+"${RD[@]}"})"
+        tm set-option -p -t "$DIFF_PANE" @lpr_role diff
+        tm select-pane -t "$DIFF_PANE" -T "diff [$RANGE] #$ITER" 2>/dev/null || true
+        state_set "$STATE" ITER "$ITER"
+        state_set "$STATE" OUT "$OUT"
+        state_set "$STATE" DONE "$DONE"
+        emit REBUILT no
+    else
+        # Rebuild with what `open` actually used last time — the same desc file,
+        # title and iteration number — so a window the user closed comes back
+        # identical instead of degrading to a generic one that reuses iteration
+        # 1's annotation paths.
+        exec "$HERE/review-window.sh" open --state "$STATE" \
+            ${DESC_MD:+--desc "$DESC_MD"} --cache-dir "${WORK_DIR:-}" \
+            --iter "$ITER" ${WINNAME:+--title "$WINNAME"} \
+            ${RANGE:+--range "$RANGE"} -- ${RD[0]+"${RD[@]}"}
+    fi
+    emit SOCKET "$SOCKET"; emit WID "$WID"; emit WINDOW "${WINDOW:-}"
+    emit OUT "$OUT"; emit DONE "$DONE"; emit ITER "$ITER"
+    ;;
+
+add-review-pane)
+    state_load "$STATE" || die "no state at $STATE — run 'open' first"
+    SOCKET="${SOCKET:?}"
+    [ -n "$FILE" ] && [ -s "$FILE" ] || die "--file must point at a non-empty markdown file"
+    LABEL="${LABEL:-review}"
+    window_alive || die "review window $WID is gone; reopen it first"
+
+    # First review pane takes a column off the diff; the rest stack inside that
+    # column, so the diff never gets narrower than one split's worth.
+    EXISTING="${REVIEW_PANES:-}"
+    LAST="${EXISTING##* }"
+    if [ -n "$LAST" ] && tm list-panes -t "$WID" -F '#{pane_id}' | grep -qxF "$LAST"; then
+        PID="$(tm split-window -d -v -l 50% -t "$LAST" -P -F '#{pane_id}' \
+            -c "$PWD" -- sh -c "$(md_pager_cmd) $(sq "$FILE")")"
+    else
+        PID="$(tm split-window -d -h -l 35% -t "$(pane_by_role diff)" -P -F '#{pane_id}' \
+            -c "$PWD" -- sh -c "$(md_pager_cmd) $(sq "$FILE")")"
+    fi
+    tm set-option -p -t "$PID" @lpr_role "review:$LABEL"
+    tm select-pane -t "$PID" -T "$LABEL" 2>/dev/null || true
+    state_set "$STATE" REVIEW_PANES "$(printf '%s %s' "$EXISTING" "$PID" | sed 's/^ //')"
+    emit PANE "$PID"; emit LABEL "$LABEL"
+    ;;
+
+status)
+    state_load "$STATE" || die "no state at $STATE"
+    SOCKET="${SOCKET:?}"
+    if window_alive; then
+        printf 'window %s (%s) — range: %s — iteration %s\n' \
+            "$WID" "${WINDOW:-?}" "${RANGE:-?}" "${ITER:-1}"
+        tm list-panes -t "$WID" -F '  #{pane_id} #{@lpr_role} #{?pane_dead,dead,live}'
+    else
+        printf 'window %s is gone\n' "${WID:-?}"
+    fi
+    if [ -f "${DONE:-/nonexistent}" ]; then
+        printf 'revdiff exited (%s); annotations: %s\n' "$(cat "$DONE")" \
+            "$([ -s "${OUT:-}" ] && wc -l < "$OUT" | tr -d ' ' || echo 0) line(s)"
+    else
+        printf 'revdiff still open\n'
+    fi
+    ;;
+
+close)
+    state_load "$STATE" || die "no state at $STATE"
+    SOCKET="${SOCKET:?}"
+    window_alive && tm kill-window -t "$WID" || true
+    emit CLOSED "${WID:-}"
+    ;;
+
+*) die "unknown subcommand: $CMD" ;;
+esac
