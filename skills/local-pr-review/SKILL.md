@@ -1,6 +1,6 @@
 ---
 name: local-pr-review
-description: Review a GitHub PR or a local branch in a tmux diff window and act on it. One script resolves whether there's a PR, whether it's pushed, and whether I wrote it, a bot did, or another human did — then opens revdiff (plus a PR-description pane, plus review-output panes for someone else's PR), plans which review skills to run from a measured complexity tier, caches their output, routes revdiff annotations (apply-and-push for my own or a bot's, post as GitHub review comments for another human's), iterates fix-and-re-review, and records a verdict. Use when asked to "review this PR locally", "review PR #N", "review <github PR URL>", "review this branch", or to review a Seer/autofix/bot PR end-to-end including the ready-for-review + trigger-label step.
+description: Review a GitHub PR or a local branch in a tmux diff window and act on it. One script resolves whether there's a PR, whether it's pushed, and whether I wrote it, a bot did, or another human did — then opens revdiff (plus a PR-description pane, plus review-output panes for someone else's PR), plans which review skills to run from a measured complexity tier, caches their output, routes revdiff annotations (apply-and-push for my own or a bot's, post as GitHub review comments for another human's — never publishing a summary body I haven't seen and approved verbatim), iterates fix-and-re-review, and records a verdict. Use when asked to "review this PR locally", "review PR #N", "review <github PR URL>", "review this branch", or to review a Seer/autofix/bot PR end-to-end including the ready-for-review + trigger-label step.
 allowed-tools: Bash, Read, Grep, Glob, Agent, Skill, AskUserQuestion, Monitor
 ---
 
@@ -14,6 +14,27 @@ model's job is the three things that actually need a model: pick a complexity
 tier from measured facts, run the skills the plan names, and act on the
 annotations. Nothing else should be re-derived in prose — if you find yourself
 inferring who wrote the PR or which base to diff against, read `$STATE` instead.
+
+## The one hard rule: no unapproved prose on a PR
+
+**Never post a summary comment the user hasn't read and approved first.** Not a
+review body, not a verdict body, not a "posting this now" that they find out about
+afterwards. Inline comments quote annotations they wrote; a summary is text *I*
+wrote, published under their name, and it can't be unsent.
+
+So every posting path is two calls:
+
+1. `--dry-run` — publishes nothing, writes the rendered body to `BODY_FILE` and
+   prints its `BODY_DIGEST`.
+2. `Read` that file, show the user the body **verbatim** (in full — not
+   paraphrased, not summarized), `AskUserQuestion` to approve it, then re-run with
+   `--body-approved <BODY_DIGEST>`.
+
+The digest is over the exact bytes that would be sent, so any rewording after
+approval is refused — including a body the script itself changed, like file-level
+notes folded in after the framing. If a refusal ever fires, the fix is to ask
+again, never to re-derive the token. `--dry-run` here is a required step, not a
+debugging nicety.
 
 ## The flow
 
@@ -37,14 +58,20 @@ flowchart TD
     I1 & I2 --> J["Monitor $DONE<br/>revdiff session ends"]
     J --> K["annotations.sh parse"]
     K --> L{ROUTE}
-    L -- comment --> M["post-annotations.sh<br/>one GitHub review, inline"]
+    L -- comment --> M1["post-annotations.sh --dry-run<br/>BODY_FILE + BODY_DIGEST"]
+    M1 --> M2{"AskUserQuestion:<br/>approve this body?"}
+    M2 -- no --> M3["revise or post nothing"]
+    M2 -- yes --> M["post-annotations.sh --body-approved<br/>one GitHub review, inline"]
     L -- apply --> N["edit, lint, test, commit, push"]
     N --> O{"ITERATE and<br/>more to check?"}
     O -- yes --> P["review-window.sh relaunch<br/>same window, ITER+1"]
     P --> J
     O -- no --> Q
-    M --> Q["AskUserQuestion: verdict"]
-    Q --> R["verdict.sh<br/>approve | request-changes | comment | none"]
+    M & M3 --> Q["AskUserQuestion: verdict"]
+    Q --> Q2{"body?"}
+    Q2 -- yes --> Q3["verdict.sh --dry-run<br/>then approve the body"]
+    Q2 -- no --> R
+    Q3 --> R["verdict.sh<br/>approve | request-changes | comment | none"]
     R --> S{"approved AND bot?"}
     S -- yes --> T["gh pr ready<br/>+ trigger-tests label"]
     S -- no --> U([done])
@@ -174,17 +201,28 @@ If `$OUT` is empty there's nothing to route: go to Step 6.
 **`comment` (another human's PR):**
 
 ```bash
+# 1. render, publish nothing
 scripts/post-annotations.sh --pr "$PR_NUMBER" --out "$OUT" --repo "$REPO" \
-    --commit "$HEAD_SHA" [--body "<framing>"] --dry-run   # inspect the payload first
-scripts/post-annotations.sh --pr "$PR_NUMBER" --out "$OUT" --repo "$REPO" --commit "$HEAD_SHA"
+    --commit "$HEAD_SHA" [--body "<framing>"] --dry-run
+# 2. Read $BODY_FILE, show it verbatim, AskUserQuestion: Post it / Revise it / Don't post
+# 3. only if they approved that text
+scripts/post-annotations.sh --pr "$PR_NUMBER" --out "$OUT" --repo "$REPO" \
+    --commit "$HEAD_SHA" [--body "<framing>"] --body-approved "$BODY_DIGEST"
 ```
+
+Step 2 is not optional and not skippable when the framing looks obviously fine —
+see [the hard rule](#the-one-hard-rule-no-unapproved-prose-on-a-pr). Pass the same
+`--body` to both calls; a changed framing changes the digest and the post is
+refused. "Revise it" means edit the framing and dry-run again. "Don't post" is a
+complete outcome: the annotations stay local and Step 7 can still record a verdict.
 
 One review with all the inline comments, not N separate comments — one
 notification, in diff order, in one place. `(+)` lands on `RIGHT`, `(-)` on
 `LEFT`, and file-level notes fold into the review body since GitHub has no line to
-hang them on. Pinning `--commit` means a push mid-review gets the comments
-rejected rather than silently attached to lines that moved. **Never edit the code
-in this branch of the flow.**
+hang them on — which is why the body shown for approval is the rendered one from
+`BODY_FILE`, not the framing you passed in. Pinning `--commit` means a push
+mid-review gets the comments rejected rather than silently attached to lines that
+moved. **Never edit the code in this branch of the flow.**
 
 **`apply` (my own or a bot's):** make the edits, then check them —
 `~/.claude/lint.sh` for lint errors ([[feedback_lint_script]]), typecheck, and the
@@ -224,8 +262,17 @@ choice is informed. Then:
 
 ```bash
 scripts/verdict.sh --pr "$PR_NUMBER" --repo "$REPO" --class "$AUTHOR_CLASS" \
-    --verdict approve|request-changes|comment|none [--body "<text>"]
+    --verdict approve|request-changes|comment|none [--body "<text>"] --dry-run
+# then show the body verbatim, get approval, and re-run with:
+#   --body-approved "$BODY_DIGEST"
 ```
+
+**Picking the verdict is not approving the wording.** Choosing "Request changes"
+answers *what* to say, not *how*; the body you then draft is unapproved prose and
+the script refuses it without a matching digest. Two questions, in order: the
+verdict, then the body — a second `AskUserQuestion` with the full text above it.
+A verdict with no body (`none`, or a bare `approve`) publishes no prose and needs
+no second question.
 
 - `none` posts nothing. It's a real outcome, not a failure to decide.
 - `request-changes` requires `--body` — say what to change.
@@ -263,16 +310,19 @@ what was posted or pushed. Then:
 | `annotations.sh` | `parse` / `summary` of revdiff's annotation file |
 | `post-annotations.sh` | annotations → one GitHub review with inline comments |
 | `verdict.sh` | the verdict, plus the bot-only ready + label follow-through |
+| `lib.sh` | shared helpers, including the `--body-approved` digest gate |
 
-Tests: `classify.test.sh`, `annotations.test.sh`, `review-plan.test.sh` — plain
-bash, no network, no repo. Run all three before changing the routing table.
+Tests: `classify.test.sh`, `annotations.test.sh`, `review-plan.test.sh`,
+`body-approval.test.sh` — plain bash, no network, no repo. Run all four before
+changing the routing table or anything on a posting path.
 
 ## Notes
 
 - Range detection is delegated to the `diff` skill's `detect-range.sh`, so the
   facts, the diff pane, and the review all describe the same range.
-- `--dry-run` exists on `post-annotations.sh` and `verdict.sh`. Use it before the
-  first real post on any PR you didn't open.
+- `--dry-run` on `post-annotations.sh` and `verdict.sh` is how every real post
+  starts, on any PR — it's the call that produces the `BODY_DIGEST` the post
+  requires, so there is no path that publishes prose in one call.
 - `glow` isn't installed here; the markdown panes fall back to `bat`. Either way
   the pane is a pager, not an editor.
 - `gh pr ready` on an already-ready PR is a no-op, not an error.
