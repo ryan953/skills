@@ -126,13 +126,14 @@ C="$(cache)"
 run --tier medium --class other --frontend no --cache-dir "$C" --pr 42 --only simplify
 eq "--only simplify on another's PR is still refused" skip "$(field 4)"
 
-# No PR number means meat-pr-review has nothing to read: skip it with a reason
-# rather than emitting a command that would fail when run.
+# No PR number is not a skip: meat abridges the local branch instead, so an
+# unpushed branch still gets a reading diff.
 C="$(cache)"
 run --tier medium --class mine --frontend no --cache-dir "$C"
-eq "meat is skipped without a PR" \
-    "$(printf 'miss\nskip\nmiss')" "$(field 4)"
-contains "  ...saying why" "needs a PR number" "$OUT"
+eq "meat still runs without a PR" \
+    "$(printf 'miss\nmiss\nmiss')" "$(field 4)"
+contains "  ...in local mode" "review.sh' --local" "$OUT"
+contains "  ...and says so" "reading diff (local branch)" "$OUT"
 
 echo ""
 echo "trivial tier"
