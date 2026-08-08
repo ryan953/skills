@@ -13,11 +13,20 @@
 #   * file-level notes — GitHub has no line to hang them on, so they're folded
 #     into the review body instead of being dropped.
 #
+# The review body is a summary the model wrote, not something the user typed, so
+# it never reaches the PR unposted-unseen: --body-approved carries the digest of
+# the exact text the user approved, and a real post without it is refused. The
+# inline comments are the user's own annotations, quoted back; approving the body
+# approves the review that carries them.
+#
 # Usage:
 #   post-annotations.sh --pr <n> --out <annotations-file> [--repo owner/name]
 #                       [--commit <sha>] [--body <text>] [--dry-run]
+#                       [--body-approved <digest>]
 #
-# --dry-run prints the exact payload and posts nothing. Run it first.
+# --dry-run prints the exact payload, writes the rendered body to BODY_FILE with
+# its BODY_DIGEST, and posts nothing. It is the required first call: without a
+# matching --body-approved there is no way to post.
 
 set -euo pipefail
 
@@ -25,7 +34,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$HERE/lib.sh"
 
-PR="" OUT="" REPO="" COMMIT="" BODY="" DRY=no
+PR="" OUT="" REPO="" COMMIT="" BODY="" DRY=no APPROVED=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --pr) PR="$2"; shift 2 ;;
@@ -33,6 +42,7 @@ while [ $# -gt 0 ]; do
         --repo) REPO="$2"; shift 2 ;;
         --commit) COMMIT="$2"; shift 2 ;;
         --body) BODY="$2"; shift 2 ;;
+        --body-approved) APPROVED="$2"; shift 2 ;;
         --dry-run) DRY=yes; shift ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -106,6 +116,11 @@ if [ -s "$FILE_NOTES" ]; then
 $(cat "$FILE_NOTES")"
 fi
 
+# The digest covers FULL_BODY, not the --body argument: the file-level notes are
+# folded in here, so approving the caller's framing alone would approve less text
+# than the PR would actually receive.
+BODY_DIGEST="$(body_digest "$FULL_BODY")"
+
 # commit_id is optional — GitHub defaults to the PR head. Pin it when the caller
 # knows the SHA it reviewed, so a push mid-review makes the API reject the stale
 # comments instead of silently attaching them to lines that moved.
@@ -122,8 +137,15 @@ if [ "$DRY" = yes ]; then
     emit FILE_NOTES "$N_FILE"
     emit QUESTIONS "$N_Q"
     emit PAYLOAD "$PAYLOAD"
+    emit BODY_FILE "$(write_body_file "$FULL_BODY" review-body)"
+    emit BODY_DIGEST "$BODY_DIGEST"
     exit 0
 fi
+
+# Last gate before the author's inbox: the summary body must be text the user has
+# read and approved. Checked after the payload is built so the digest is over the
+# bytes that would be sent.
+require_body_approval "$FULL_BODY" "$APPROVED" "review summary"
 
 RESP="$(gh api "repos/$REPO/pulls/$PR/reviews" \
     --method POST --input "$PAYLOAD" 2>&1)" || {

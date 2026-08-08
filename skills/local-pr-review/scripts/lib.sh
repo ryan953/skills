@@ -15,6 +15,57 @@ emit() { printf "%s=%s\n" "$1" "$(sq "${2-}")"; }
 
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# ---- comment-body approval --------------------------------------------------
+# No prose written by the model is ever published to a PR before the user has
+# read that exact text and said yes. The gate is a digest of the body rather than
+# a plain --yes flag on purpose: a flag would still be true after the wording was
+# rewritten, so "approved" would drift away from "what got posted". Tying the
+# token to the bytes means any edit — a reworded finding, an extra file-level
+# note folded in — invalidates the approval and forces a fresh look.
+
+# body_digest <text> — short stable fingerprint of a comment body.
+body_digest() {
+    local h
+    if command -v shasum >/dev/null 2>&1; then
+        h="$(printf '%s' "${1-}" | shasum -a 256)"
+    else
+        h="$(printf '%s' "${1-}" | sha256sum)"
+    fi
+    printf '%s\n' "${h%% *}" | cut -c1-12
+}
+
+# require_body_approval <body> <token> <what>
+# Empty body: nothing is published, so nothing to approve.
+#
+# A mismatch deliberately does not print the expected digest. The only cheap way
+# to get a valid token is the honest one — run --dry-run, show the user the body
+# it wrote to BODY_FILE, and pass the BODY_DIGEST it printed once they approve.
+require_body_approval() {
+    local body="${1-}" token="${2-}" what="${3:-comment}"
+    [ -n "$body" ] || return 0
+    if [ -z "$token" ]; then
+        die "refusing to post the $what body: it has not been approved.
+  Run this command again with --dry-run, show the user the exact body it writes
+  to BODY_FILE, and re-run with --body-approved <BODY_DIGEST> only once they say
+  yes to that text."
+    fi
+    if [ "$token" != "$(body_digest "$body")" ]; then
+        die "--body-approved does not match this $what body: the text changed
+  since it was approved. Re-run with --dry-run, show the user the new body, and
+  get approval for it before posting."
+    fi
+}
+
+# write_body_file <body> <slug> — park a rendered body where the caller can read
+# it back verbatim, and print the path. Dry runs print JSON, and a body escaped
+# into JSON is not something a user can be asked to approve at a glance.
+write_body_file() {
+    local f
+    f="$(job_tmp)/lpr-${2:-body}.$$.md"
+    printf '%s\n' "${1-}" > "$f"
+    printf '%s\n' "$f"
+}
+
 # Resolve the running tmux server socket. Prefers an inherited $TMUX (the socket
 # is the part before the first comma); otherwise probes the conventional paths
 # for a live server owned by this uid. A background agent shell has no $TMUX, so

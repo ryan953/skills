@@ -12,10 +12,16 @@
 #
 # Usage:
 #   verdict.sh --pr <n> [--repo owner/name] --verdict approve|request-changes|comment|none \
-#              [--body <text>] [--class mine|bot|other] [--dry-run]
+#              [--body <text>] [--class mine|bot|other] [--dry-run] \
+#              [--body-approved <digest>]
 #
 # GitHub refuses to let you approve your own PR, so --class mine + approve
 # degrades to a plain comment rather than failing the whole step.
+#
+# Choosing the verdict and approving the words are two separate consents: picking
+# "request changes" is not agreement to whatever summary the model then drafts. So
+# any --body is refused without --body-approved holding that text's digest. Run
+# --dry-run first — it prints BODY_FILE and BODY_DIGEST and posts nothing.
 
 set -euo pipefail
 
@@ -23,7 +29,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$HERE/lib.sh"
 
-PR="" REPO="" VERDICT="" BODY="" CLASS="other" DRY=no
+PR="" REPO="" VERDICT="" BODY="" CLASS="other" DRY=no APPROVED=""
 READY_LABEL="${LPR_TEST_LABEL:-Trigger: getsentry tests}"
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -31,6 +37,7 @@ while [ $# -gt 0 ]; do
         --repo) REPO="$2"; shift 2 ;;
         --verdict) VERDICT="$2"; shift 2 ;;
         --body) BODY="$2"; shift 2 ;;
+        --body-approved) APPROVED="$2"; shift 2 ;;
         --class) CLASS="$2"; shift 2 ;;
         --dry-run) DRY=yes; shift ;;
         *) die "unknown argument: $1" ;;
@@ -79,6 +86,17 @@ fi
 # multi-word review body into separate argv entries.
 BODY_ARGS=()
 [ -n "$BODY" ] && BODY_ARGS=(--body "$BODY")
+
+# A dry run publishes nothing, so it reports the digest instead of demanding one;
+# that report is what makes the approval askable. A real run has to carry it.
+if [ "$DRY" = yes ]; then
+    if [ -n "$BODY" ]; then
+        emit BODY_FILE "$(write_body_file "$BODY" verdict-body)"
+        emit BODY_DIGEST "$(body_digest "$BODY")"
+    fi
+else
+    require_body_approval "$BODY" "$APPROVED" verdict
+fi
 
 ACTED=none
 case "$VERDICT" in
