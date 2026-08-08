@@ -90,7 +90,11 @@ printf '%s\n' "$PLANNED" | awk 'NF && !seen[$0]++' | while IFS= read -r skill; d
             if [ -z "$MEAT_SCRIPT" ]; then
                 runner=skip; note="skipped: meat-pr-review/scripts/review.sh not found"
             elif [ -z "$PR" ]; then
-                runner=skip; note="skipped: needs a PR number (unpushed branch)"
+                # No PR is not a reason to skip the reading diff — meat abridges a
+                # local branch just as well, which is the case where nobody else
+                # has looked at the code yet.
+                cmd="bash $(sq "$MEAT_SCRIPT") --local > $(sq "$out")"
+                note="reading diff (local branch): run it, then read the summary"
             else
                 cmd="bash $(sq "$MEAT_SCRIPT") $(sq "$PR")"
                 [ -n "$REPO" ] && cmd="$cmd --repo $(sq "$REPO")"
