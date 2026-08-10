@@ -76,35 +76,26 @@ if [ -z "$MEAT" ]; then
 fi
 
 # ---- credentials -------------------------------------------------------------
-# meat resolves its own credentials from the environment, and every path except
-# one it can work out alone. The exception is a machine whose only usable key is
-# OpenRouter's: reaching OpenRouter needs an Anthropic-compatible base URL to
-# point at *and* a Claude model name, because without one meat takes its OpenAI
-# code path and never consults ANTHROPIC_BASE_URL/OPENROUTER_API_KEY at all. So
-# arm both here — for this process only, and never over a value the caller chose.
+# This skill takes its credentials from exactly two variables, set in ~/.zprofile:
+# MEAT_PR_REVIEW_BASE_URL and MEAT_PR_REVIEW_API_KEY. Nothing else is consulted —
+# no ambient ANTHROPIC_*/OPENAI_*/OPENROUTER_* key decides what this script does,
+# so the skill behaves the same whatever else happens to be exported.
 #
-# Every test spells the variable `${VAR:-}` rather than asking whether it exists:
-# a Claude Code session exports ANTHROPIC_API_KEY *empty*, and an empty value is
+# They are handed to meat as its Anthropic settings, for this process only. Both
+# tests spell the variable `${VAR:-}` rather than asking whether it exists: a
+# Claude Code session exports ANTHROPIC_API_KEY *empty*, and an empty value is
 # not a credential — treat set-but-empty exactly like unset.
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ] \
-   && [ -z "${OPENAI_BASE_URL:-}" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
-    # This meat build carries a local patch (~/code/meat, meat/anthropic.go) so
-    # that ANTHROPIC_BASE_URL with no ANTHROPIC_API_KEY falls back to
-    # OPENROUTER_API_KEY for the x-api-key header.
-    [ -n "${ANTHROPIC_BASE_URL:-}" ] || export ANTHROPIC_BASE_URL="https://openrouter.ai/api"
-    if [ -z "${MEAT_MODEL:-}" ] && [ -z "$MODEL_ARG" ]; then
-        export MEAT_MODEL="claude-opus-4-8"
-    fi
-fi
+[ -n "${MEAT_PR_REVIEW_BASE_URL:-}" ] || die "MEAT_PR_REVIEW_BASE_URL is not set — export it (with MEAT_PR_REVIEW_API_KEY) in ~/.zprofile"
+[ -n "${MEAT_PR_REVIEW_API_KEY:-}" ] || die "MEAT_PR_REVIEW_API_KEY is not set — export it (with MEAT_PR_REVIEW_BASE_URL) in ~/.zprofile"
 
-# Nothing above armed anything and meat has no credential of its own to find:
-# say which variables would fix it rather than letting meat report whichever
-# provider it happened to pick. `/exe.dev` is the marker meat itself stats before
-# probing the managed LLM gateway, so this never blocks a VM that has one.
-if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_BASE_URL:-}" ] \
-   && [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${OPENAI_BASE_URL:-}" ] \
-   && [ ! -e /exe.dev ]; then
-    die "no LLM credentials in the environment — set OPENROUTER_API_KEY (routed to OpenRouter automatically), or ANTHROPIC_API_KEY, or OPENAI_API_KEY"
+export ANTHROPIC_BASE_URL="$MEAT_PR_REVIEW_BASE_URL"
+export ANTHROPIC_API_KEY="$MEAT_PR_REVIEW_API_KEY"
+
+# meat picks its provider from the model name alone — provider.go dispatches to
+# the Anthropic path only for a `claude-` prefix, so without a Claude model the
+# settings above are never read. Default one unless the caller chose a model.
+if [ -z "${MEAT_MODEL:-}" ] && [ -z "$MODEL_ARG" ]; then
+    export MEAT_MODEL="claude-opus-4-8"
 fi
 
 CLASS="$(classify_target "$TARGET")"
