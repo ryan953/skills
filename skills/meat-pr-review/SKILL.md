@@ -24,35 +24,31 @@ command -v meat || echo "install: go install meat.dev/cmd/meat@latest"
 command -v gh || echo "install: brew install gh"   # only needed for PR mode
 ```
 
-`meat` needs an LLM key in the environment — check before running:
+**Credentials: do not set anything up by hand.** This skill reads exactly two
+variables, exported from `~/.zprofile`:
 
-```bash
-echo "ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:+set}"
-echo "OPENAI_API_KEY: ${OPENAI_API_KEY:+set}"
-echo "OPENROUTER_API_KEY + ANTHROPIC_BASE_URL: ${OPENROUTER_API_KEY:+set}/${ANTHROPIC_BASE_URL:+set}"
-```
+- `MEAT_PR_REVIEW_BASE_URL`
+- `MEAT_PR_REVIEW_API_KEY`
 
-If none of those are set, tell the user and stop — do not guess or fabricate a key.
-`meat` also accepts `-model` and `$MEAT_MODEL` to pick a specific model; otherwise
-it uses its built-in OpenAI-based default.
+`review.sh` passes them to meat as its Anthropic base URL and key, for its own
+process only. Nothing else is consulted — an ambient `ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, or `OPENROUTER_API_KEY` has no effect on what this skill does,
+which is the point: the skill behaves identically whatever else is exported. If
+either variable is missing the script stops and names the one that's missing.
 
-**OpenRouter routing (this install is patched for it):** if only
-`ANTHROPIC_BASE_URL` is set (e.g. `https://openrouter.ai/api`, no
-`ANTHROPIC_API_KEY`), meat falls back to `OPENROUTER_API_KEY` for the
-`x-api-key` header — OpenRouter's Anthropic-compatible endpoint accepts an
-OpenRouter key the same way. This requires `$MEAT_MODEL` (or `-model`) to name
-a Claude model, e.g.:
+Just run the script. Never echo a key or any prefix of one.
 
-```bash
-export MEAT_MODEL=claude-opus-4-8
-```
+Note if you check these yourself: a Claude Code session exports
+`ANTHROPIC_API_KEY` *empty*, so "is the variable present" is the wrong question —
+treat set-but-empty as unset (`${VAR:-}`, not `${VAR+}` / `[ -v VAR ]`).
 
-Without a Claude model name, meat takes the OpenAI code path by default and
-`OPENROUTER_API_KEY`/`ANTHROPIC_BASE_URL` won't apply. This fallback is a local
-patch (not upstream boldsoftware/meat) — the source lives at
-`~/code/meat` (`meat/anthropic.go`, `NewAnthropicFromEnv`); rebuild with
-`go build -o ~/go/bin/meat ./cmd/meat` after any `go install .../meat@latest`
-overwrites the binary.
+**Model.** meat picks its provider from the model name alone — `provider.go`
+routes to the Anthropic path only for a `claude-` prefix, so the two variables
+above are simply never read without a Claude model. `review.sh` therefore
+defaults `MEAT_MODEL=claude-opus-4-8` unless you passed `--model` or already set
+`MEAT_MODEL`; both still win over the default. Point `MEAT_PR_REVIEW_BASE_URL` at
+any Anthropic-compatible endpoint (OpenRouter's `https://openrouter.ai/api`
+works, and accepts an OpenRouter key as `x-api-key`).
 
 ## Step 1: run the review script
 

@@ -42,6 +42,7 @@ REPO=""
 BASE_OVERRIDE=""
 COMMITTED=no
 UNTRACKED=yes
+MODEL_ARG=""
 MEAT_ARGS=()
 
 while [ $# -gt 0 ]; do
@@ -55,7 +56,7 @@ while [ $# -gt 0 ]; do
         --base=*) BASE_OVERRIDE="${1#--base=}"; shift ;;
         --committed) COMMITTED=yes; shift ;;
         --no-untracked) UNTRACKED=no; shift ;;
-        --model) MEAT_ARGS+=(-model "$2"); shift 2 ;;
+        --model) MODEL_ARG="$2"; MEAT_ARGS+=(-model "$2"); shift 2 ;;
         --no-cache) MEAT_ARGS+=(-no-cache); shift ;;
         -*) die "unknown flag: $1 (try --help)" ;;
         *)
@@ -74,14 +75,26 @@ if [ -z "$MEAT" ]; then
     [ -x "$MEAT" ] || die "meat not found on PATH or at ~/go/bin/meat — go install meat.dev/cmd/meat@latest"
 fi
 
-# No OpenAI/Anthropic key, but OpenRouter's Anthropic-compatible endpoint is
-# configured (ANTHROPIC_BASE_URL + OPENROUTER_API_KEY): this meat build has a
-# local patch (~/code/meat) so ANTHROPIC_BASE_URL alone falls back to
-# OPENROUTER_API_KEY for the x-api-key header. That path only triggers for a
-# Claude model, so default MEAT_MODEL to one unless the user already set it.
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ] \
-   && [ -n "${OPENROUTER_API_KEY:-}" ] && [ -n "${ANTHROPIC_BASE_URL:-}" ] \
-   && [ -z "${MEAT_MODEL:-}" ]; then
+# ---- credentials -------------------------------------------------------------
+# This skill takes its credentials from exactly two variables, set in ~/.zprofile:
+# MEAT_PR_REVIEW_BASE_URL and MEAT_PR_REVIEW_API_KEY. Nothing else is consulted —
+# no ambient ANTHROPIC_*/OPENAI_*/OPENROUTER_* key decides what this script does,
+# so the skill behaves the same whatever else happens to be exported.
+#
+# They are handed to meat as its Anthropic settings, for this process only. Both
+# tests spell the variable `${VAR:-}` rather than asking whether it exists: a
+# Claude Code session exports ANTHROPIC_API_KEY *empty*, and an empty value is
+# not a credential — treat set-but-empty exactly like unset.
+[ -n "${MEAT_PR_REVIEW_BASE_URL:-}" ] || die "MEAT_PR_REVIEW_BASE_URL is not set — export it (with MEAT_PR_REVIEW_API_KEY) in ~/.zprofile"
+[ -n "${MEAT_PR_REVIEW_API_KEY:-}" ] || die "MEAT_PR_REVIEW_API_KEY is not set — export it (with MEAT_PR_REVIEW_BASE_URL) in ~/.zprofile"
+
+export ANTHROPIC_BASE_URL="$MEAT_PR_REVIEW_BASE_URL"
+export ANTHROPIC_API_KEY="$MEAT_PR_REVIEW_API_KEY"
+
+# meat picks its provider from the model name alone — provider.go dispatches to
+# the Anthropic path only for a `claude-` prefix, so without a Claude model the
+# settings above are never read. Default one unless the caller chose a model.
+if [ -z "${MEAT_MODEL:-}" ] && [ -z "$MODEL_ARG" ]; then
     export MEAT_MODEL="claude-opus-4-8"
 fi
 
