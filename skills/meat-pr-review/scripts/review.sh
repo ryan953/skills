@@ -42,6 +42,7 @@ REPO=""
 BASE_OVERRIDE=""
 COMMITTED=no
 UNTRACKED=yes
+MODEL_ARG=""
 MEAT_ARGS=()
 
 while [ $# -gt 0 ]; do
@@ -55,7 +56,7 @@ while [ $# -gt 0 ]; do
         --base=*) BASE_OVERRIDE="${1#--base=}"; shift ;;
         --committed) COMMITTED=yes; shift ;;
         --no-untracked) UNTRACKED=no; shift ;;
-        --model) MEAT_ARGS+=(-model "$2"); shift 2 ;;
+        --model) MODEL_ARG="$2"; MEAT_ARGS+=(-model "$2"); shift 2 ;;
         --no-cache) MEAT_ARGS+=(-no-cache); shift ;;
         -*) die "unknown flag: $1 (try --help)" ;;
         *)
@@ -74,15 +75,36 @@ if [ -z "$MEAT" ]; then
     [ -x "$MEAT" ] || die "meat not found on PATH or at ~/go/bin/meat — go install meat.dev/cmd/meat@latest"
 fi
 
-# No OpenAI/Anthropic key, but OpenRouter's Anthropic-compatible endpoint is
-# configured (ANTHROPIC_BASE_URL + OPENROUTER_API_KEY): this meat build has a
-# local patch (~/code/meat) so ANTHROPIC_BASE_URL alone falls back to
-# OPENROUTER_API_KEY for the x-api-key header. That path only triggers for a
-# Claude model, so default MEAT_MODEL to one unless the user already set it.
-if [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${ANTHROPIC_API_KEY:-}" ] \
-   && [ -n "${OPENROUTER_API_KEY:-}" ] && [ -n "${ANTHROPIC_BASE_URL:-}" ] \
-   && [ -z "${MEAT_MODEL:-}" ]; then
-    export MEAT_MODEL="claude-opus-4-8"
+# ---- credentials -------------------------------------------------------------
+# meat resolves its own credentials from the environment, and every path except
+# one it can work out alone. The exception is a machine whose only usable key is
+# OpenRouter's: reaching OpenRouter needs an Anthropic-compatible base URL to
+# point at *and* a Claude model name, because without one meat takes its OpenAI
+# code path and never consults ANTHROPIC_BASE_URL/OPENROUTER_API_KEY at all. So
+# arm both here — for this process only, and never over a value the caller chose.
+#
+# Every test spells the variable `${VAR:-}` rather than asking whether it exists:
+# a Claude Code session exports ANTHROPIC_API_KEY *empty*, and an empty value is
+# not a credential — treat set-but-empty exactly like unset.
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ] \
+   && [ -z "${OPENAI_BASE_URL:-}" ] && [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    # This meat build carries a local patch (~/code/meat, meat/anthropic.go) so
+    # that ANTHROPIC_BASE_URL with no ANTHROPIC_API_KEY falls back to
+    # OPENROUTER_API_KEY for the x-api-key header.
+    [ -n "${ANTHROPIC_BASE_URL:-}" ] || export ANTHROPIC_BASE_URL="https://openrouter.ai/api"
+    if [ -z "${MEAT_MODEL:-}" ] && [ -z "$MODEL_ARG" ]; then
+        export MEAT_MODEL="claude-opus-4-8"
+    fi
+fi
+
+# Nothing above armed anything and meat has no credential of its own to find:
+# say which variables would fix it rather than letting meat report whichever
+# provider it happened to pick. `/exe.dev` is the marker meat itself stats before
+# probing the managed LLM gateway, so this never blocks a VM that has one.
+if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_BASE_URL:-}" ] \
+   && [ -z "${OPENAI_API_KEY:-}" ] && [ -z "${OPENAI_BASE_URL:-}" ] \
+   && [ ! -e /exe.dev ]; then
+    die "no LLM credentials in the environment — set OPENROUTER_API_KEY (routed to OpenRouter automatically), or ANTHROPIC_API_KEY, or OPENAI_API_KEY"
 fi
 
 CLASS="$(classify_target "$TARGET")"
