@@ -6,14 +6,14 @@
 # right column that always exists, whatever the author class:
 #
 #   +---------------------------------+----------------+
-#   |  desc   PR description  25%     |  review:<name> |
-#   |  (bot / other authors)          +----------------+
-#   +---------------------------------+  review:<name> |
-#   |                                  +----------------+
+#   |  desc   PR description  25%     |  review:<name>  |
+#   |  (bot / other authors)          +-----------------+
+#   +---------------------------------+  review:<name>  |
+#   |                                 +-----------------+
 #   |  diff   revdiff                 |  idle shell in  |
-#   |                                  |  the worktree,  |
-#   |                                  |  until a review |
-#   |                                  |  pane lands     |
+#   |                                 |  the worktree,  |
+#   |                                 |  until a review |
+#   |                                 |  pane lands     |
 #   +---------------------------------+----------------+
 #                65%                        35%
 #
