@@ -49,12 +49,12 @@ flowchart TD
     C -- other human --> C3["CLASS=other<br/>+ desc pane<br/>+ review panes"]
     B1 & C1 & C2 & C3 --> D["checkout.sh<br/>cwd | reuse | add worktree"]
     D --> E["complexity-facts.sh<br/>measure the diff"]
-    E --> F["review-window.sh open<br/>tmux: desc / diff / reviews"]
+    E --> F["review-window.sh open<br/>tmux: desc+diff left, reviews col right<br/>(idle shell in the worktree until populated)"]
     F --> G["Haiku subagent reads facts<br/>-> tier"]
     G --> H["review-plan.sh<br/>tier -> skills, cached"]
     H --> I{"REVIEW_PANES?"}
-    I -- yes --> I1["add-review-pane per report<br/>read alongside the code"]
-    I -- no --> I2["consume findings<br/>and act on them"]
+    I -- yes --> I1["add-review-pane per report<br/>--follow while still running<br/>read alongside the code"]
+    I -- no --> I2["consume findings<br/>and act on them<br/>(reviews col stays idle)"]
     I1 & I2 --> J["Monitor $DONE<br/>revdiff session ends"]
     J --> K["annotations.sh parse"]
     K --> L{ROUTE}
@@ -159,15 +159,29 @@ Depth is a table, not a mood ([[feedback_scale_pr_review_depth]]): `small` →
 `mine`/`bot` — and refused for `other` even if you pass `--add simplify`, because
 rewriting someone else's PR is not reviewing it.
 
+The right-hand column of the window always exists — an idle shell in the
+worktree from `review-window.sh open` until something lands there — so which
+branch below fires only changes what appears in it, not whether it's there.
+
 Then, by `REVIEW_PANES`:
 
 - **`yes` (another human's PR)** — one pane per report, so they're read beside the
-  code rather than summarized at the user:
+  code rather than summarized at the user. For a `miss` + `runner=script` entry
+  the command redirects its own output to `cache_path`, so open the pane with
+  `--follow` before or as soon as you launch it — the pane watches the file
+  fill in instead of the user staring at an empty column while it runs:
+  ```bash
+  scripts/review-window.sh add-review-pane --state "$STATE" --file <cache_path> --label <skill> --follow
+  ```
+  For a `miss` + `runner=skill` entry there's nothing to stream — the report
+  only exists once you've written it — so add the pane (without `--follow`)
+  after writing `cache_path`. For a `hit`, same: the file's already whole.
   ```bash
   scripts/review-window.sh add-review-pane --state "$STATE" --file <cache_path> --label <skill>
   ```
 - **`no` (mine or a bot's)** — read the reports yourself and fold their findings
-  into the work in Step 5. Panes would just be output someone has to close.
+  into the work in Step 5. Don't pane them; the column just stays the idle
+  shell, which is a fine place to poke around the checkout by hand.
 
 Either way, tell the user what ran and what it found **before** they start
 annotating, so they're reading the code with the findings already in hand.

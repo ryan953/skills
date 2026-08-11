@@ -2,20 +2,34 @@
 # review-window.sh — build and drive the review window: revdiff, the PR
 # description, and the review outputs, side by side in one detached tmux window.
 #
-# Layout (panes appear only when the author class calls for them):
+# Layout — a left column (unchanged: description on top, diff below) and a
+# right column that always exists, whatever the author class:
 #
-#   +--------------------------------------------------+
-#   |  desc   PR description (bot / other authors)  25%|
 #   +---------------------------------+----------------+
-#   |                                 |  review:<name> |
-#   |  diff   revdiff                 +----------------+
-#   |                                 |  review:<name> |
+#   |  desc   PR description  25%     |  review:<name>  |
+#   |  (bot / other authors)          +-----------------+
+#   +---------------------------------+  review:<name>  |
+#   |                                 +-----------------+
+#   |  diff   revdiff                 |  idle shell in  |
+#   |                                 |  the worktree,  |
+#   |                                 |  until a review |
+#   |                                 |  pane lands     |
 #   +---------------------------------+----------------+
-#                                        35% (other only)
+#                65%                        35%
+#
+# The right column is created at `open` as a single idle pane (a shell cd'd
+# into the working tree), so there's always somewhere useful to look even when
+# no review skill runs for this class (mine/bot: the agent consumes findings
+# itself rather than paning them — see classify.sh's wants_review_panes). The
+# first `add-review-pane` call takes that pane over; later calls stack below
+# it. A pane can `--follow` a file that's still being written (a `runner=script`
+# command mid-run) instead of waiting for it to finish.
 #
 # Every pane is tagged with a `@lpr_role` user option, so later calls find the
 # pane they mean by role instead of by index — indexes shift the moment a pane is
-# added or closed, and the iterate loop does both.
+# added or closed, and the iterate loop does both. The right column's idle
+# placeholder is tagged `reviews_idle`; once a review lands there its role
+# becomes `review:<label>` like any other review pane.
 #
 # Detached (-d) throughout: opening a review must never yank the terminal away
 # from what the user was doing. They switch with Ctrl-b w on their own schedule.
@@ -23,7 +37,7 @@
 # Subcommands:
 #   open   --state <f> [--desc <md>] [--cache-dir <d>] [--title <s>] [-- <revdiff args>...]
 #   relaunch --state <f>                  # fresh revdiff in the same pane, new output file
-#   add-review-pane --state <f> --file <md> --label <name>
+#   add-review-pane --state <f> --file <md> --label <name> [--follow]
 #   status --state <f>
 #   close  --state <f>
 
@@ -36,7 +50,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CMD="${1:-}"; shift || true
 [ -n "$CMD" ] || die "usage: review-window.sh {open|relaunch|add-review-pane|status|close} --state <file> [...]"
 
-STATE="" DESC="" CACHE="" TITLE="" FILE="" LABEL="" START_ITER=1 RANGE_ARG=""
+STATE="" DESC="" CACHE="" TITLE="" FILE="" LABEL="" START_ITER=1 RANGE_ARG="" FOLLOW=no
 RD_ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -48,6 +62,7 @@ while [ $# -gt 0 ]; do
         --range) RANGE_ARG="$2"; shift 2 ;;
         --file) FILE="$2"; shift 2 ;;
         --label) LABEL="$2"; shift 2 ;;
+        --follow) FOLLOW=yes; shift ;;
         --) shift; RD_ARGS=("$@"); break ;;
         *) RD_ARGS+=("$1"); shift ;;
     esac
@@ -80,6 +95,15 @@ new_out_paths() {   # sets OUT/DONE for iteration $1 under $WORK_DIR
     OUT="$WORK_DIR/annotations-$1.txt"
     DONE="$OUT.done"
     rm -f "$OUT" "$DONE"
+}
+
+# A review pane pointed at a file that's still being written: wait for the
+# first bytes, then follow. `tail -f` on macOS (BSD tail) errors out on a file
+# that doesn't exist yet, unlike GNU's `--retry`, so wait for it ourselves.
+follow_cmd() {
+    local f="$1"
+    printf 'echo "waiting for %s ..."; while [ ! -s %s ]; do sleep 0.3; done; tail -f -n +1 %s' \
+        "$f" "$(sq "$f")" "$(sq "$f")"
 }
 
 case "$CMD" in
@@ -130,6 +154,15 @@ open)
     tm set-option -w -t "$WID" pane-border-status top 2>/dev/null || true
     tm set-option -w -t "$WID" pane-border-format ' #{@lpr_role} #{pane_title} ' 2>/dev/null || true
 
+    # The right column, spanning the full window height — split off the diff
+    # pane before it gets split again for the description, so the column runs
+    # alongside both. Starts as an idle shell in the working tree; the first
+    # add-review-pane call takes it over.
+    REVIEWS_PANE_ID="$(tm split-window -d -h -l 35% -t "$DIFF_PANE" -P -F '#{pane_id}' \
+        -c "$PWD" -- "${SHELL:-/bin/sh}")"
+    tm set-option -p -t "$REVIEWS_PANE_ID" @lpr_role reviews_idle
+    tm select-pane -t "$REVIEWS_PANE_ID" -T "reviews (idle) — ${PWD##*/}" 2>/dev/null || true
+
     # The description goes above the diff, not beside it: it's read once for
     # intent, while the diff is scrolled for the whole session.
     DESC_PANE_ID=""
@@ -151,6 +184,7 @@ open)
     state_set "$STATE" WINDOW       "$WINDOW"
     state_set "$STATE" DIFF_PANE    "$DIFF_PANE"
     state_set "$STATE" DESC_PANE_ID "$DESC_PANE_ID"
+    state_set "$STATE" REVIEWS_PANE_ID "$REVIEWS_PANE_ID"
     state_set "$STATE" WORK_DIR     "$WORK_DIR"
     state_set "$STATE" RANGE        "$RANGE"
     state_set "$STATE" ITER         "$ITER"
@@ -161,7 +195,6 @@ open)
     RD_QUOTED=""
     for a in ${RD_ARGS[0]+"${RD_ARGS[@]}"}; do RD_QUOTED="$RD_QUOTED $(sq "$a")"; done
     state_set "$STATE" RD_ARGS      "${RD_QUOTED# }"
-    state_set "$STATE" REVIEW_PANES ""
     # Stored so a rebuild reuses the original title (which names the PR and the
     # author class) instead of falling back to a generic one.
     state_set "$STATE" WINNAME      "$WINNAME"
@@ -169,7 +202,7 @@ open)
 
     emit SOCKET "$SOCKET"; emit WID "$WID"; emit WINDOW "$WINDOW"
     emit OUT "$OUT"; emit DONE "$DONE"; emit RANGE "$RANGE"; emit ITER "$ITER"
-    emit DESC_PANE_ID "$DESC_PANE_ID"
+    emit DESC_PANE_ID "$DESC_PANE_ID"; emit REVIEWS_PANE_ID "$REVIEWS_PANE_ID"
     ;;
 
 relaunch)
@@ -211,24 +244,41 @@ relaunch)
 add-review-pane)
     state_load "$STATE" || die "no state at $STATE — run 'open' first"
     SOCKET="${SOCKET:?}"
-    [ -n "$FILE" ] && [ -s "$FILE" ] || die "--file must point at a non-empty markdown file"
+    [ -n "$FILE" ] || die "--file is required"
+    if [ "$FOLLOW" = no ]; then
+        [ -s "$FILE" ] || die "--file must point at a non-empty markdown file (pass --follow to watch one that's still being written)"
+    fi
     LABEL="${LABEL:-review}"
     window_alive || die "review window $WID is gone; reopen it first"
 
-    # First review pane takes a column off the diff; the rest stack inside that
-    # column, so the diff never gets narrower than one split's worth.
-    EXISTING="${REVIEW_PANES:-}"
-    LAST="${EXISTING##* }"
-    if [ -n "$LAST" ] && tm list-panes -t "$WID" -F '#{pane_id}' | grep -qxF "$LAST"; then
-        PID="$(tm split-window -d -v -l 50% -t "$LAST" -P -F '#{pane_id}' \
-            -c "$PWD" -- sh -c "$(md_pager_cmd) $(sq "$FILE")")"
+    if [ "$FOLLOW" = yes ]; then
+        CONTENT_CMD="$(follow_cmd "$FILE")"
     else
+        CONTENT_CMD="$(md_pager_cmd) $(sq "$FILE")"
+    fi
+
+    # Roles, not stored state, are the source of truth for what's already in
+    # the column — they survive a pane the user closed by hand, where a
+    # remembered id wouldn't. First review pane takes over the idle
+    # placeholder that already spans the column; later ones stack below the
+    # last one so the diff never gets narrower than one split's worth.
+    LAST="$(tm list-panes -t "$WID" -F '#{pane_id} #{@lpr_role}' \
+        | awk '$2 ~ /^review:/ {p=$1} END{print p}')"
+    IDLE="$(pane_by_role reviews_idle)"
+    if [ -n "$LAST" ]; then
+        PID="$(tm split-window -d -v -l 50% -t "$LAST" -P -F '#{pane_id}' \
+            -c "$PWD" -- sh -c "$CONTENT_CMD")"
+    elif [ -n "$IDLE" ]; then
+        PID="$IDLE"
+        tm respawn-pane -k -t "$PID" -c "$PWD" -- sh -c "$CONTENT_CMD"
+    else
+        # No idle placeholder — state from before it existed, or it was
+        # closed by hand. Fall back to carving a column out of the diff pane.
         PID="$(tm split-window -d -h -l 35% -t "$(pane_by_role diff)" -P -F '#{pane_id}' \
-            -c "$PWD" -- sh -c "$(md_pager_cmd) $(sq "$FILE")")"
+            -c "$PWD" -- sh -c "$CONTENT_CMD")"
     fi
     tm set-option -p -t "$PID" @lpr_role "review:$LABEL"
     tm select-pane -t "$PID" -T "$LABEL" 2>/dev/null || true
-    state_set "$STATE" REVIEW_PANES "$(printf '%s %s' "$EXISTING" "$PID" | sed 's/^ //')"
     emit PANE "$PID"; emit LABEL "$LABEL"
     ;;
 
