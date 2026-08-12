@@ -153,6 +153,28 @@ eq "frontend-conventions-fix mutates" yes "$(skill_mutates frontend-conventions-
 eq "frontend-conventions reports"     no  "$(skill_mutates frontend-conventions)"
 eq "review reports"                   no  "$(skill_mutates review)"
 
+echo ""
+echo "sync_action"
+# mine/bot: stale + unapproved -> merge master in.
+eq "mine, stale, unapproved"       merge-master "$(sync_action mine yes no  no)"
+eq "bot, stale, unapproved"        merge-master "$(sync_action bot  yes no  no)"
+# mine/bot: stale but already approved -> leave it, don't invalidate the approval.
+eq "mine, stale, approved"         none         "$(sync_action mine yes no  yes)"
+# mine/bot: conflicts win regardless of approval — GitHub already refuses to
+# merge it either way.
+eq "mine, conflicts, unapproved"   merge-master "$(sync_action mine no  yes no)"
+eq "mine, conflicts, approved"     merge-master "$(sync_action mine no  yes yes)"
+eq "mine, stale + conflicts"       merge-master "$(sync_action mine yes yes no)"
+# mine/bot: clean and up to date -> nothing to do.
+eq "mine, clean"                   none         "$(sync_action mine no  no  no)"
+eq "bot, clean"                    none         "$(sync_action bot  no  no  no)"
+# other: never acted on, only surfaced — stale, conflicted, or both.
+eq "other, stale"                  notify       "$(sync_action other yes no  no)"
+eq "other, conflicts"              notify       "$(sync_action other no  yes no)"
+eq "other, stale + conflicts"      notify       "$(sync_action other yes yes no)"
+eq "other, approved changes nothing" notify     "$(sync_action other yes no  yes)"
+eq "other, clean"                  none         "$(sync_action other no  no  no)"
+
 # ---------------------------------------------------------------------------
 echo ""
 echo "passed: $PASS   failed: $FAIL"

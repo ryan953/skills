@@ -51,6 +51,26 @@ esac
 eval "$(bash "$HERE/checkout.sh" --ref "$HEAD_REF" ${PR_NUMBER:+--pr "$PR_NUMBER"})"
 cd "$WORKTREE"
 
+# ---- 2.5 sync with the base branch, before anything measures or opens ------
+# A merge here changes the tree the diff is about to measure and the window is
+# about to open on, so it has to happen first, not get discovered mid-review.
+SYNC_OUT="$(bash "$HERE/sync-check.sh" --class "$AUTHOR_CLASS" --has-pr "$HAS_PR" \
+    --pushed "$PUSHED" --head "$HEAD_REF" ${BASE_REF:+--base "$BASE_REF"} \
+    ${PR_NUMBER:+--pr "$PR_NUMBER"} ${REPO:+--repo "$REPO"})"
+eval "$SYNC_OUT"
+
+# A conflicted (or otherwise blocked) merge is left exactly as `git merge` left
+# it — conflict markers in the tree, nothing committed, nothing pushed — so
+# there's nothing sane to diff or open a window on yet.
+case "${MERGE_RESULT:-skipped}" in
+    conflict|blocked)
+        printf '%s\n' "$CTX"
+        printf '%s\n' "$SYNC_OUT"
+        emit BLOCKED "sync with $SYNC_BASE left the branch $MERGE_RESULT — resolve, commit, push, then re-run start.sh to continue"
+        exit 0
+        ;;
+esac
+
 # ---- 3. measure the diff ----------------------------------------------------
 # --base origin/<base> for a PR: the facts should cover what the PR proposes to
 # merge, not whatever the local trunk copy happens to be at.
@@ -85,11 +105,13 @@ while IFS='=' read -r k v; do
     eval "state_set \"\$STATE\" \"\$k\" $v"
 done <<EOF
 $CTX
+$SYNC_OUT
 $FACTS_OUT
 $(emit WORKTREE "$WORKTREE"; emit MODE "$MODE")
 EOF
 
 printf '%s\n' "$CTX"
+printf '%s\n' "$SYNC_OUT"
 printf '%s\n' "$FACTS_OUT"
 emit WORKTREE "$WORKTREE"
 emit MODE     "$MODE"

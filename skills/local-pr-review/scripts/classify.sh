@@ -193,3 +193,39 @@ skill_mutates() {
         *)                                 printf 'no' ;;
     esac
 }
+
+# sync_action <class> <stale> <conflicts> <approved> -> merge-master | notify | none
+#
+# Runs before any review skill: a branch that's out of date or that GitHub
+# already can't merge cleanly should be said out loud before anyone reads the
+# diff, not discovered partway through.
+#   * mine/bot: this skill already edits and pushes these branches (ROUTE=apply
+#     owns that), so it also owns keeping them in sync. It merges the base in
+#     when falling behind would otherwise go unnoticed — stale, and nobody has
+#     approved the current state yet — or when GitHub already refuses to merge
+#     it (conflicts), which blocks merging regardless of approval.
+#   * A stale-but-approved mine/bot branch is left alone: merging in would
+#     silently invalidate an approval nobody asked to redo.
+#   * other: never touched. Stale or conflicted, it's the owner's branch to
+#     bring up to date — surfaced to the user instead of acted on.
+sync_action() {
+    local class="$1" stale="$2" conflicts="$3" approved="$4"
+    case "$class" in
+        mine|bot)
+            if [ "$conflicts" = yes ]; then
+                printf 'merge-master'
+            elif [ "$stale" = yes ] && [ "$approved" != yes ]; then
+                printf 'merge-master'
+            else
+                printf 'none'
+            fi
+            ;;
+        *)
+            if [ "$stale" = yes ] || [ "$conflicts" = yes ]; then
+                printf 'notify'
+            else
+                printf 'none'
+            fi
+            ;;
+    esac
+}
