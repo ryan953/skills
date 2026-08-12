@@ -72,11 +72,18 @@ case "${MERGE_RESULT:-skipped}" in
 esac
 
 # ---- 3. measure the diff ----------------------------------------------------
-# --base origin/<base> for a PR: the facts should cover what the PR proposes to
-# merge, not whatever the local trunk copy happens to be at.
+# For a PR, the facts should cover what the PR proposes to merge — base..head at
+# the PR's fork point — not a diff against origin/<base>'s moving tip. A draft PR
+# in particular can sit hundreds of commits behind base (sync-check.sh's re-sync
+# is driven by GitHub's mergeStateStatus, which for drafts often reports BLOCKED
+# rather than BEHIND, so the normal re-sync-with-base logic never fires); diffing
+# straight against origin/<base> would then pull in every unrelated file changed
+# on base since the branch forked, not just the PR's own changes. The merge-base
+# pins the range to the PR's actual changes regardless of how far base has moved.
 BASE_ARGS=()
 if [ -n "${BASE_REF:-}" ] && git rev-parse --verify --quiet "origin/$BASE_REF^{commit}" >/dev/null 2>&1; then
-    BASE_ARGS=(--base "origin/$BASE_REF")
+    MERGE_BASE="$(git merge-base HEAD "origin/$BASE_REF" 2>/dev/null || true)"
+    [ -n "$MERGE_BASE" ] && BASE_ARGS=(--base "$MERGE_BASE")
 fi
 FACTS_OUT="$(bash "$HERE/complexity-facts.sh" --cache-dir "$CACHE_DIR" ${BASE_ARGS[0]+"${BASE_ARGS[@]}"})"
 eval "$FACTS_OUT"
