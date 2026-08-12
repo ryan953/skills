@@ -136,6 +136,21 @@ md_pager_cmd() {
     fi
 }
 
+# default_branch — the repo's default branch on origin, best-effort. Used only
+# when there's no PR to read a base branch off of (branch mode), so a wrong
+# guess costs an unnecessary sync check, not a routing mistake.
+default_branch() {
+    local b
+    b="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')"
+    [ -n "$b" ] && { printf '%s\n' "$b"; return; }
+    b="$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name // empty' 2>/dev/null || true)"
+    [ -n "$b" ] && { printf '%s\n' "$b"; return; }
+    for b in main master; do
+        git rev-parse --verify --quiet "origin/$b^{commit}" >/dev/null 2>&1 && { printf '%s\n' "$b"; return; }
+    done
+    printf 'main\n'
+}
+
 # find_sibling_script <skill> <script> — absolute path to another skill's script.
 # This skill reuses the `diff` skill's range detection rather than forking it,
 # and skills live either installed user-scope or in a repo checkout, so probe

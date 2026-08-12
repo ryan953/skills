@@ -48,7 +48,15 @@ flowchart TD
     C -- bot --> C2["CLASS=bot<br/>+ desc pane"]
     C -- other human --> C3["CLASS=other<br/>+ desc pane<br/>+ review panes"]
     B1 & C1 & C2 & C3 --> D["checkout.sh<br/>cwd | reuse | add worktree"]
-    D --> E["complexity-facts.sh<br/>measure the diff"]
+    D --> D1["sync-check.sh<br/>stale (behind base)? conflicts? approved?"]
+    D1 --> D2{"sync_action?"}
+    D2 -- "mine/bot: merge-master" --> D3["fetch + merge base<br/>clean -> push if already public<br/>conflict/blocked -> leave as git left it"]
+    D3 --> D4{"conflict or blocked?"}
+    D4 -- yes --> STOP2(["BLOCKED: resolve, commit, push,<br/>re-run start.sh to continue"])
+    D4 -- no --> E["complexity-facts.sh<br/>measure the diff"]
+    D2 -- "other: notify" --> D5["tell the user now:<br/>stale/conflicted — talk to the owner"]
+    D5 --> E
+    D2 -- none --> E
     E --> F["review-window.sh open<br/>tmux: desc+diff left, reviews col right<br/>(idle shell in the worktree until populated)"]
     F --> G["Haiku subagent reads facts<br/>-> tier"]
     G --> H["review-plan.sh<br/>tier -> skills, cached"]
@@ -86,8 +94,9 @@ scripts/start.sh [<pr-url|pr-number|branch>] [--repo owner/name]
 
 Run it from inside the repo checkout. With no argument it resolves the PR for the
 current branch, and falls back to branch mode when there is none. It resolves the
-target, classifies the author, gets the code on disk, measures the diff, opens the
-tmux window, and writes every fact to `$STATE`.
+target, classifies the author, gets the code on disk, checks the branch against
+its base (see below), measures the diff, opens the tmux window, and writes every
+fact to `$STATE`.
 
 `eval` its output (or read `$STATE`) and keep these:
 
@@ -98,6 +107,8 @@ tmux window, and writes every fact to `$STATE`.
 | `ROUTE` | `apply` (edit locally) \| `comment` (post to GitHub) |
 | `ITERATE` | is the fix-and-re-review loop allowed |
 | `REVIEW_PANES` | show review output in panes, or consume it |
+| `STALE` / `CONFLICTS` / `APPROVED` | branch vs. base state — see below |
+| `SYNC_ACTION` / `MERGE_RESULT` | what the sync check decided and did |
 | `FACTS` | markdown diff measurements for Step 2 |
 | `FRONTEND` | adds `frontend-conventions` to the plan |
 | `OUT` / `DONE` | revdiff annotations file, and its completion sentinel |
@@ -111,6 +122,34 @@ If it emits `STOP`, the PR is merged or closed. Say so and stop.
 (`seer-by-sentry`, `renovate`, …) and `seer/`, `autofix/`, `renovate/`,
 `dependabot/` branch prefixes; everything else is `other`. Extend the login list
 with `$LPR_BOT_LOGINS` rather than special-casing in conversation.
+
+**The branch is checked against its base before any of that opens.** GitHub's
+own merge state is the source of truth for a PR — `mergeStateStatus` `BEHIND`
+means stale, `DIRTY` means conflicts, both read straight off the PR the human
+would see. A branch with no PR has no such status, so it's computed locally
+instead: commits on the base that aren't in the branch. `sync_action`
+(`classify.sh`) turns `(class, stale, conflicts, approved)` into what to do:
+
+- **`mine`/`bot`, stale and not yet approved, or conflicted regardless of
+  approval** — `sync-check.sh` fetches the base and merges it in itself. A clean
+  merge is pushed immediately, but only when the branch was already public
+  (`HAS_PR=yes` or `PUSHED=yes`) — it never turns an unpushed branch public as a
+  side effect. A stale-but-**approved** branch is left alone: merging in would
+  silently invalidate an approval nobody asked to redo. Conflicts merge
+  regardless of approval, since GitHub already refuses to merge it either way.
+- **A conflicted (or otherwise blocked) merge attempt is left exactly as `git
+  merge` left it** — markers in the tree, nothing committed, nothing pushed.
+  `start.sh` stops right there and emits `BLOCKED` with `$CONFLICT_FILES`
+  instead of opening a window on a mid-merge tree: resolve them the same way any
+  other apply-route edit gets resolved — edit, `git add`, commit — then push and
+  re-run `start.sh` on the same target to continue into the review.
+- **`other`, stale or conflicted** — nothing is touched; it's their branch to
+  bring current. `SYNC_ACTION=notify` — tell the user *before* the window opens,
+  in chat, so they can go talk to the owner. This is not a GitHub comment and
+  doesn't go through body approval; it's a fact surfaced in conversation, not
+  prose published anywhere.
+- **Clean and up to date, either way** — `SYNC_ACTION=none`, nothing happens,
+  say nothing.
 
 The window is detached — it never steals focus. Tell the user it's open and that
 `Ctrl-b w` gets them there.
@@ -158,6 +197,31 @@ Depth is a table, not a mood ([[feedback_scale_pr_review_depth]]): `small` →
 `frontend-conventions` at every tier above trivial. `simplify` is added only for
 `mine`/`bot` — and refused for `other` even if you pass `--add simplify`, because
 rewriting someone else's PR is not reviewing it.
+
+**Run every `miss` at once, not one at a time.** Nothing in the plan reads
+another entry's output, so paying for them serially only slows the review down.
+In a single message:
+
+- `runner=script` misses (`meat-pr-review`) — run directly with `Bash`.
+- `runner=skill` misses that are report-only (`review`, `deep-pr-review`,
+  `frontend-conventions`) — launch one `Agent` call per skill, each prompted to
+  invoke `command` against `$WORKTREE` (plus `$PR_NUMBER`/`$REPO` when set) and
+  write its report to `cache_path`.
+- The one skill that mutates code (`simplify`, and only for `mine`/`bot`) is
+  never part of that batch — it edits the same files the report-only skills are
+  reading. Run it by itself, after the batch above finishes, so nothing reviews a
+  half-edited tree.
+
+Wait for the whole batch to return before Step 4 — panes and the apply step both
+need finished files, not partial ones.
+
+**At `large`/`risky`, verify before caching.** `review` and `deep-pr-review`
+write raw findings first; before those land in `cache_path`, spawn one more
+`Agent` per skill to adversarially check what it just found — try to refute each
+finding, keep only what survives, and mark it confirmed. Write that filtered
+report to `cache_path`, not the raw one. This is paid once per skill per head
+SHA: a later `hit` reuses the verified report, so re-reviewing the same commit
+doesn't pay for it twice.
 
 The right-hand column of the window always exists — an idle shell in the
 worktree from `review-window.sh open` until something lands there — so which
@@ -318,6 +382,7 @@ what was posted or pushed. Then:
 | `pr-context.sh` | PR-or-branch, pushed?, author class, and every routing decision |
 | `classify.sh` | the pure decision table (sourced, side-effect free, fully tested) |
 | `checkout.sh` | code on disk: current checkout, existing worktree, or a new one |
+| `sync-check.sh` | stale/conflict check against the base branch; merges when it decides to |
 | `complexity-facts.sh` | measures the diff into the markdown the Haiku pass reads |
 | `review-plan.sh` | tier → skills → cache paths → hit/miss/skip |
 | `review-window.sh` | `open` / `relaunch` / `add-review-pane` / `status` / `close` |
@@ -328,7 +393,11 @@ what was posted or pushed. Then:
 
 Tests: `classify.test.sh`, `annotations.test.sh`, `review-plan.test.sh`,
 `body-approval.test.sh` — plain bash, no network, no repo. Run all four before
-changing the routing table or anything on a posting path.
+changing the routing table or anything on a posting path. `sync-check.test.sh`
+is the exception: it's the one script that merges and pushes on its own, so it's
+exercised against real throwaway git repos (a local bare "origin" per scenario)
+with `gh` faked, rather than trusted from `classify.sh`'s `sync_action` table
+alone. Run it too before touching `sync-check.sh` or `sync_action`.
 
 ## Notes
 
@@ -340,3 +409,9 @@ changing the routing table or anything on a posting path.
 - `glow` isn't installed here; the markdown panes fall back to `bat`. Either way
   the pane is a pager, not an editor.
 - `gh pr ready` on an already-ready PR is a no-op, not an error.
+- Running several of these reviews at once is normal and each gets its own
+  worktree, window, and cache dir. But `large`/`risky` tiers now fan out multiple
+  `Agent` calls per review (Step 3's batch, plus the verify pass), and
+  `deep-pr-review` fans out further inside its own call — so stagger how many
+  `large`/`risky` reviews run concurrently rather than starting a dozen at once.
+  `trivial`/`small` reviews are cheap enough to run with much higher concurrency.
