@@ -113,22 +113,28 @@ fi
     printf '## File types\n\n```\n'
     # One awk rather than awk|sed: BSD sed reads `t` with no label as taking the
     # rest of the line *as* the label, so the portable form isn't worth it.
+    # `|| true`: head closing the pipe early once it has its 20 lines sends
+    # SIGPIPE back up the chain, which under `pipefail` fails the whole pipeline
+    # (and, via set -e, this whole script) even though truncating here is exactly
+    # what's wanted — not a real error.
     printf '%s\n' "$PATHS" \
         | awk -F/ '{ f=$NF
                      if (match(f, /\.[A-Za-z0-9]+$/)) print substr(f, RSTART)
                      else print "(no extension)" }' \
-        | sort | uniq -c | sort -rn | head -20
+        | sort | uniq -c | sort -rn | head -20 || true
     printf '```\n\n## Per-file churn (largest first, capped at 40)\n\n```\n'
     # Sort on an explicit total-churn key, then cut it off: sorting the formatted
     # line instead puts `sort -k` on whichever column the padding lands in, which
     # silently produces an unsorted "largest first" list. Binary files come back
     # from numstat as `-`/`-` and sort as 0 churn.
+    # Same `|| true` reasoning as the file-types pipeline above: `head -40`
+    # truncating on a large diff is expected, not a failure worth dying over.
     printf '%s\n' "$NUMSTAT" \
         | awk -F'\t' 'NF>=3 && $3!="" {
               a = ($1 ~ /^[0-9]+$/) ? $1 : 0
               d = ($2 ~ /^[0-9]+$/) ? $2 : 0
               printf "%d\t+%-6s -%-6s %s\n", a + d, $1, $2, $3 }' \
-        | sort -rn | head -40 | cut -f2-
+        | sort -rn | head -40 | cut -f2- || true
     printf '```\n'
 } > "$FACTS"
 
