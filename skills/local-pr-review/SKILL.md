@@ -159,6 +159,31 @@ Depth is a table, not a mood ([[feedback_scale_pr_review_depth]]): `small` →
 `mine`/`bot` — and refused for `other` even if you pass `--add simplify`, because
 rewriting someone else's PR is not reviewing it.
 
+**Run every `miss` at once, not one at a time.** Nothing in the plan reads
+another entry's output, so paying for them serially only slows the review down.
+In a single message:
+
+- `runner=script` misses (`meat-pr-review`) — run directly with `Bash`.
+- `runner=skill` misses that are report-only (`review`, `deep-pr-review`,
+  `frontend-conventions`) — launch one `Agent` call per skill, each prompted to
+  invoke `command` against `$WORKTREE` (plus `$PR_NUMBER`/`$REPO` when set) and
+  write its report to `cache_path`.
+- The one skill that mutates code (`simplify`, and only for `mine`/`bot`) is
+  never part of that batch — it edits the same files the report-only skills are
+  reading. Run it by itself, after the batch above finishes, so nothing reviews a
+  half-edited tree.
+
+Wait for the whole batch to return before Step 4 — panes and the apply step both
+need finished files, not partial ones.
+
+**At `large`/`risky`, verify before caching.** `review` and `deep-pr-review`
+write raw findings first; before those land in `cache_path`, spawn one more
+`Agent` per skill to adversarially check what it just found — try to refute each
+finding, keep only what survives, and mark it confirmed. Write that filtered
+report to `cache_path`, not the raw one. This is paid once per skill per head
+SHA: a later `hit` reuses the verified report, so re-reviewing the same commit
+doesn't pay for it twice.
+
 The right-hand column of the window always exists — an idle shell in the
 worktree from `review-window.sh open` until something lands there — so which
 branch below fires only changes what appears in it, not whether it's there.
@@ -340,3 +365,9 @@ changing the routing table or anything on a posting path.
 - `glow` isn't installed here; the markdown panes fall back to `bat`. Either way
   the pane is a pager, not an editor.
 - `gh pr ready` on an already-ready PR is a no-op, not an error.
+- Running several of these reviews at once is normal and each gets its own
+  worktree, window, and cache dir. But `large`/`risky` tiers now fan out multiple
+  `Agent` calls per review (Step 3's batch, plus the verify pass), and
+  `deep-pr-review` fans out further inside its own call — so stagger how many
+  `large`/`risky` reviews run concurrently rather than starting a dozen at once.
+  `trivial`/`small` reviews are cheap enough to run with much higher concurrency.
