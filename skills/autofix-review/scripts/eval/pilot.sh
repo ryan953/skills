@@ -7,7 +7,7 @@
 # Usage:
 #   pilot.sh [--repo owner/name] [--arm seer|both|all] [--decider <login>]
 #            [--repo-path ~/code/sentry] [--limit 100] [--since 2025-06-01]
-#            [--out <dir>] [--read-only]
+#            [--out <dir>] [--read-only] [--max-cases N]
 #
 # Defaults are the seer arm against getsentry/sentry, which is where the signal
 # is: the chain exists by construction and the merge-or-close IS the verdict.
@@ -20,7 +20,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REPO=getsentry/sentry; ARM=seer; DECIDER=""; REPO_PATH="$HOME/code/sentry"
-LIMIT=100; SINCE=2025-06-01; OUT="./autofix-review-pilot"; RO=""
+LIMIT=100; SINCE=2025-06-01; OUT="./autofix-review-pilot"; RO=""; MAX=20
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
@@ -30,6 +30,7 @@ while [ $# -gt 0 ]; do
         --limit) LIMIT="$2"; shift 2 ;;
         --since) SINCE="$2"; shift 2 ;;
         --out) OUT="$2"; shift 2 ;;
+        --max-cases) MAX="$2"; shift 2 ;;
         --read-only) RO=--read-only; shift ;;
         *) printf 'unknown flag: %s\n' "$1" >&2; exit 1 ;;
     esac
@@ -76,8 +77,9 @@ SCOREABLE="$(jq -r 'select(.label == "ACCEPT_TRUTH" or .label == "REJECT_TRUTH")
 [ "$SCOREABLE" -gt 0 ] || { say "FATAL: nothing scoreable after labelling."; exit 1; }
 
 step run
+say "reviewing up to $MAX case(s); each is a full four-wave review, so this is the slow part"
 "$HERE/run.sh" --cases "$OUT/labelled.jsonl" --repo-path "$REPO_PATH" $RO \
-    --out "$OUT/predictions.jsonl" 2>>"$LOG"
+    --max-cases "$MAX" --out "$OUT/predictions.jsonl" 2> >(tee -a "$LOG" >&2)
 PREDS="$(wc -l < "$OUT/predictions.jsonl" 2>/dev/null | tr -d ' ')"
 say "predictions: ${PREDS:-0} (of $SCOREABLE scoreable)"
 # An empty predictions file is this harness's characteristic failure and it

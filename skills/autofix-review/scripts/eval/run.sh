@@ -16,7 +16,7 @@
 #
 # Usage:
 #   run.sh --cases labelled.jsonl --repo-path ~/code/sentry [--out predictions.jsonl]
-#          [--read-only] [--print-briefs] [--work-root <dir>]
+#          [--read-only] [--print-briefs] [--work-root <dir>] [--max-cases N]
 
 set -euo pipefail
 
@@ -28,13 +28,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # .../scripts/eval
 # sample that legitimately had nothing in it.
 SKILL_DIR="$(cd "$HERE/../.." && pwd)"
 
-CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=""; BRIEFS=""; WORK_ROOT=""
+CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=""; BRIEFS=""; WORK_ROOT=""; MAX_CASES=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --cases) CASES="$2"; shift 2 ;;
         --repo-path) REPO_PATH="$2"; shift 2 ;;
         --out) OUT="$2"; shift 2 ;;
         --work-root) WORK_ROOT="$2"; shift 2 ;;
+        --max-cases) MAX_CASES="$2"; shift 2 ;;
         --read-only) READ_ONLY=1; shift ;;
         --print-briefs) BRIEFS=1; shift ;;
         *) printf 'unknown flag: %s\n' "$1" >&2; exit 1 ;;
@@ -118,8 +119,16 @@ emit_prediction() {   # emit_prediction <case-json> <work>
 }
 
 {
+    done_n=0
     while IFS= read -r c; do
         [ -n "$c" ] || continue
+        # Each case is a full four-wave review. Without a cap, sample size is set
+        # by a gh page limit, which is not where that decision belongs.
+        if [ "$MAX_CASES" -gt 0 ] && [ "$done_n" -ge "$MAX_CASES" ]; then
+            printf 'stopping at --max-cases %s; %s case(s) left unrun\n' "$MAX_CASES" \
+                "$(($(wc -l < "$CASES") - done_n))" >&2
+            break
+        fi
         label="$(printf '%s' "$c" | jq -r '.label // ""')"
         # AMBIGUOUS and EXCLUDED cases are kept in the file but never run: they
         # cannot move a precision number, so paying for a review of them buys
@@ -128,6 +137,10 @@ emit_prediction() {   # emit_prediction <case-json> <work>
 
         work="$(prepare_case "$c")" || continue
         mode="$(jq -r '.mode // "bugfix"' "$work/meta.json")"
+        done_n=$((done_n + 1))
+        # The review stage is the long one and printed nothing until it finished,
+        # so a run in progress was indistinguishable from a hung one.
+        printf '[%s] pr %s (%s) ...\n' "$done_n" "$(printf '%s' "$c" | jq -r .pr)" "$mode" >&2
 
         if [ -n "$BRIEFS" ]; then
             printf '%s' "$c" | jq -c --arg work "$work" --arg brief "$(brief_for "$work" "$mode" "$READ_ONLY")" \
@@ -142,6 +155,8 @@ emit_prediction() {   # emit_prediction <case-json> <work>
             exit 1
         fi
         emit_prediction "$c" "$work"
+        printf '[%s] pr %s -> %s\n' "$done_n" "$(printf '%s' "$c" | jq -r .pr)" \
+            "$("$SKILL_DIR/scripts/verdict-rule.sh" --work "$work" ${READ_ONLY:+--read-only} --json 2>/dev/null | jq -r '.verdict + " " + (.codes|join(","))')" >&2
     done < "$CASES"
 } > >([ "$OUT" = - ] && cat || cat > "$OUT")
 wait
