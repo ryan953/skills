@@ -199,6 +199,12 @@ without ceremony. Say where, or it didn't happen.
 cites a document requiring the other shape; otherwise it is context, or `N5`
 when the two disagree.
 
+`verdict` is about the **shape** this diff takes, not about whether its core idea
+matches. A change that reaches the same outcome as every prior by a different
+construction is `diverges`, however familiar the idea. The distinction decides a
+verdict — `matches` + a violated standard is `N5`, `diverges` + the same
+violation lets `R5` stand — and the rule reads the field, never the `note`.
+
 ## `links/S.json` — repo standards
 
 ```json

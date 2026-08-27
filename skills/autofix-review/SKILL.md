@@ -97,7 +97,7 @@ question, and writes `$WORK/links/<id>.json`.
 | `L3` | intent + change | Does the diff do what the description claims — nothing missing, nothing extra? |
 | `L4a` | evidence + change | **Prove the reported failure can no longer happen.** |
 | `L4b` | evidence + change | **Prove the reported failure can still happen.** |
-| `P` | `$FILES_FILE` + git log | Find 2–5 recent commits that fixed this shape of thing well. Does this diff match that shape? |
+| `P` | `$FILES_FILE` + git log | Find 2–5 recent commits that fixed this shape of thing well. Does this diff take the same **shape**? |
 | `S` | `$DOCS_FILE` + the diff hunks | Which repo rules govern the *changed lines*? Quote each one. Followed or not? |
 
 `L4a` and `L4b` are the same question under opposed framings, and running both is
@@ -114,9 +114,19 @@ Three rules to put in every validator's brief:
 3. **Judge only what the two cards in front of you say.** Do not go looking for
    other problems; that is a different skill.
 
-For `P`: diverging from precedent is *context*, never a reject by itself. For
-`S`: a rule broken by code the diff merely sits next to is not this change's
-problem, and an unquotable standard is one you invented.
+For `P`: diverging from precedent is *context*, never a reject by itself. But be
+exact about what `verdict` means — **it is about the shape this diff takes, not
+about whether its core idea is the same one.** A change can reach the same
+outcome as every prior while implementing it differently, and that is `diverges`.
+Getting this wrong is not cosmetic: `verdict-rule.sh` reads the field and not
+your note, and `matches` + a violated standard routes to `N5` (the written rule
+and the lived practice disagree) where `diverges` + the same violation lets the
+`R5` stand. Put the nuance in the field, then explain it in `note`.
+
+For `S`: a rule broken by code the diff merely sits next to is not this change's
+problem, and an unquotable standard is one you invented. Check the rule's own
+scope before applying it — a rule written about one situation, cited against a
+different one, is the most common way a false `R5` gets made.
 
 ## Step 4 — Wave 3: probe the closing link
 
