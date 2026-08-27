@@ -58,9 +58,22 @@ slice_one() {
                                | .created_at) ]
         | map(select(. != null)) | sort | (.[0] // "")')"
 
-    # No human ever reviewed it: there is no "state a reviewer first saw", so
-    # there is nothing here to score. Dropped rather than defaulted.
-    [ -n "$first_review" ] || { printf 'pr %s: no human review, skipped\n' "$number" >&2; return 0; }
+    local arm; arm="$(printf '%s' "$raw" | jq -r '.arm // ""')"
+    if [ -z "$first_review" ]; then
+        # On the merged/closed arms there is no "state a reviewer first saw", so
+        # there is nothing to score and the case is dropped.
+        #
+        # The seer arm is different and must not be dropped: a bot opened the PR
+        # complete, and the decision being scored is the merge or the close, not
+        # a review. Most autofix PRs carry no review at all, so requiring one
+        # here would silently return an empty sample — which is exactly what it
+        # did the first time.
+        if [ "$arm" != seer ]; then
+            printf 'pr %s: no human review, skipped\n' "$number" >&2; return 0
+        fi
+        first_review="$(printf '%s' "$raw" | jq -r '.mergedAt // .closedAt // ""')"
+        [ -n "$first_review" ] || { printf 'pr %s: no decision timestamp, skipped\n' "$number" >&2; return 0; }
+    fi
 
     local pre post head_at_review post_n
     pre="$(printf '%s' "$raw" | jq -c --arg t "$first_review" \
@@ -72,7 +85,10 @@ slice_one() {
     # make an untouched PR look like one that was revised.
     post_n="$(printf '%s' "$post" | jq '[ .[] | select((.messageHeadline // "") | test("^Merge (branch|remote|pull)") | not) ] | length')"
 
-    [ -n "$head_at_review" ] || { printf 'pr %s: no commits before first review, skipped\n' "$number" >&2; return 0; }
+    if [ -z "$head_at_review" ]; then
+        head_at_review="$(printf '%s' "$raw" | jq -r '.headRefOid // ""')"
+        [ -n "$head_at_review" ] || { printf 'pr %s: no commits before the decision, skipped\n' "$number" >&2; return 0; }
+    fi
 
     # Which files did the post-review commits touch? Needed for the
     # comment-then-change join; one API call per commit, so it is skippable.
@@ -109,6 +125,8 @@ slice_one() {
         state: $raw.state, author: ($raw.author.login // ""),
         base_ref: $raw.baseRefName, head_ref: $raw.headRefName,
         review_decision: ($raw.reviewDecision // ""),
+        decided_by: ($raw.decided_by // ""),
+        issue_id: ((($raw.body // "") | capture("(?<i>[A-Z][A-Z0-9]{2,}-[A-Z0-9]{4,})").i) // ""),
         first_review_at: $t,
         head_sha_at_review: $head,
         pre_review_commits: ($pre | length),
