@@ -145,10 +145,20 @@ slice_one() {
             later="$(git log --format='%s%n%b' "$own..HEAD" 2>/dev/null | head -c 200000 || true)"
         else
             # Not found (branch tip absent from the clone, or a merge commit
-            # rather than a squash). Fall back to the old range but drop any
-            # commit that names this PR, so it still cannot match itself.
-            later="$(git log --format='%s%n%b' "$head_at_review..HEAD" 2>/dev/null \
-                     | grep -v -F "(#$number)" | head -c 200000 || true)"
+            # rather than a squash). Fall back to the old range, dropping whole
+            # commits that name this PR.
+            #
+            # Per commit, not per line: `grep -v "(#N)"` removes the subject and
+            # leaves the body, so the "Fixes SENTRY-XXXX" line on the next line
+            # survives and the PR matches itself anyway -- the exact bug this
+            # fallback exists to avoid.
+            later="$(
+                for sha in $(git log --format='%H' "$head_at_review..HEAD" 2>/dev/null); do
+                    subj="$(git log -1 --format='%s' "$sha" 2>/dev/null)"
+                    case "$subj" in *"(#$number)"*) continue ;; esac
+                    git log -1 --format='%s%n%b' "$sha" 2>/dev/null
+                done | head -c 200000
+            )"
         fi
     fi
 

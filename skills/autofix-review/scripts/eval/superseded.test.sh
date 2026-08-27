@@ -22,8 +22,8 @@ OWN=$(git -C "$T" rev-parse HEAD)
 # unrelated later work
 echo c > "$T/b"; git -C "$T" add -A; git -C "$T" commit -qm 'feat: unrelated (#901)'
 
-cd "$T"
-number=900; head_at_review="$OWN"
+cd "$T" || exit 1
+number=900
 own="$(git log --format='%H %s' -n 4000 2>/dev/null | grep -m1 -F "(#$number)" | cut -d" " -f1 || true)"
 later="$(git log --format='%s%n%b' "$own..HEAD" 2>/dev/null || true)"
 if printf '%s' "$later" | grep -qF 'SENTRY-5F52'; then
@@ -38,3 +38,23 @@ later="$(git log --format='%s%n%b' "$own..HEAD" 2>/dev/null || true)"
 printf '%s' "$later" | grep -qF 'SENTRY-5F52' \
   && echo "ok: a real follow-up is still detected" \
   || { echo "FAIL: a real follow-up was missed"; exit 1; }
+
+# The fallback branch: when the PR's own commit cannot be found by its marker
+# (branch tip absent from the clone, or a merge commit rather than a squash),
+# slice.sh falls back to head_at_review..HEAD and filters out any commit naming
+# this PR. That must still not let the PR match itself.
+head_at_review="$OWN"
+fb="$(
+    for sha in $(git log --format='%H' "$head_at_review..HEAD" 2>/dev/null); do
+        subj="$(git log -1 --format='%s' "$sha" 2>/dev/null)"
+        case "$subj" in *"(#$number)"*) continue ;; esac
+        git log -1 --format='%s%n%b' "$sha" 2>/dev/null
+    done
+)"
+# Check the marker, not the words: "really guard tags" contains "guard tags".
+if printf '%s' "$fb" | grep -qF "(#$number)"; then
+  echo "FAIL: the fallback still lets the PR match itself"; exit 1
+fi
+printf '%s' "$fb" | grep -qF '(#950)' \
+  && echo "ok: the fallback drops this PR but keeps the follow-up" \
+  || { echo "FAIL: the fallback lost the follow-up"; exit 1; }
