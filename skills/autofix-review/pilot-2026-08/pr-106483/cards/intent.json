@@ -1,4 +1,0 @@
-{"claims":[{"id":"c1","text":"Introduces an early return in the Sentry endpoint when total_baseline <= 0","kind":"does"},{"id":"c2","text":"In that early return case, the endpoint returns a 200 OK response with an empty rankedAttributes list","kind":"does"},{"id":"c3","text":"The response shape now consistently includes rankingInfo, cohort1Total, and cohort2Total even in the early return case","kind":"does"},{"id":"c4","text":"This prevents 500 errors for users","kind":"does"},{"id":"c5","text":"This avoids unnecessary calls to the Seer service when no meaningful comparison can be made","kind":"does"}],
- "stated_scope":"This change introduces an early return in the Sentry endpoint so that when total_baseline <= 0, it returns a 200 OK response with an empty rankedAttributes list while keeping the response shape consistent, preventing 500 errors and avoiding unnecessary Seer service calls.","out_of_scope":[],
- "tests_claimed":false,
- "divergence_rationale":null}

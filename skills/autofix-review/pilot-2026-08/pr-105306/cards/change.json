@@ -1,5 +1,0 @@
-{"effects":[{"file":"src/sentry/eventstream/item_helpers.py","line":91,"before":"iterated directly over event_data[\"tags\"] to build tags[<key>] attributes; this raised a KeyError if event_data had no \"tags\" key, and would raise a TypeError if event_data[\"tags\"] was None (attempting to iterate None)","after":"reads tags via event_data.get(\"tags\") and only runs the tag-encoding loop when tags is not None; if the \"tags\" key is absent or its value is None, no tags[<key>] attributes are added and the function proceeds without error, still emitting attributes[\"tag_keys\"] (as an empty array in that case)"}],
- "new_tests":["tests/sentry/eventstream/test_item_helpers.py:214"],
- "side_effects":[],
- "suppression_flags":[{"kind":"default-value","file":"src/sentry/eventstream/item_helpers.py","line":91,"swallows":"the KeyError previously raised when \"tags\" was absent from event_data, and the TypeError previously raised when event_data[\"tags\"] was None, are no longer raised; a missing or null tags field is now silently treated as \"zero tags\" instead of surfacing as an exception"}],
- "behavioral":true}

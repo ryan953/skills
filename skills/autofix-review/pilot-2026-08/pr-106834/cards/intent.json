@@ -1,4 +1,0 @@
-{"claims":[{"id":"c1","text":"The fix introduces explicit null checks before calling generateFieldAsString() or generateMetricAggregate()","kind":"does"},{"id":"c2","text":"The sortField variable is now initialized as string | undefined","kind":"does"},{"id":"c3","text":"generateMetricAggregate() is called only if firstYAxisNotEquation is defined for TRACEMETRICS","kind":"does"},{"id":"c4","text":"generateFieldAsString() is called only if firstYAxisNotEquation or firstActionPayloadNotEquation are defined","kind":"does"},{"id":"c5","text":"The setSort action is now guarded by an if (sortField) check, preventing a sort update if no valid field can be determined for sorting","kind":"does"}],
- "stated_scope":"The fix introduces explicit null checks before calling generateFieldAsString() or generateMetricAggregate() to prevent a TypeError when sorting with an equation-only yAxis.","out_of_scope":[],
- "tests_claimed":false,
- "divergence_rationale":null}
