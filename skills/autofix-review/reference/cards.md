@@ -1,0 +1,233 @@
+# Cards, links, and the briefs that produce them
+
+Everything the coordinator ever sees is on this page. The raw diff, the raw
+Sentry issue, the raw PR body are read by exactly one subagent each and never
+reach the coordinator's context. That is not tidiness — it is what makes the
+`intent ↔ change` comparison mean anything (see **Blindness** below).
+
+All files are JSON, under `$WORK`. JSON rather than prose because
+`verdict-rule.sh` has to consume them without a model in the loop, and because a
+missing field should be a parse error rather than something to squint at.
+
+---
+
+## Blindness
+
+| Writer | Gets | Must never see |
+|---|---|---|
+| `evidence` | the issue (or the lint rule + failing output) | the diff, the PR body |
+| `rca` | the root-cause analysis | the diff, the PR body |
+| `intent` | PR body + commit messages | the diff, the issue |
+| `change` | the diff + surrounding source | the issue, the RCA, the PR body |
+
+**Why `change` is blind to the body.** Show a model the PR description and then
+the diff, and it will describe the diff in the description's own words — the
+framing primes the summary. Then `L3 intent ↔ change` compares a text against a
+paraphrase of itself and holds every time. Blind, the `change` writer says what
+the code does; if that diverges from what the author said they did, L3 sees it.
+
+Enforce blindness by **what you put in the prompt**, not by asking the subagent
+to ignore things. Each card writer gets a prompt containing only its own inputs
+and a path to write to. A card writer that is told "here is the PR body, ignore
+it" has already seen it.
+
+---
+
+## `cards/evidence.json`
+
+What is actually broken, from the source of truth. In `lintfix` mode the same
+shape is filled from the rule and the failing lint output.
+
+```json
+{
+  "mode": "bugfix | lintfix",
+  "source": "https://sentry.io/... | eslint:rule-name",
+  "symptom": "TypeError: Cannot read properties of undefined (reading 'id')",
+  "failing_frames": [
+    {"file": "static/app/views/foo/bar.tsx", "line": 88, "fn": "useThing", "in_repo": true}
+  ],
+  "preconditions": ["organization has no projects", "route hit before hydration"],
+  "repro": "prose or null — how to make it happen",
+  "affected_sites": ["static/app/views/foo/bar.tsx:88", "static/app/views/foo/baz.tsx:12"],
+  "volume": {"events": 1420, "users": 96},
+  "first_seen": "2026-07-02", "last_seen": "2026-08-19",
+  "unavailable": []
+}
+```
+
+`affected_sites` is the field `R4` is judged against, so it must list **only**
+sites the evidence itself names — every in-repo frame in the trace, every site
+named in the issue body. Never a site inferred by grepping for similar code:
+that is the reviewer inventing scope.
+
+`unavailable` names inputs that could not be read (`"seer_rca"`, `"breadcrumbs"`).
+A non-empty `unavailable` on a field a link depends on routes to `N1`.
+
+## `cards/rca.json`
+
+```json
+{
+  "present": true,
+  "source": "seer | issue-comment | linked-doc | derived-from-rule",
+  "mechanism": "one paragraph: the causal chain, not the symptom",
+  "faulty_locations": [{"file": "static/app/views/foo/bar.tsx", "line": 88}],
+  "proposed_remedy": "what the RCA suggests, or null",
+  "alternatives_considered": ["..."],
+  "confidence": "high | medium | low"
+}
+```
+
+`present: false` (no RCA anywhere) is legal and routes to `N1` unless
+`mode: lintfix`, where the rule's own rationale is a sufficient RCA and `source`
+becomes `derived-from-rule`.
+
+`proposed_remedy` is advisory. A change that fixes `mechanism` by other means is
+not `R2` — only a change that fixes a *different mechanism* is.
+
+## `cards/intent.json`
+
+From the PR body and commit messages only.
+
+```json
+{
+  "claims": [
+    {"id": "c1", "text": "guards against a null organization in useThing", "kind": "does"},
+    {"id": "c2", "text": "no behavior change for the populated case", "kind": "does-not"}
+  ],
+  "stated_scope": "one sentence in the author's framing",
+  "out_of_scope": ["explicit 'not doing X here' statements"],
+  "tests_claimed": true,
+  "divergence_rationale": "quoted text where the author explains departing from the RCA, or null"
+}
+```
+
+`claims[].kind` is `does` or `does-not`. Both are checkable and a violated
+`does-not` is the sharpest `R3` there is.
+
+`divergence_rationale` is what separates `R2`/`R5` from `N4`. Quote it; don't
+summarize it — the coordinator decides on the author's words, not yours.
+
+## `cards/change.json`
+
+From the diff and the code around it. This writer has no idea what the change is
+*for*, and should not speculate: describe behavior, not purpose.
+
+```json
+{
+  "effects": [
+    {"file": "static/app/views/foo/bar.tsx", "line": 88,
+     "before": "reads organization.id unconditionally",
+     "after": "returns early when organization is null"}
+  ],
+  "new_tests": ["static/app/views/foo/bar.spec.tsx:40"],
+  "side_effects": ["renames `thing` to `item` across 3 files"],
+  "suppression_flags": [
+    {"kind": "try-catch | optional-chain | default-value | type-assertion | eslint-disable | config-downgrade",
+     "file": "...", "line": 88, "swallows": "what stops being observable"}
+  ],
+  "behavioral": true
+}
+```
+
+`behavioral: false` — the diff cannot change runtime behavior (formatting,
+imports, types-only, comments). It is what lets a genuine lint fix reach `accept`
+without a probe, so it must be conservative: **anything you are unsure about is
+`behavioral: true`.**
+
+`suppression_flags[].swallows` is the field `R6` turns on. "what stops being
+observable" — if the honest answer is "nothing, the value is legitimately
+optional", say that; it is the difference between a fix and a muffle.
+
+---
+
+## `links/<id>.json`
+
+One per validator. `L4` runs twice, as `L4a` (framing: prove it's fixed) and
+`L4b` (framing: prove it still fires).
+
+```json
+{
+  "link": "L1 | L2 | L3 | L4a | L4b",
+  "status": "holds | broken | unsupported",
+  "reason": "one or two sentences",
+  "code": "R1 | R2 | R3 | R4 | R5 | R6 | R7 | null",
+  "citations": ["static/app/views/foo/bar.tsx:88", "evidence.failing_frames[0]"]
+}
+```
+
+- `holds` — the link is supported by what's in front of you.
+- `broken` — it is contradicted, **and** you can cite where. Requires a `code`.
+- `unsupported` — you cannot tell from the two cards you were given. This is a
+  respectable answer and it is the right one far more often than it feels.
+  Never guess to avoid it.
+
+A `broken` with an empty `citations` array is discarded by `verdict-rule.sh`
+without ceremony. Say where, or it didn't happen.
+
+## `links/P.json` — precedent
+
+```json
+{
+  "priors": [
+    {"sha": "abc1234", "subject": "fix(issues): guard null org in useThing",
+     "shape": "early return at the hook boundary", "matches_this_diff": true}
+  ],
+  "verdict": "matches | diverges | no-precedent",
+  "note": "one sentence"
+}
+```
+
+`diverges` alone is never a reject. It becomes `R5` only if `S` independently
+cites a document requiring the other shape; otherwise it is context, or `N5`
+when the two disagree.
+
+## `links/S.json` — repo standards
+
+```json
+{
+  "docs_found": ["CLAUDE.md", ".claude/skills/frontend-conventions/rules/api-calls.md"],
+  "applicable": [
+    {"doc": ".claude/skills/.../api-calls.md", "quote": "always use useApiQuery",
+     "applies_because": "the diff adds a fetch at bar.tsx:120",
+     "followed": false}
+  ],
+  "verdict": "followed | violated | not-applicable"
+}
+```
+
+Judge **only lines the diff touched**. A rule broken by code the diff merely sits
+next to is not this change's problem. Every entry needs a `quote` — an
+unquotable standard is one you invented, and it is dropped.
+
+---
+
+## `probes/<id>.json`
+
+Written by `probe-run.sh`, not by a model. See `probes.md`.
+
+```json
+{
+  "id": "p1", "derived_from": "evidence.preconditions[0]",
+  "test_file": "bar.probe.test.tsx",
+  "base_result": "fail | pass | error",
+  "head_result": "fail | pass | error | skipped",
+  "outcome": "proven | proven-reject | invalid | unprovable",
+  "detail": "first failing assertion, trimmed"
+}
+```
+
+## `refutations/<id>.json`
+
+```json
+{
+  "reason_id": "r1", "code": "R4",
+  "outcome": "refuted | survived",
+  "argument": "why it dies, or what you tried and why it didn't",
+  "citations": ["static/app/views/foo/baz.tsx:12"]
+}
+```
+
+The refuter's brief is adversarial on purpose: *default to `refuted`, and only
+report `survived` after opening the files and failing to find a way out.* A
+refuter that agrees with the finding without having looked is worth nothing, so
+`survived` with no `citations` is treated as `refuted`.
