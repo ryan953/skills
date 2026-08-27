@@ -20,8 +20,13 @@
 
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_DIR="$(cd "$HERE/.." && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # .../scripts/eval
+# Two levels, not one: $HERE is scripts/eval, so `$HERE/..` is scripts/ and
+# every path built from it came out as scripts/scripts/... . Nothing caught it
+# because the failure is a stderr line per case and an empty predictions file,
+# which score.sh then reports as "no scored cases" -- indistinguishable from a
+# sample that legitimately had nothing in it.
+SKILL_DIR="$(cd "$HERE/../.." && pwd)"
 
 CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=""; BRIEFS=""; WORK_ROOT=""
 while [ $# -gt 0 ]; do

@@ -12,6 +12,19 @@ reject. Two things it could not do, both of which need your machine:
 Prerequisites: `gh auth status` clean, a clone at `~/code/sentry`, `jq`, and the
 Sentry MCP available to whatever runs the skill.
 
+## The short version
+
+```bash
+~/code/skills/skills/autofix-review/scripts/eval/pilot.sh \
+  --repo-path ~/code/sentry --decider ryan953 --out ~/autofix-review-pilot
+```
+
+That runs all five stages, tees to `<out>/pilot.log`, and prints a summary short
+enough to paste back. It fails loudly rather than quietly on the two ways this
+harness produces nothing: an empty candidate list, and every case failing to run.
+Add `--read-only` to skip the probe wave, drop `--decider` to widen past your own
+calls. The stage-by-stage version follows if you want to drive it yourself.
+
 ## 1. Collect both halves of the seer arm
 
 ```bash
