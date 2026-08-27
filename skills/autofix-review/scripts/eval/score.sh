@@ -85,7 +85,11 @@ ALL="$(cat "$PRED")"
 report "OVERALL" "$ALL"
 
 if [ -n "$BY_ARM" ]; then
-    for arm in merged closed; do
+    # Whatever arms the data actually contains, not a hardcoded pair. The list
+    # was `merged closed`, so `--by-arm` reported "no scored cases" for the seer
+    # arm -- the one the README and RUNBOOK both say to start with.
+    ARMS="$(printf '%s' "$ALL" | jq -sr '[ .[].arm // empty ] | unique | .[]')"
+    for arm in $ARMS; do
         report "ARM: $arm" "$(printf '%s' "$ALL" | jq -c --arg a "$arm" 'select(.arm == $a)')"
     done
 fi

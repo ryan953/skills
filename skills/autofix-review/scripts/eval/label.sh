@@ -53,10 +53,12 @@ superseded_later() {
 # reading it as merely moot would throw away a real reject.
 classify_close_comment() {
     local t
-    t="$(printf '%s' "${1-}" | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')"
-    # Strip quoted reply lines: a quote of someone else's text is not this
-    # commenter's reason for closing.
-    t="$(printf '%s' "$t" | sed 's/> [^>]*//g')"
+    # Strip quoted reply lines FIRST, while newlines still delimit them: a quote
+    # of someone else's text is not this commenter's reason for closing. Doing it
+    # after the newline collapse made `> [^>]*` run to the end of the comment and
+    # swallow the real reason, so a close that quoted anything before explaining
+    # itself classified as `none` and the case was silently EXCLUDED.
+    t="$(printf '%s' "${1-}" | sed 's/^[[:space:]]*>.*$//' | tr '[:upper:]' '[:lower:]' | tr '\n' ' ')"
     [ -n "$(printf '%s' "$t" | tr -d '[:space:]')" ] || { printf 'none\n'; return; }
     if printf '%s' "$t" | grep -qE "$PROBLEM_RE"; then printf 'problem\n'; return; fi
     if printf '%s' "$t" | grep -qE "$MOOT_RE"; then printf 'moot\n'; return; fi

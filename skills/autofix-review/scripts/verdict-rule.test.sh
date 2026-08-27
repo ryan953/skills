@@ -148,6 +148,26 @@ v "N4 and N3 together" "needs-human|N4,N3" \
   "$(facts '{"probes":[],"divergence_rationale":"deliberate","reasons":[{"id":"r1","code":"R5","citations":["a:1"],"survived":true}]}')"
 
 echo ""
+echo "the joins are keyed on the link, not the code"
+# Both of these shipped. Keying on the code let one refutation speak for a
+# finding it never examined, and let one proven-reject probe mark every broken
+# link probe-proven -- which revives refuted findings AND suppresses the N4
+# conversion, since a probe-proven reason is deliberately immune to it.
+TWO_BROKEN='[{"link":"L1","status":"holds"},{"link":"L2","status":"holds"},{"link":"L3","status":"broken","code":"R3","citations":["a:1"]},{"link":"L4a","status":"holds"},{"link":"L4b","status":"broken","code":"R3","citations":["b:2"]}]'
+v "a probe for one link does not back another" "needs-human|N2" \
+  "$(facts "{\"links\":$TWO_BROKEN,\"reasons\":[
+      {\"id\":\"L3\",\"code\":\"R3\",\"citations\":[\"a:1\"],\"survived\":false,\"probe\":\"\"},
+      {\"id\":\"L4b\",\"code\":\"R3\",\"citations\":[\"b:2\"],\"survived\":false,\"probe\":\"\"}]}")"
+v "a probe scoped to its own link still rejects" "reject|R3" \
+  "$(facts "{\"links\":$TWO_BROKEN,\"reasons\":[
+      {\"id\":\"L3\",\"code\":\"R3\",\"citations\":[\"a:1\"],\"survived\":false,\"probe\":\"proven-reject\"},
+      {\"id\":\"L4b\",\"code\":\"R3\",\"citations\":[\"b:2\"],\"survived\":false,\"probe\":\"\"}]}")"
+# A refuted, rationale-covered finding must reach N4 -- not be dragged into a
+# reject by some other link's probe.
+v "a rationale still converts when no probe backs THIS link" "needs-human|N4" \
+  "$(facts '{"divergence_rationale":"deliberate","reasons":[{"id":"L2","code":"R2","citations":["a:1"],"survived":true,"probe":""}]}')"
+
+echo ""
 echo "the CLI, over a real work dir"
 # `decide` is pure and easy to test; the CLI that splits its output is where a
 # field-shift bug can hide, and an accept is the case that exposes it — its
@@ -188,6 +208,18 @@ EMPTY_WORK="$(mktemp -d "${TMPDIR:-/tmp}/autofix-review-empty.XXXXXX")"
 mkdir -p "$EMPTY_WORK"/{cards,links,probes,refutations}
 eq2 "an empty work dir reaches N1" "needs-human" \
     "$("$SCRIPT_DIR/verdict-rule.sh" --work "$EMPTY_WORK" --json | jq -r .verdict)"
+
+# gather.sh records missing inputs in meta.json. The rule only read the evidence
+# card's list, so a bug fix gather had already flagged as anchorless arrived
+# looking complete and could reach `accept`.
+META_WORK="$(mktemp -d "${TMPDIR:-/tmp}/autofix-review-meta.XXXXXX")"
+cp -r "$CLI_WORK"/. "$META_WORK"/
+printf '{"mode":"bugfix","unavailable":["issue"]}\n' > "$META_WORK/meta.json"
+eq2 "meta.json's missing input reaches N1" "needs-human" \
+    "$("$SCRIPT_DIR/verdict-rule.sh" --work "$META_WORK" --json | jq -r .verdict)"
+eq2 "and it is reported as N1"            "N1" \
+    "$("$SCRIPT_DIR/verdict-rule.sh" --work "$META_WORK" --json | jq -r '.codes|join(",")')"
+rm -rf "$META_WORK"
 rm -rf "$CLI_WORK" "$EMPTY_WORK"
 
 echo ""

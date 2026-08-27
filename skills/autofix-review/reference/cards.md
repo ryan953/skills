@@ -237,9 +237,15 @@ unquotable standard is one you invented, and it is dropped.
 
 Written by `probe-run.sh`, not by a model. See `probes.md`.
 
+`link` names the link this probe backs, and `reason_id` below names the link a
+refutation examined. **Both joins are keyed on the link, never on the code.**
+Keying on the code lets one refutation speak for a finding it never looked at,
+and lets a single proven-reject probe mark every broken link probe-proven — which
+revives refuted findings and suppresses the N4 conversion at the same time.
+
 ```json
 {
-  "id": "p1", "derived_from": "evidence.preconditions[0]",
+  "id": "p1", "link": "L4b", "derived_from": "evidence.preconditions[0]",
   "test_file": "bar.probe.test.tsx",
   "base_result": "fail | pass | error",
   "head_result": "fail | pass | error | skipped",

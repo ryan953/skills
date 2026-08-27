@@ -141,9 +141,12 @@ read the diff to decide what to test; that inverts the exercise into checking
 that the change does what it does.
 
 ```bash
-scripts/probe-run.sh --work "$WORK" --id p1 --test <probe-file> \
+scripts/probe-run.sh --work "$WORK" --id p1 --link L4b --test <probe-file> \
     --runner 'pnpm jest --silent {}' --repo-path <clone>
 ```
+
+`--link` is not optional in practice: `verdict-rule.sh` joins probes and
+refutations to findings **by link**, and a probe with no link backs nothing.
 
 Outcomes: `proven` (fail→pass), `proven-reject` (fail→fail, the strongest finding
 available), `invalid` (passed at base — discard it and mark `L1` unsupported),
@@ -166,8 +169,9 @@ the finding**:
 > Default to `refuted`. Open the files. Prove the reviewer wrong. Only report
 > `survived` after you have tried and failed, and cite what you read.
 
-Write `$WORK/refutations/<id>.json`. A `survived` with no citations is treated as
-`refuted` — a skeptic who agreed without looking has told you nothing. Findings
+Write `$WORK/refutations/<id>.json`, with `reason_id` set to the link you
+examined — the join is by link, so a refutation that omits it speaks for no
+finding at all. A `survived` with no citations is treated as `refuted` — a skeptic who agreed without looking has told you nothing. Findings
 already `proven-reject` by a probe skip this wave; the failing test *is* the
 refutation attempt, and it lost.
 

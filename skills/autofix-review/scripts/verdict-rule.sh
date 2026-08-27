@@ -210,8 +210,13 @@ facts_from_work() {
     local work="$1" probes_required="${2:-true}"
     local cards="$work/cards" links="$work/links"
 
-    local ev ch rc it
+    local ev ch rc it meta
     ev="$([ -f "$cards/evidence.json" ] && cat "$cards/evidence.json" || echo '{}')"
+    # gather.sh records inputs it could not read into meta.json. The evidence
+    # card carries its own list too, and only the card's was being read -- so a
+    # bug fix gather had already flagged as anchorless reached the rule looking
+    # complete. Take the union.
+    meta="$([ -f "$work/meta.json" ] && cat "$work/meta.json" || echo '{}')"
     ch="$([ -f "$cards/change.json" ]   && cat "$cards/change.json"   || echo '{}')"
     rc="$([ -f "$cards/rca.json" ]      && cat "$cards/rca.json"      || echo '{}')"
     it="$([ -f "$cards/intent.json" ]   && cat "$cards/intent.json"   || echo '{}')"
@@ -223,13 +228,22 @@ facts_from_work() {
     # A reason is a broken link joined to the refutation that tried to kill it
     # and the probe that tried to back it. Assembled here rather than by a model
     # so the join cannot be fudged in either direction.
+    #
+    # BOTH joins are keyed on the link, not on the code. Keying on the code was
+    # wrong in two directions at once: two links broken with the same code shared
+    # whichever refutation happened to be first (so a finding the refuter killed
+    # could inherit `survived` from a different finding it never examined), and
+    # any single proven-reject probe marked EVERY broken link probe-proven --
+    # which both revives refuted findings and suppresses the N4 rationale
+    # conversion, since a probe-proven reason is deliberately immune to it.
     reason_json="$(
         printf '%s' "$link_json" | jq -c '[ .[] | select(.status == "broken") ]' | \
         jq --argjson refs "$(json_array_of "$work/refutations" '*.json')" \
            --argjson probes "$probe_json" '
             [ .[] | . as $l
-              | ($refs   | map(select(.code == $l.code)) | .[0]) as $r
-              | ($probes | map(select(.outcome == "proven-reject")) | .[0]) as $p
+              | ($refs   | map(select((.reason_id // .link // "") == ($l.link // ""))) | .[0]) as $r
+              | ($probes | map(select((.link // "") == ($l.link // "")
+                                      and .outcome == "proven-reject")) | .[0]) as $p
               | {id: ($l.link // "?"), code: $l.code, citations: ($l.citations // []),
                  survived: (if $r == null then false else ($r.outcome == "survived" and (($r.citations // []) | length) > 0) end),
                  probe: ($p.outcome // "")} ]'
@@ -238,14 +252,14 @@ facts_from_work() {
     jq -n \
         --argjson ev "$ev" --argjson ch "$ch" --argjson rc "$rc" --argjson it "$it" \
         --argjson links "$link_json" --argjson reasons "$reason_json" --argjson probes "$probe_json" \
-        --arg pr "$probes_required" \
+        --arg pr "$probes_required" --argjson meta "$meta" \
         --argjson std "$([ -f "$links/S.json" ] && cat "$links/S.json" || echo '{}')" \
         --argjson prec "$([ -f "$links/P.json" ] && cat "$links/P.json" || echo '{}')" \
         '{
-            mode: ($ev.mode // "bugfix"),
+            mode: ($ev.mode // $meta.mode // "bugfix"),
             behavioral: (if $ch.behavioral == null then true else $ch.behavioral end),
             rca_present: (if $rc.present == null then false else $rc.present end),
-            unavailable: ($ev.unavailable // []),
+            unavailable: ((($ev.unavailable // []) + ($meta.unavailable // [])) | unique),
             probes_required: ($pr == "true"),
             divergence_rationale: ($it.divergence_rationale // null),
             standards_verdict: ($std.verdict // "not-applicable"),

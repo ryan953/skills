@@ -110,27 +110,45 @@ slice_one() {
               | select(((.user.login // "") | test($bots)) | not)
               | .path ] | unique')"
 
-    # Closing comments: what was said in the day before the close, plus anything
-    # after it. That window is what actually explains an abandoned PR.
+    # Closing comments: what was said from the start of the day BEFORE the close
+    # onwards. Anchoring at midnight of the close day itself -- which is what
+    # `.[0:10] + "T00:00:00Z"` did -- drops a reason given the previous evening,
+    # and the case then reads as an unexplained close and is EXCLUDED.
     local close_comments='[]'
     if [ "$state" = CLOSED ]; then
-        close_comments="$(printf '%s' "$raw" | jq -c --arg bots "$BOTS_RE" '
+        local window
+        window="$(date -u -d "$(printf '%s' "$raw" | jq -r '.closedAt // ""') -1 day" +%Y-%m-%dT00:00:00Z 2>/dev/null \
+                  || printf '')"
+        close_comments="$(printf '%s' "$raw" | jq -c --arg bots "$BOTS_RE" --arg window "$window" '
             (.closedAt // "") as $c
             | [ (.comments // [])[]
                 | select(((.author.login // "") | test($bots)) | not)
-                | select($c == "" or (.createdAt >= ($c | .[0:10] + "T00:00:00Z")))
+                | select($c == "" or (.createdAt >= $window))
                 | {author: (.author.login // ""), body: (.body // "")} ]')"
+    fi
+
+    # The supersession check needs two things nothing was providing: the issue
+    # this PR claims to fix, and the commits that landed after it. Without them
+    # `superseded_later` was dead outside its unit test -- and it is the check
+    # that stops a merged-then-re-fixed PR being scored as a correct accept.
+    local issue later
+    issue="$(printf '%s' "$raw" | jq -r '(.body // "") | capture("(?<i>[A-Z][A-Z0-9]{2,}-[A-Z0-9]{3,})").i // ""' 2>/dev/null || true)"
+    later=""
+    if [ -n "$issue" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+        later="$(git log --format='%s%n%b' "$head_at_review"..HEAD 2>/dev/null | head -c 200000 || true)"
     fi
 
     jq -n --argjson raw "$raw" --arg t "$first_review" --arg head "$head_at_review" \
           --argjson pre "$pre" --argjson postn "$post_n" --argjson pf "$post_files" \
-          --argjson cp "$comment_paths" --argjson cc "$close_comments" --arg repo "$repo" '{
+          --argjson cp "$comment_paths" --argjson cc "$close_comments" --arg repo "$repo" \
+          --arg issue "$issue" --arg later "$later" '{
         repo: $repo, pr: $raw.number, arm: $raw.arm, title: $raw.title, url: $raw.url,
         state: $raw.state, author: ($raw.author.login // ""),
         base_ref: $raw.baseRefName, head_ref: $raw.headRefName,
         review_decision: ($raw.reviewDecision // ""),
         decided_by: ($raw.decided_by // ""),
-        issue_id: ((($raw.body // "") | capture("(?<i>[A-Z][A-Z0-9]{2,}-[A-Z0-9]{4,})").i) // ""),
+        issue_id: $issue,
+        later_commits_text: $later,
         first_review_at: $t,
         head_sha_at_review: $head,
         pre_review_commits: ($pre | length),

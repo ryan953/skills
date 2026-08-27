@@ -75,6 +75,11 @@ eq "superseded with no reason is moot" EXCLUDED \
 # A quoted reply is someone else's words, not this commenter's reason.
 eq "a quoted problem does not count" EXCLUDED \
    "$(label '{"state":"CLOSED","close_comments":[{"author":"x","body":"> this is the wrong approach\n\nagreed, closing as duplicate of #12"}]}')"
+# The quote strip has to run while newlines still delimit lines. Collapsing them
+# first made `> [^>]*` run to the end of the comment and eat the real reason, so
+# any close that quoted something before explaining itself was silently dropped.
+eq "a quote does not swallow the reason after it" REJECT_TRUTH \
+   "$(label '{"state":"CLOSED","close_comments":[{"author":"x","body":"> can you take a look\n\nthis only fixes one of the call sites"}]}')"
 eq "the first problem comment wins over a later moot one" REJECT_TRUTH \
    "$(label '{"state":"CLOSED","close_comments":[{"author":"a","body":"this only fixes one of the call sites"},{"author":"b","body":"stale, closing"}]}')"
 eq "a moot comment does not mask a later problem one" REJECT_TRUTH \

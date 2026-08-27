@@ -26,9 +26,12 @@ parse_issue_refs() {
             | sed 's/^/sentry\t/' || true
 
         # Sentry short ids: PROJECT-SUFFIX where the suffix is base32-ish and at
-        # least 4 chars (JAVASCRIPT-2K3F). The length floor is what keeps this
-        # from swallowing every hyphenated capital in a PR body.
+        # least 4 chars (JAVASCRIPT-2K3F). The length floor keeps this from
+        # swallowing every hyphenated capital in a PR body, and the suffix must
+        # contain a LETTER: an all-digit suffix is a Linear ticket, and matching
+        # both sent the evidence writer after a Sentry issue that never existed.
         printf '%s' "$text" | grep -oE '\b[A-Z][A-Z0-9]{2,}-[A-Z0-9]{4,}\b' \
+            | grep -E -- '-[A-Z0-9]*[A-Z][A-Z0-9]*$' \
             | sed 's/^/sentry\t/' || true
 
         # Linear: two-to-six letters, a dash, digits. Requires a cue word in

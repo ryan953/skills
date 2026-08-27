@@ -95,7 +95,7 @@ card "$W" rca      "$RCA_OK"
 card "$W" intent   '{"claims":[{"id":"c1","text":"guards both readers","kind":"does"}],"divergence_rationale":null}'
 card "$W" change   '{"effects":[{"file":"src/app.ts","line":1,"after":"guards"},{"file":"src/app.ts","line":2,"after":"guards"}],"behavioral":true,"suppression_flags":[]}'
 holds_all "$W"
-art "$W" probes p1 '{"id":"p1","outcome":"proven","base_result":"fail","head_result":"pass"}'
+art "$W" probes p1 '{"id":"p1","link":"L4a","outcome":"proven","base_result":"fail","head_result":"pass"}'
 eval "$("$VERDICT_SH" --work "$W")"
 eq "  VERDICT" accept "$VERDICT"
 eq "  CODES"   ""     "$CODES"
@@ -114,8 +114,8 @@ card "$W" intent   '{"claims":[{"id":"c1","text":"guards the null org","kind":"d
 card "$W" change   '{"effects":[{"file":"src/app.ts","line":1,"after":"guards"}],"behavioral":true,"suppression_flags":[]}'
 holds_all "$W"
 link "$W" L4b '{"link":"L4b","status":"broken","code":"R4","citations":["src/app.ts:2","evidence.failing_frames[1]"],"reason":"b() still dereferences org"}'
-art "$W" refutations r_R4 '{"code":"R4","outcome":"survived","citations":["src/app.ts:2"],"argument":"b is exported and called from the same route"}'
-art "$W" probes p1 '{"id":"p1","outcome":"proven-reject","base_result":"fail","head_result":"fail"}'
+art "$W" refutations r_R4 '{"reason_id":"L4b","code":"R4","outcome":"survived","citations":["src/app.ts:2"],"argument":"b is exported and called from the same route"}'
+art "$W" probes p1 '{"id":"p1","link":"L4b","outcome":"proven-reject","base_result":"fail","head_result":"fail"}'
 eval "$("$VERDICT_SH" --work "$W")"
 eq "  VERDICT" reject "$VERDICT"
 eq "  CODES"   R4     "$CODES"
@@ -137,8 +137,8 @@ card "$W" change   '{"effects":[{"file":"src/app.ts","line":1,"after":"returns n
  "suppression_flags":[{"kind":"try-catch","file":"src/app.ts","line":1,"swallows":"the null org is still null, callers now silently get null"}]}'
 holds_all "$W"
 link "$W" L1 '{"link":"L1","status":"broken","code":"R6","citations":["src/app.ts:1","rca.mechanism"],"reason":"the null org persists; only the throw is hidden"}'
-art "$W" refutations r_R6 '{"code":"R6","outcome":"survived","citations":["src/app.ts:1"],"argument":"no assignment or guard makes org non-null"}'
-art "$W" probes p1 '{"id":"p1","outcome":"proven","base_result":"fail","head_result":"pass"}'
+art "$W" refutations r_R6 '{"reason_id":"L1","code":"R6","outcome":"survived","citations":["src/app.ts:1"],"argument":"no assignment or guard makes org non-null"}'
+art "$W" probes p1 '{"id":"p1","link":"L4a","outcome":"proven","base_result":"fail","head_result":"pass"}'
 eval "$("$VERDICT_SH" --work "$W")"
 # The probe passes — the crash really did stop — and the change is still rejected,
 # because R6 is about the state the RCA named, not about whether the throw is gone.
@@ -161,7 +161,7 @@ card "$W" intent   '{"claims":[{"id":"c1","text":"quiets the rule","kind":"does"
 card "$W" change   '{"effects":[],"behavioral":false,"suppression_flags":[{"kind":"eslint-disable","file":"src/app.ts","line":1,"swallows":"the rule, not the console call"}]}'
 holds_all "$W"
 link "$W" L2 '{"link":"L2","status":"broken","code":"R7","citations":["src/app.ts:1"],"reason":"disables the rule rather than removing the call"}'
-art "$W" refutations r_R7 '{"code":"R7","outcome":"survived","citations":["src/app.ts:2"],"argument":"the console call is unchanged"}'
+art "$W" refutations r_R7 '{"reason_id":"L2","code":"R7","outcome":"survived","citations":["src/app.ts:2"],"argument":"the console call is unchanged"}'
 eval "$("$VERDICT_SH" --work "$W")"
 eq "  VERDICT" reject "$VERDICT"
 eq "  CODES"   R7     "$CODES"
@@ -197,8 +197,8 @@ card "$W" change   '{"effects":[{"file":"src/app.ts","line":1,"after":"guards"},
  "behavioral":true,"side_effects":["adds a new export the description never mentions"],"suppression_flags":[]}'
 holds_all "$W"
 link "$W" L3 '{"link":"L3","status":"broken","code":"R3","citations":["src/app.ts:3"],"reason":"adds an exported helper the description never claims"}'
-art "$W" refutations r_R3 '{"code":"R3","outcome":"survived","citations":["src/app.ts:3"],"argument":"nothing in the body or commit mentions fmt"}'
-art "$W" probes p1 '{"id":"p1","outcome":"proven","base_result":"fail","head_result":"pass"}'
+art "$W" refutations r_R3 '{"reason_id":"L3","code":"R3","outcome":"survived","citations":["src/app.ts:3"],"argument":"nothing in the body or commit mentions fmt"}'
+art "$W" probes p1 '{"id":"p1","link":"L4a","outcome":"proven","base_result":"fail","head_result":"pass"}'
 eval "$("$VERDICT_SH" --work "$W")"
 eq "  VERDICT" reject "$VERDICT"
 eq "  CODES"   R3     "$CODES"
@@ -217,6 +217,15 @@ holds_all "$W"
 eval "$("$VERDICT_SH" --work "$W")"
 eq "  VERDICT" needs-human "$VERDICT"
 eq "  CODES"   N1          "$CODES"
+
+echo ""
+echo "5b. a refutation for another link does not save this one"
+W="$TMPROOT/w-creep-wronglink"
+cp -r "$TMPROOT/w-creep" "$W"
+art "$W" refutations r_R3 '{"reason_id":"L4a","code":"R3","outcome":"survived","citations":["src/app.ts:3"],"argument":"examined a different link entirely"}'
+eval "$("$VERDICT_SH" --work "$W")"
+# Same code, wrong link: the finding loses its refutation and cannot stand.
+eq "  VERDICT" needs-human "$VERDICT"
 
 echo ""
 echo "7. read-only scoring of the clean case"

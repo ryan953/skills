@@ -11,8 +11,11 @@
 #
 # Usage:
 #   probe-run.sh --work <dir> --id p1 --test <file> --runner '<cmd>'
-#                [--repo-path <dir>] [--base <sha>] [--head <sha>]
+#                [--link L4b] [--repo-path <dir>] [--base <sha>] [--head <sha>]
 #                [--dest <path-in-tree>] [--keep-worktrees]
+#
+# --link names the link this probe backs. verdict-rule.sh joins on it, and
+# without it a proven-reject here would be credited to every broken link at once.
 #
 # `{}` in --runner is replaced with the probe's path inside the worktree; with no
 # `{}` the path is appended. The runner is invoked with the worktree as cwd.
@@ -30,7 +33,7 @@ if [ -f "$LIB" ]; then . "$LIB"; else
     die() { printf 'error: %s\n' "$*" >&2; exit 3; }
 fi
 
-WORK=""; ID=""; TEST=""; RUNNER=""; REPO_PATH=""; BASE=""; HEAD=""; DEST=""; KEEP=""
+WORK=""; ID=""; TEST=""; RUNNER=""; REPO_PATH=""; BASE=""; HEAD=""; DEST=""; KEEP=""; LINK=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --work) WORK="$2"; shift 2 ;;
@@ -41,6 +44,7 @@ while [ $# -gt 0 ]; do
         --base) BASE="$2"; shift 2 ;;
         --head) HEAD="$2"; shift 2 ;;
         --dest) DEST="$2"; shift 2 ;;
+        --link) LINK="$2"; shift 2 ;;
         --keep-worktrees) KEEP=1; shift ;;
         *) die "unknown flag: $1" ;;
     esac
@@ -94,8 +98,8 @@ WT_HEAD="$WORK/wt-head"
 
 write_result() {   # write_result <outcome> <base> <head> <detail>
     jq -n --arg id "$ID" --arg tf "$(basename "$TEST")" --arg o "$1" \
-          --arg b "$2" --arg h "$3" --arg d "$4" --arg dest "$DEST" \
-        '{id:$id, test_file:$tf, dest:$dest, base_result:$b, head_result:$h,
+          --arg b "$2" --arg h "$3" --arg d "$4" --arg dest "$DEST" --arg link "$LINK" \
+        '{id:$id, link:$link, test_file:$tf, dest:$dest, base_result:$b, head_result:$h,
           outcome:$o, detail:$d}' > "$RESULT_FILE"
     emit PROBE_ID "$ID"; emit OUTCOME "$1"; emit BASE_RESULT "$2"
     emit HEAD_RESULT "$3"; emit RESULT_FILE "$RESULT_FILE"
@@ -104,11 +108,18 @@ write_result() {   # write_result <outcome> <base> <head> <detail>
     esac
 }
 
-# run_probe <worktree> — echoes pass|fail|error, leaves output in $LAST_OUTPUT.
+# run_probe <worktree> — echoes pass|fail|error, and leaves the run's output in
+# the file named by $OUT_CAPTURE.
+#
+# A file rather than a variable because callers read this function through a
+# command substitution, which runs it in a subshell: anything it assigned to a
+# global was discarded the moment it returned, so every record's `detail` shipped
+# as "still failing at head: " with the diagnostic silently dropped.
+#
 # `error` is kept distinct from `fail` on purpose: a suite that never ran is not
 # evidence of anything, and collapsing the two is how "we could not check" turns
 # into "we checked and it is broken".
-LAST_OUTPUT=""
+OUT_CAPTURE=""
 run_probe() {
     local wt="$1" cmd out rc
     cp "$TEST" "$wt/$DEST" 2>/dev/null || { mkdir -p "$wt/$(dirname "$DEST")" && cp "$TEST" "$wt/$DEST"; }
@@ -119,7 +130,7 @@ run_probe() {
     out="$(cd "$wt" && eval "$cmd" 2>&1)"
     rc=$?
     rm -f "$wt/$DEST"
-    LAST_OUTPUT="$out"
+    printf '%s' "$out" > "$OUT_CAPTURE"
     if [ "$rc" -eq 0 ]; then printf 'pass\n'; return; fi
     if [ "$rc" -eq 127 ] || printf '%s' "$out" | grep -qiE \
         'command not found|cannot find module|no tests? found|module not found|unable to resolve|econnrefused'; then
@@ -128,9 +139,10 @@ run_probe() {
     printf 'fail\n'
 }
 
-trim() { printf '%s' "${1:-}" | tail -n 20 | cut -c1-400 | tr '\n' ' '; }
+trim() { tail -n 20 "$1" 2>/dev/null | cut -c1-400 | tr '\n' ' '; }
 
 cleanup() {
+    rm -f "$WORK/probes/.$ID.base.out" "$WORK/probes/.$ID.head.out"
     [ -n "$KEEP" ] && return 0
     git -C "$REPO_PATH" worktree remove --force "$WT_BASE" >/dev/null 2>&1 || true
     git -C "$REPO_PATH" worktree remove --force "$WT_HEAD" >/dev/null 2>&1 || true
@@ -141,8 +153,9 @@ trap cleanup EXIT
 if ! add_worktree "$WT_BASE" "$BASE"; then
     write_result unprovable error skipped "could not create a worktree at base $BASE"
 fi
+OUT_CAPTURE="$WORK/probes/.$ID.base.out"
 BASE_RESULT="$(run_probe "$WT_BASE")"
-BASE_OUT="$LAST_OUTPUT"
+BASE_OUT="$OUT_CAPTURE"
 
 if [ "$BASE_RESULT" = error ]; then
     write_result unprovable error skipped "the probe could not run against base: $(trim "$BASE_OUT")"
@@ -158,8 +171,9 @@ fi
 if ! add_worktree "$WT_HEAD" "$HEAD"; then
     write_result unprovable fail error "could not create a worktree at head $HEAD"
 fi
+OUT_CAPTURE="$WORK/probes/.$ID.head.out"
 HEAD_RESULT="$(run_probe "$WT_HEAD")"
-HEAD_OUT="$LAST_OUTPUT"
+HEAD_OUT="$OUT_CAPTURE"
 
 case "$HEAD_RESULT" in
     error) write_result unprovable fail error "the probe could not run against head: $(trim "$HEAD_OUT")" ;;
