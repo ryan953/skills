@@ -29,6 +29,23 @@ PROBLEM_RE='wrong approach|not the right (fix|approach)|does ?n.?t (actually )?f
 # so it is not evidence about a verdict either way.
 MOOT_RE='no longer (needed|relevant)|not needed anymore|stale|obsolete|duplicate of|dupe of|superseded by|closing in favou?r of|fixed elsewhere|fixed by|already (fixed|landed|merged)|out of date|abandon|deprioriti|won.?t fix|wontfix|moved to|reopening as|will redo|opening a (new|fresh)'
 
+# superseded_later <issue-id> <later-commit-subjects-and-bodies>
+#
+# A merged fix that a LATER commit re-fixes against the same issue was not
+# correct — it was merely merged. Found the hard way: the pilot rejected a
+# merged Seer PR for guarding a container while the crash was in the unpack one
+# line later, and the repo contained a follow-up commit against the same Sentry
+# issue saying in as many words that the original diagnosis "wasnt the problem".
+# Scored naively that reads as a false reject; it is the label that is wrong.
+#
+# So `merged` alone is not ACCEPT_TRUTH. It is ACCEPT_TRUTH only if nothing
+# afterwards had to fix the same issue again.
+superseded_later() {
+    local issue="${1-}" later="${2-}"
+    [ -n "$issue" ] || return 1
+    printf '%s' "$later" | grep -qiF "$issue"
+}
+
 # classify_close_comment <text> — problem | moot | none | unclear
 #
 # Checked problem-first: "superseded by #123 because it fixes the wrong layer"
@@ -80,6 +97,14 @@ label_case() {
     if [ "$arm" = seer ]; then
         [ -n "$decided_by" ] || { printf 'EXCLUDED\tno recorded decider\n'; return; }
         if [ "$state" = MERGED ]; then
+            # Merged, but did it hold? A later commit against the same issue
+            # says it did not, whatever the merge implied at the time.
+            local issue later
+            issue="$(q '.issue_id // ""')"
+            later="$(q '.later_commits_text // ""')"
+            if [ -n "$issue" ] && [ -n "$later" ] && superseded_later "$issue" "$later"; then
+                printf 'REJECT_TRUTH\ta later commit re-fixed %s, so the merged fix did not hold\n' "$issue"; return
+            fi
             printf 'ACCEPT_TRUTH\t%s merged the autofix\n' "$decided_by"; return
         fi
         local n i verdict best=none

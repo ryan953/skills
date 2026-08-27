@@ -139,6 +139,31 @@ eq "the word bug in prose"    "" "$(body_evidence 'this fixes a bug in the heade
 eq "empty"                    "" "$(body_evidence '')"
 
 echo ""
+echo "divergence_markers — the author admitting a deliberate departure"
+# These sentences live in the framing paragraph, which is the evidence writer's
+# input, not the intent writer's. They are pulled out separately so the intent
+# card can quote one wherever it was written — without that, the N4 conversion
+# silently fails and a considered tradeoff is reported as a defect.
+eq "does not address the root cause" \
+   "Surfaced from SENTRY-555Z, but does not directly address its root cause" \
+   "$(divergence_markers 'Surfaced from SENTRY-555Z, but does not directly address its root cause')"
+eq "rather than repair" \
+   "Rather than repair that logic, this replaces it." \
+   "$(divergence_markers 'Rather than repair that logic, this replaces it.')"
+eq "explicitly out of scope" \
+   "The wider refactor is out of scope for this PR." \
+   "$(divergence_markers 'The wider refactor is out of scope for this PR.')"
+eq "a knowing stop-gap" \
+   "This is a stop-gap until the queue is rewritten." \
+   "$(divergence_markers 'This is a stop-gap until the queue is rewritten.')"
+
+echo ""
+echo "divergence_markers — silent on ordinary prose"
+eq "a plain fix"        "" "$(divergence_markers 'This fixes the crash by adding a guard. Tests added.')"
+eq "praise for the fix" "" "$(divergence_markers 'This addresses the root cause directly.')"
+eq "empty"              "" "$(divergence_markers '')"
+
+echo ""
 echo "classify_mode"
 eq "lint title, no issue"        lintfix "$(classify_mode 'ref(lint): drop unused imports' 3 0)"
 eq "eslint title, no issue"      lintfix "$(classify_mode 'fix eslint no-unused-vars' 1 0)"

@@ -1,0 +1,39 @@
+{
+  "effects": [
+    {
+      "file": "static/app/views/releases/drawer/releasesDrawerList.tsx",
+      "line": 52,
+      "before": "After `const opts = echartsInstance.getOption();`, code immediately did `(opts.series as SeriesOption[]).find(...)` with no check that `opts` was defined, so if `getOption()` returned undefined/null the property access threw a TypeError.",
+      "after": "Adds `if (!opts) { return; }` right after the `getOption()` call, so the function exits before touching `opts.series` when `opts` is falsy."
+    },
+    {
+      "file": "static/app/views/releases/drawer/releasesDrawerList.tsx",
+      "line": 57,
+      "before": "`const series = (opts.series as SeriesOption[]).find(({id}) => id === seriesId);` cast `opts.series` directly to an array (no optional chaining), and the subsequent access was `series?.markLine.data.map(...)` — only `series` was optional-chained, so if `series` existed but `series.markLine` was undefined, `.data` access threw a TypeError.",
+      "after": "`const series = (opts.series as SeriesOption[] | undefined)?.find(({id}) => id === seriesId);` now optional-chains the `.find` call, and a new guard `if (!series?.markLine?.data) { return; }` checks `series`, `series.markLine`, and `series.markLine.data` together before any of them is dereferenced. The later line becomes `series.markLine.data.map(...)` (no `?.` needed) since the guard already ensures all three are defined."
+    },
+    {
+      "file": "static/app/views/releases/drawer/releasesDrawerList.tsx",
+      "line": 68,
+      "before": "`const updatedData = series?.markLine.data.map(...)` — when `series` was undefined, `updatedData` became `undefined`, but execution continued to the unconditional `echartsInstance.setOption({series: {id: seriesId, markLine: {data: updatedData}}})` call below, so ECharts was still invoked with `data: undefined`.",
+      "after": "`const updatedData = series.markLine.data.map(...)` only runs once the new guard has passed, and the added early returns mean `echartsInstance.setOption(...)` is skipped entirely (not called with `data: undefined`) whenever `opts`, `series`, `series.markLine`, or `series.markLine.data` is missing."
+    }
+  ],
+  "new_tests": [],
+  "side_effects": [],
+  "suppression_flags": [
+    {
+      "kind": "optional-chain",
+      "file": "static/app/views/releases/drawer/releasesDrawerList.tsx",
+      "line": 52,
+      "swallows": "The TypeError previously thrown (\"Cannot read properties of undefined (reading 'series')\") when `echartsInstance.getOption()` returns undefined (e.g. chart disposed/not yet initialized) is no longer thrown. That state now produces a silent no-op: no markLine highlight update happens and nothing is logged or surfaced anywhere — the caller has no way to observe that the update was skipped."
+    },
+    {
+      "kind": "optional-chain",
+      "file": "static/app/views/releases/drawer/releasesDrawerList.tsx",
+      "line": 60,
+      "swallows": "The TypeError previously thrown when `series` was not found for `seriesId`, or was found but `series.markLine` (or `.data`) was undefined, is no longer thrown. Each of those three distinct missing-data cases is now collapsed into the same silent early return: no highlight/unhighlight update occurs and no error or log records that it happened. Given the accompanying commit description (a race condition where the chart can be disposed between an event firing and the handler running), this reads as a legitimate defensive fix for an expected transient state rather than masking a real bug — but the diff itself does not distinguish that case from a genuinely-missing series/markLine, so all such cases are now uniformly silent."
+    }
+  ],
+  "behavioral": true
+}

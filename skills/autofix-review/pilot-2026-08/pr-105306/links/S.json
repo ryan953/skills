@@ -1,0 +1,37 @@
+{
+  "docs_found": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "src/AGENTS.md",
+    "src/CLAUDE.md",
+    "tests/AGENTS.md",
+    "tests/CLAUDE.md"
+  ],
+  "applicable": [
+    {
+      "doc": "tests/AGENTS.md",
+      "quote": "When fixing errors or adding functionality, you MUST add test cases to existing test files rather than creating new test files.",
+      "applies_because": "The diff is a bug fix that adds one new test case; the added lines land in the already-existing tests/sentry/eventstream/test_item_helpers.py rather than in a new file.",
+      "followed": true
+    },
+    {
+      "doc": "AGENTS.md",
+      "quote": "- Code location: `src/sentry/foo/bar.py`\n- Test location: `tests/sentry/foo/test_bar.py`",
+      "applies_because": "The changed source file is src/sentry/eventstream/item_helpers.py and the changed test lines are in tests/sentry/eventstream/test_item_helpers.py, exactly the mirrored path this rule prescribes.",
+      "followed": true
+    },
+    {
+      "doc": "tests/AGENTS.md",
+      "quote": "Tests should ALWAYS be procedural with NO branching logic. It is very rare\n  that you will need an if statement as part of a backend test.",
+      "applies_because": "It governs the body of the newly added test_encode_attributes_with_none_tags; the added lines are straight-line setup plus asserts with no if statements or conditional test logic.",
+      "followed": true
+    },
+    {
+      "doc": "src/AGENTS.md",
+      "quote": "- Don't comment on obvious test setup steps (e.g. \"Create organization\", \"Call the API\")",
+      "applies_because": "The added test introduces two comments; they sit on assertions and state the expected behaviour under None tags rather than narrating setup steps, matching the comments already used in the sibling test_encode_attributes_with_empty_tags case.",
+      "followed": true
+    }
+  ],
+  "verdict": "followed"
+}

@@ -1,0 +1,4 @@
+{"mode":"bugfix","source":"pr-body","symptom":"The /api/0/organizations/{organization_id_or_slug}/trace-items/attributes/ranked/ endpoint returns a 500 error when the calculated total_baseline is zero or negative, because the downstream Seer service raises a ZeroDivisionError doing Laplace smoothing with total_count of zero.",
+ "failing_frames":[{"file":"src/sentry/api/endpoints/organization_trace_item_attributes_ranked.py","line":null,"fn":"OrganizationTraceItemsAttributesRankedEndpoint","in_repo":true}],
+ "preconditions":["the \"outlier\" cohort query matches all or more spans than the \"baseline\" cohort query, causing total_baseline to become zero or negative"],"repro":null,
+ "affected_sites":[],"volume":null,"first_seen":null,"last_seen":null,"unavailable":["Seer service source (external, not in this repo) where the ZeroDivisionError is actually raised"]}

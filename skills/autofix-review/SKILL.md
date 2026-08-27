@@ -71,7 +71,7 @@ each writes one JSON file to `$WORK/cards/`.
 |---|---|---|
 | evidence | `$REFS_FILE` + fetched issue (sentry MCP); or `$BODY_EV_FILE` when `EVIDENCE_SOURCE=pr-body`; or in lintfix mode the rule id from `$LINT_FILE` plus its docs | `cards/evidence.json` |
 | rca | the Seer/root-cause analysis for that issue | `cards/rca.json` |
-| intent | `$BODY_FILE`, nothing else | `cards/intent.json` |
+| intent | `$BODY_FILE` **and `$DIVERGENCE_FILE`**, nothing else | `cards/intent.json` |
 | change | `$DIFF_FILE` + read access to the repo, nothing else | `cards/change.json` |
 
 **Blindness is enforced by what you put in the prompt, not by asking a subagent

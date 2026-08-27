@@ -147,6 +147,28 @@ eq "evidence source is none" none  "$EVIDENCE_SOURCE"
 eq "and the gap is reported" issue "$UNAVAILABLE"
 
 echo ""
+echo "a deliberate departure, stated in the framing"
+R6="$(new_repo divergence)"
+git -C "$R6" checkout -qb fix/narrow
+printf 'const a = 4;\n' > "$R6/app.ts"
+git -C "$R6" add -A && git -C "$R6" commit -qm 'fix(app): narrow guard
+
+## Bug
+
+TypeError: cannot read id of undefined
+
+Surfaced from JAVASCRIPT-1ABC, but does not directly address its root cause -
+the wider refactor is out of scope for this PR.'
+W6="$TMPROOT/work-divergence"
+eval "$("$GATHER" --repo-path "$R6" --work "$W6" 2>&1)"
+contains "the departure is captured for the intent writer" \
+   "does not directly address its root cause" "$(cat "$DIVERGENCE_FILE")"
+# It must NOT fire on an ordinary fix, or every change would look like a
+# tradeoff and N4 would swallow real defects.
+eval "$("$GATHER" --repo-path "$R5" --work "$TMPROOT/work-nodiv" 2>&1)"
+eq "silent on an ordinary fix" "" "$(cat "$DIVERGENCE_FILE")"
+
+echo ""
 echo "repo docs discovery"
 R4="$(new_repo docs)"
 mkdir -p "$R4/static/app"

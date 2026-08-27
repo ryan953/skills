@@ -82,6 +82,28 @@ body_evidence() {
     } | awk 'NF && !seen[$0]++'
 }
 
+# ---- divergence markers -----------------------------------------------------
+# Text where the author says they are knowingly departing from the analysed fix
+# ("does not directly address its root cause", "rather than repair that logic").
+#
+# This exists because of where such a sentence LIVES. It is usually in the
+# framing paragraph, alongside the symptom — which is the evidence writer's
+# input, not the intent writer's. But `divergence_rationale` is an intent field,
+# and it is what converts an R2/R5/R7 into N4. Split the body naively and the
+# intent writer never sees the sentence, the conversion silently fails, and a
+# considered tradeoff is reported as a defect. Found exactly that way, on a real
+# PR whose body said "but does not directly address its root cause" and whose
+# intent card came back with divergence_rationale: null.
+#
+# Emits whole matching lines, for the intent writer to quote verbatim.
+divergence_markers() {
+    local text="${1-}"
+    [ -n "$text" ] || return 0
+    printf '%s\n' "$text" | grep -iE \
+        'does ?n.?t (directly )?(address|fix|solve)|not the root cause|rather than (repair|fix|rewrite)|instead of (fixing|addressing)|(deliberately|intentionally|knowingly) (not|leav|skip)|out of scope for this|as a follow.?up|leaves? .* for (a )?(later|follow)|narrower (fix|change)|stop.?gap|mitigat(es|ion) (only|rather)|workaround (until|for now)' \
+        | sed 's/^[[:space:]]*//' | awk 'NF && !seen[$0]++'
+}
+
 # ---- lint signals -----------------------------------------------------------
 # Emits `kind<TAB>detail` for anything in the diff that looks like lint work.
 # Reads a unified diff on stdin or as $1.

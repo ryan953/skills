@@ -1,0 +1,52 @@
+{
+  "docs_found": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "src/AGENTS.md",
+    "src/CLAUDE.md",
+    "tests/AGENTS.md",
+    "tests/CLAUDE.md",
+    ".cursor/rules/backend.mdc",
+    ".cursor/rules/tests.mdc",
+    "src/sentry/seer/blueprints/api.md"
+  ],
+  "applicable": [
+    {
+      "doc": "src/AGENTS.md",
+      "quote": "# IMPORTANT: Avoid LOG011 - Never pre-format log messages with f-strings or .format()",
+      "applies_because": "The added line `logger.warning(\"total_baseline is <= 0 (%s). Returning empty response\", total_baseline)` is a new log call in a changed line of src/sentry/api/endpoints/organization_trace_item_attributes_ranked.py; the rule governs how log messages may be formatted.",
+      "followed": true
+    },
+    {
+      "doc": "src/AGENTS.md",
+      "quote": "Comments should not repeat what the code is saying. Instead, reserve comments for explaining **why** something is being done, or to provide context that is not obvious from the code itself.",
+      "applies_because": "The diff adds the comment `# If baseline is empty or negative, comparison is not meaningful` directly above the new `if total_baseline <= 0:` guard; it states the domain reason for the guard rather than narrating the condition (the doc's own positive example is the near-identical `# Seer requires at least 10 events before it can analyze patterns` above an `if event_count < 10: return None`).",
+      "followed": true
+    },
+    {
+      "doc": "tests/AGENTS.md",
+      "quote": "When fixing errors or adding functionality, you MUST add test cases to existing test files rather than creating new test files.",
+      "applies_because": "The diff's test change adds `test_empty_baseline_returns_empty_response` to the already-existing tests/snuba/api/endpoints/test_organization_trace_item_attributes_ranked.py rather than creating a new test module for the fix.",
+      "followed": true
+    },
+    {
+      "doc": "tests/AGENTS.md",
+      "quote": "**Exception**: Tests ensuring Snuba compatibility MUST be placed in `tests/snuba/`. The tests in this folder will also run in Snuba's CI.",
+      "applies_because": "The new test stores spans and exercises the endpoint's real Snuba/EAP queries (it asserts on `cohort1Total`/`cohort2Total` computed from stored spans), and the changed test lines live in tests/snuba/api/endpoints/.",
+      "followed": true
+    },
+    {
+      "doc": "tests/AGENTS.md",
+      "quote": "Tests should ALWAYS be procedural with NO branching logic.",
+      "applies_because": "Governs the body of the newly added test method; the added lines are straight-line setup/request/assertions with only a `for` loop over fixture data and no conditional logic.",
+      "followed": true
+    },
+    {
+      "doc": "tests/AGENTS.md",
+      "quote": "- Mock external services",
+      "applies_because": "The added test decorates with `@patch(\"sentry.api.endpoints.organization_trace_item_attributes_ranked.compare_distributions\")` and asserts `mock_compare_distributions.assert_not_called()`, mocking the downstream Seer call the changed guard is meant to skip.",
+      "followed": true
+    }
+  ],
+  "verdict": "followed"
+}

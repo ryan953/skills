@@ -155,6 +155,10 @@ printf '%s' "$DIFF" | changed_files > "$WORK/raw/files.txt" || true
 FILE_COUNT="$(wc -l < "$WORK/raw/files.txt" | tr -d ' ')"
 
 body_evidence "$ALL_TEXT" > "$WORK/raw/body-evidence.txt" || true
+# Handed to the `intent` writer alongside its own input, wherever in the body it
+# appeared — see divergence_markers() for why it cannot just ride along with the
+# body split.
+divergence_markers "$ALL_TEXT" > "$WORK/raw/divergence.txt" || true
 BODY_EV_COUNT="$(wc -l < "$WORK/raw/body-evidence.txt" | tr -d ' ')"
 
 MODE="$(classify_mode "$PR_TITLE $COMMITS ${HEAD_REF:-}" "$LINT_COUNT" "$REF_COUNT")"
@@ -212,6 +216,7 @@ emit BODY_FILE     "$WORK/raw/body.md"
 emit REFS_FILE     "$WORK/raw/issue-refs.txt"
 emit LINT_FILE     "$WORK/raw/lint.txt"
 emit BODY_EV_FILE  "$WORK/raw/body-evidence.txt"
+emit DIVERGENCE_FILE "$WORK/raw/divergence.txt"
 emit EVIDENCE_SOURCE "$EVIDENCE_SOURCE"
 emit FILES_FILE    "$WORK/raw/files.txt"
 emit DOCS_FILE     "$WORK/raw/repo-docs.txt"
@@ -231,6 +236,8 @@ emit UNAVAILABLE   "$(printf '%s' "${UNAVAILABLE[*]+"${UNAVAILABLE[*]}"}")"
 #   REFS_FILE    kind<TAB>ref — what the `evidence` writer goes and fetches
 #   EVIDENCE_SOURCE  issue | pr-body | none — where evidence has to come from
 #   BODY_EV_FILE embedded evidence found in the description, when there is no issue
+#   DIVERGENCE_FILE  author text admitting a deliberate departure; the `intent`
+#                    writer reads this too, so N4 can fire wherever it was written
 #   LINT_FILE    kind<TAB>detail — suppression and lint-config signals
 #   DOCS_FILE    repo guidance that exists and governs the changed files
 #   UNAVAILABLE  space-separated inputs that could not be read; drives N1

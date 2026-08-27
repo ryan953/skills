@@ -1,0 +1,24 @@
+{
+  "priors": [
+    {
+      "sha": "4e79828e05a",
+      "subject": "fix(widget-builder): Disallow default sorting by equations (#84247)",
+      "shape": "Same file, same SET_FIELDS grouping branch: introduced firstYAxisNotEquation / firstActionPayloadNotEquation by filtering out FieldValueKind.EQUATION, then passed the (possibly undefined) result straight into generateFieldAsString via an `as QueryFieldValue` cast. Fix form = filter the candidate list; no guard on the setSort call.",
+      "matches_this_diff": false
+    },
+    {
+      "sha": "0c86e8f2b8f",
+      "subject": "fix(widget-builder): Add release fields into merged aggregate list (#85003)",
+      "shape": "Same file/reducer: typed the candidate explicitly as `QueryFieldValue | undefined`, built a validSortOptions list, and made every setSort conditional on `validSortOptions.length > 0`, falling back to `setSort([])` when nothing is sortable. Fix form = compute valid candidates, and CLEAR the sort when there are none.",
+      "matches_this_diff": false
+    },
+    {
+      "sha": "de88a105619",
+      "subject": "feat(tracemetrics): Handle sort resets for visualize changes (#105643)",
+      "shape": "Same file, the commit directly preceding this one on this file: wraps the trace-metrics sort default in a validity check (checkTraceMetricSortUsed) and branches `updatedAggregates.length > 0 ? setSort([...]) : setSort([])`. Fix form = validity-gated sort default with an explicit empty-sort fallback.",
+      "matches_this_diff": false
+    }
+  ],
+  "verdict": "diverges",
+  "note": "The repo has a well-established shape for this exact problem in this exact file - compute the valid (non-equation / non-disabled) sort candidates and, when there are none, explicitly `setSort([], options)` - whereas this diff instead skips the setSort call entirely, leaving whatever stale sort was already there."
+}

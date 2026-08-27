@@ -102,6 +102,24 @@ eq "the human arm still excludes a silent close" EXCLUDED \
    "$(label '{"arm":"closed","state":"CLOSED","decided_by":"ryan953","close_comments":[]}')"
 
 echo ""
+echo "seer arm — merged is not the same as correct"
+# The pilot's headline finding. Without this, a fix that was merged and then
+# re-fixed scores as a false reject, and the rubric gets tuned to stop finding
+# real defects.
+eq "merged, nothing followed it" ACCEPT_TRUTH \
+   "$(label '{"arm":"seer","state":"MERGED","decided_by":"ryan953","issue_id":"SENTRY-5F52",
+              "later_commits_text":"fix(other): unrelated work"}')"
+eq "merged, but a later commit re-fixed the same issue" REJECT_TRUTH \
+   "$(label '{"arm":"seer","state":"MERGED","decided_by":"ryan953","issue_id":"SENTRY-5F52",
+              "later_commits_text":"fix(issues): Fix TypeError on save event with None in tags\n\nFixes: SENTRY-5F52."}')"
+eq "no issue id means no supersession check" ACCEPT_TRUTH \
+   "$(label '{"arm":"seer","state":"MERGED","decided_by":"ryan953","issue_id":"",
+              "later_commits_text":"Fixes: SENTRY-5F52."}')"
+eq "a different issue does not count" ACCEPT_TRUTH \
+   "$(label '{"arm":"seer","state":"MERGED","decided_by":"ryan953","issue_id":"SENTRY-5F52",
+              "later_commits_text":"Fixes: SENTRY-9999."}')"
+
+echo ""
 echo "classify_close_comment directly"
 eq "problem vocabulary"  problem "$(classify_close_comment 'this breaks the null case')"
 eq "moot vocabulary"     moot    "$(classify_close_comment 'no longer relevant')"

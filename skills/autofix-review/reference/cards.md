@@ -125,6 +125,14 @@ From the PR body and commit messages only.
 `divergence_rationale` is what separates `R2`/`R5` from `N4`. Quote it; don't
 summarize it — the coordinator decides on the author's words, not yours.
 
+**The intent writer gets `$DIVERGENCE_FILE` as well as its own input**, because
+of where such a sentence tends to live: in the framing paragraph, next to the
+symptom, which is the *evidence* writer's territory. Split the body naively and
+the intent writer never sees it, `divergence_rationale` comes back `null`, the
+N4 conversion silently fails, and a considered tradeoff gets reported as a
+defect. That is not hypothetical — it happened on a real PR whose body said "but
+does not directly address its root cause".
+
 ## `cards/change.json`
 
 From the diff and the code around it. This writer has no idea what the change is

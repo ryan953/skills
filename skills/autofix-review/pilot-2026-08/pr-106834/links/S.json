@@ -1,0 +1,10 @@
+{
+  "docs_found": [
+    "CLAUDE.md",
+    "AGENTS.md",
+    "static/CLAUDE.md",
+    "static/AGENTS.md"
+  ],
+  "applicable": [],
+  "verdict": "not-applicable"
+}

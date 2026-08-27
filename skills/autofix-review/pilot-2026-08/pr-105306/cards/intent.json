@@ -1,0 +1,4 @@
+{"claims":[{"id":"c1","text":"Refactors encode_attributes to safely check if event_data[\"tags\"] is present and not None before attempting iteration","kind":"does"},{"id":"c2","text":"Prevents a potential TypeError when processing events where the tags field is explicitly None","kind":"does"},{"id":"c3","text":"Adds a unit test to verify graceful handling of None tags","kind":"does"}],
+ "stated_scope":"Refactors encode_attributes to safely check if event_data[\"tags\"] is present and not None before attempting iteration, preventing a potential TypeError when tags is explicitly None.","out_of_scope":[],
+ "tests_claimed":true,
+ "divergence_rationale":null}

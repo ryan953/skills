@@ -1,0 +1,36 @@
+{
+  "priors": [
+    {
+      "sha": "c5379b80cb0",
+      "subject": "feat(EXP-253): Add attribute comparison endpoint (#92283)",
+      "shape": "Established this endpoint's own degenerate-input guard idiom: `if query_1 == query_2: return Response({\"rankedAttributes\": []})` (and the same on `NoProjects`) - a guard clause placed before the expensive comparison work that short-circuits with a 200 carrying an empty rankedAttributes list rather than erroring.",
+      "matches_this_diff": true
+    },
+    {
+      "sha": "8dbc68f7659",
+      "subject": "fix(AD): Check for NaNs (#104909)",
+      "shape": "Widened a precondition check on a degenerate numeric value (`aggregation_value is None or str(aggregation_value) == \"nan\"`) so the bad value is logged and the function returns early instead of being handed to Seer; regression coverage added to the existing handler test file.",
+      "matches_this_diff": true
+    },
+    {
+      "sha": "f2ad982a167",
+      "subject": "fix(aci): Return empty list from open periods endpoint when detector has no linked group  (#101046)",
+      "shape": "Changed an endpoint's unmet-precondition branch from an error response to a normal, correctly-shaped empty success result (`return self.paginate(request=request, queryset=[])`), with the existing test updated to assert the empty 200.",
+      "matches_this_diff": true
+    },
+    {
+      "sha": "ffcfff94514",
+      "subject": "fix(rpc): Handle empty other response (#81680)",
+      "shape": "Fixed a production 500 caused by degenerate upstream data by wrapping the offending processing in an emptiness check (`if other_response.result_timeseries:`), plus a regression test - a conditional skip inside the flow rather than an early return of a pre-built response payload.",
+      "matches_this_diff": false
+    },
+    {
+      "sha": "9c53acd485b",
+      "subject": "fix(replay): validate replay start/end for summaries (#103388)",
+      "shape": "Fixed an endpoint 500 caused by missing upstream fields before a Seer call by validating the values and `logger.warning`-ing when they are absent - but it degrades by passing `None` onward and still calls Seer, rather than short-circuiting the request.",
+      "matches_this_diff": false
+    }
+  ],
+  "verdict": "matches",
+  "note": "The construction here - a guard clause on degenerate cohort totals that logs a warning and early-returns the endpoint's normal response payload with an empty rankedAttributes list, skipping the downstream Seer call - is the same idiom this endpoint already used for its other degenerate-cohort cases and matches how the repo elsewhere guards bad inputs before Seer calls."
+}

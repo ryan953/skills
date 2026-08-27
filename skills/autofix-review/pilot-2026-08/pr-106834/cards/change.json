@@ -1,0 +1,27 @@
+{
+  "effects": [
+    {
+      "file": "static/app/views/dashboards/widgetBuilder/hooks/useWidgetBuilderState.tsx",
+      "line": 533,
+      "before": "sortField was computed unconditionally in one expression: for TRACEMETRICS it called generateMetricAggregate(traceMetric, firstYAxisNotEquation as QueryFieldValue) falling back to '' via ??; otherwise it called generateFieldAsString(firstYAxisNotEquation as QueryFieldValue) ?? generateFieldAsString(firstActionPayloadNotEquation as QueryFieldValue). Both firstYAxisNotEquation and firstActionPayloadNotEquation could be undefined (e.g. when yAxis/action.payload contain only FieldValueKind.EQUATION entries), and the 'as QueryFieldValue' casts suppressed the type error, so undefined was passed straight into generateFieldAsString/generateMetricAggregate. setSort() was then called unconditionally with that sortField.",
+      "after": "sortField is declared as string | undefined and built via explicit branches: for TRACEMETRICS it only calls generateMetricAggregate(...) when firstYAxisNotEquation is defined, else sortField stays undefined; otherwise it calls generateFieldAsString(firstYAxisNotEquation) only if firstYAxisNotEquation is defined, else generateFieldAsString(firstActionPayloadNotEquation) only if that is defined. setSort() is now called only inside 'if (sortField)', so when no valid field/aggregate can be derived, sort is left unchanged instead of being set."
+    },
+    {
+      "file": "static/app/views/dashboards/widgetBuilder/hooks/useWidgetBuilderState.tsx",
+      "line": 548,
+      "before": "setSort([{kind: 'desc', field: sortField}], options) executed unconditionally whenever a grouping field was added, regardless of whether sortField was a real value, '' (empty string from the TRACEMETRICS ?? '' fallback), or undefined passed through the unsafe cast.",
+      "after": "setSort([{kind: 'desc', field: sortField}], options) executes only when sortField is truthy (i.e. a real field/aggregate string was derived); when no field can be determined, the sort is left as-is."
+    }
+  ],
+  "new_tests": [],
+  "side_effects": [],
+  "suppression_flags": [
+    {
+      "kind": "type-assertion",
+      "file": "static/app/views/dashboards/widgetBuilder/hooks/useWidgetBuilderState.tsx",
+      "line": 533,
+      "swallows": "nothing anymore — this diff removes the pre-existing 'as QueryFieldValue' type assertions that had silenced TypeScript's undefined-check on firstYAxisNotEquation/firstActionPayloadNotEquation, and replaces them with explicit truthiness checks (if (firstYAxisNotEquation) / if (sortField)). This is the actual fix: the assertions in the old code were the suppression, and they are deleted here rather than added."
+    }
+  ],
+  "behavioral": true
+}
