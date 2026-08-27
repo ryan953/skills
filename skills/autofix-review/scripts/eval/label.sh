@@ -109,6 +109,12 @@ label_case() {
             fi
             printf 'ACCEPT_TRUTH\t%s merged the autofix\n' "$decided_by"; return
         fi
+        # A formal changes-requested review is an explicit human signal and does
+        # not need a closing comment to stand. The generic CLOSED branch below
+        # checks this too, but the seer branch returns before reaching it.
+        if [ "$decision" = CHANGES_REQUESTED ]; then
+            printf 'REJECT_TRUTH\t%s requested changes, then it was closed unmerged\n' "$decided_by"; return
+        fi
         local n i verdict best=none
         n="$(q '(.close_comments // []) | length')"
         for ((i = 0; i < n; i++)); do
@@ -116,15 +122,19 @@ label_case() {
             case "$verdict" in
                 problem) best=problem; break ;;
                 moot)    [ "$best" = none ] && best=moot ;;
+                unclear) [ "$best" = none ] && best=unclear ;;
             esac
         done
+        if [ "$best" = unclear ]; then
+            printf 'AMBIGUOUS\tclosed with a comment that names no reason\n'; return
+        fi
         if [ "$best" = moot ]; then
             printf 'EXCLUDED\tclosed because it stopped mattering, not because the fix was wrong\n'; return
         fi
         if [ "$best" = problem ]; then
             printf 'REJECT_TRUTH\t%s closed it with a stated problem in the fix\n' "$decided_by"; return
         fi
-        printf 'REJECT_TRUTH\t%s closed the autofix unmerged (no reason given)\n' "$decided_by"; return
+        printf 'EXCLUDED\tclosed with no stated reason; not reconstructable, so not ground truth\n'; return
     fi
 
     if [ "$state" = MERGED ]; then

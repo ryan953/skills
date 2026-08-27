@@ -89,10 +89,19 @@ echo ""
 echo "seer arm — a bot opened it, one human decided"
 eq "merged by the decider" ACCEPT_TRUTH \
    "$(label '{"arm":"seer","state":"MERGED","decided_by":"ryan953"}')"
-# On this arm the close is the triage verdict, so silence still counts —
-# unlike the human closed arm, where an unexplained close is not judgeable.
-eq "closed unmerged, no reason given" REJECT_TRUTH \
+# Silence is not evidence on this arm either. 22 of 60 closed Seer PRs on
+# getsentry/sentry carried no human comment, and asked about two he had closed
+# himself, the decider could not recall whether the fix was wrong or had merely
+# stopped mattering. A label its own author cannot reconstruct cannot be wrong,
+# which makes every reject scored against it look correct.
+eq "closed unmerged, no reason given" EXCLUDED \
    "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953","close_comments":[]}')"
+# An explicit changes-requested review is still a signal, comment or not.
+eq "changes requested, then closed" REJECT_TRUTH \
+   "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953","review_decision":"CHANGES_REQUESTED","close_comments":[]}')"
+# A comment that says nothing useful is worth a human look, not a silent drop.
+eq "closed with a comment naming no reason" AMBIGUOUS \
+   "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953","close_comments":[{"body":"thanks all"}]}')"
 eq "closed with a stated problem" REJECT_TRUTH \
    "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953",
               "close_comments":[{"author":"ryan953","body":"this only fixes one of the call sites"}]}')"

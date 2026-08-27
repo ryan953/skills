@@ -42,6 +42,17 @@ finding real defects.
   conversion would have failed silently. Those lines are now extracted
   separately and given to the intent writer wherever they appear.
 
+## A rule this run later removed
+
+The seer arm originally counted an **unexplained close** as `REJECT_TRUTH`, on
+the theory that closing an autofix PR *is* the triage verdict in a way that
+closing a person's PR is not. Measuring against real data killed it: of 60 closed
+Seer PRs on `getsentry/sentry`, 22 carry no human comment, and asked about two he
+had closed himself the decider could not recall whether the fix was wrong or had
+stopped mattering. A label its own author cannot reconstruct is one that cannot
+be wrong — and a reject scored against it looks correct whether or not the
+reviewer found anything. Those cases are `EXCLUDED` now, same as on the human arm.
+
 ## What it could not measure
 
 **The reject arm.** Closed Seer PRs carry only a one-line commit subject — the

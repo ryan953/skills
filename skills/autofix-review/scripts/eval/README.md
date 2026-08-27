@@ -38,12 +38,17 @@ is the point. What makes it ground truth is that the *judgement* was a human's,
 which is why `--decider` drops anything decided by somebody else or by
 automation.
 
-One rule differs from the other arms and is worth knowing before you read the
-numbers: **an unexplained close still counts as a reject here.** On a human PR,
-closing is ambiguous and silence is not evidence; on an autofix PR, closing it
-*is* the triage verdict — that is what the queue is for. The carve-out survives:
-a closing comment saying the fix stopped mattering is still `EXCLUDED`, because
-the code was never judged. Every label prints its reason, so scan them before
+**An unexplained close is `EXCLUDED`,** the same as on the human arm. That was
+not the original rule — the theory was that closing an autofix PR *is* the
+triage verdict in a way that closing a person's PR is not. Measuring killed it:
+22 of 60 closed Seer PRs on `getsentry/sentry` carry no human comment, and asked
+about two he had closed himself, the decider could not recall whether the fix
+was wrong or had simply stopped mattering. A label its own author cannot
+reconstruct is a label that cannot be wrong, and a reject scored against it looks
+correct whether or not the reviewer found anything.
+
+So the reject arm is the *explained* closes plus any merged PR a later commit had
+to re-fix. Smaller, and real. Every label prints its reason — scan them before
 trusting the matrix.
 
 ## Two more arms, for human-written code
