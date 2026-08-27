@@ -17,6 +17,12 @@
 # Usage:
 #   run.sh --cases labelled.jsonl --repo-path ~/code/sentry [--out predictions.jsonl]
 #          [--read-only] [--print-briefs] [--work-root <dir>] [--max-cases N]
+#          [--jobs N]
+#
+# Cases are independent, so they run --jobs at a time. Serially, twenty cases is
+# twenty full four-wave reviews back to back, each with its own worktree and test
+# run: hours. The skill fans its own subagents out in parallel; there was no
+# reason the harness driving it did not.
 
 set -euo pipefail
 
@@ -28,7 +34,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # .../scripts/eval
 # sample that legitimately had nothing in it.
 SKILL_DIR="$(cd "$HERE/../.." && pwd)"
 
-CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=""; BRIEFS=""; WORK_ROOT=""; MAX_CASES=0
+CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=""; BRIEFS=""; WORK_ROOT=""; MAX_CASES=0; JOBS=4
 while [ $# -gt 0 ]; do
     case "$1" in
         --cases) CASES="$2"; shift 2 ;;
@@ -36,6 +42,7 @@ while [ $# -gt 0 ]; do
         --out) OUT="$2"; shift 2 ;;
         --work-root) WORK_ROOT="$2"; shift 2 ;;
         --max-cases) MAX_CASES="$2"; shift 2 ;;
+        --jobs) JOBS="$2"; shift 2 ;;
         --read-only) READ_ONLY=1; shift ;;
         --print-briefs) BRIEFS=1; shift ;;
         *) printf 'unknown flag: %s\n' "$1" >&2; exit 1 ;;
@@ -118,45 +125,62 @@ emit_prediction() {   # emit_prediction <case-json> <work>
               predicted_summary: $v.summary, work: $work}'
 }
 
-{
-    done_n=0
-    while IFS= read -r c; do
-        [ -n "$c" ] || continue
-        # Each case is a full four-wave review. Without a cap, sample size is set
-        # by a gh page limit, which is not where that decision belongs.
-        if [ "$MAX_CASES" -gt 0 ] && [ "$done_n" -ge "$MAX_CASES" ]; then
-            printf 'stopping at --max-cases %s; %s case(s) left unrun\n' "$MAX_CASES" \
-                "$(($(wc -l < "$CASES") - done_n))" >&2
-            break
-        fi
-        label="$(printf '%s' "$c" | jq -r '.label // ""')"
-        # AMBIGUOUS and EXCLUDED cases are kept in the file but never run: they
-        # cannot move a precision number, so paying for a review of them buys
-        # nothing.
-        case "$label" in ACCEPT_TRUTH|REJECT_TRUTH) : ;; *) continue ;; esac
+PRED_DIR="$WORK_ROOT/.predictions.$$"
+mkdir -p "$PRED_DIR"
+trap 'rm -rf "$PRED_DIR"' EXIT
 
-        work="$(prepare_case "$c")" || continue
-        mode="$(jq -r '.mode // "bugfix"' "$work/meta.json")"
-        done_n=$((done_n + 1))
-        # The review stage is the long one and printed nothing until it finished,
-        # so a run in progress was indistinguishable from a hung one.
-        printf '[%s] pr %s (%s) ...\n' "$done_n" "$(printf '%s' "$c" | jq -r .pr)" "$mode" >&2
+# review_one <case-json> <n> — one whole case, into its own prediction file.
+review_one() {
+    local c="$1" n="$2" work mode pr
+    pr="$(printf '%s' "$c" | jq -r .pr)"
+    work="$(prepare_case "$c")" || return 0
+    mode="$(jq -r '.mode // "bugfix"' "$work/meta.json")"
+    printf '[%s] pr %s (%s) started\n' "$n" "$pr" "$mode" >&2
 
-        if [ -n "$BRIEFS" ]; then
-            printf '%s' "$c" | jq -c --arg work "$work" --arg brief "$(brief_for "$work" "$mode" "$READ_ONLY")" \
-                '. + {work: $work, brief: $brief}'
-            continue
-        fi
+    if [ -n "$BRIEFS" ]; then
+        printf '%s' "$c" | jq -c --arg work "$work" --arg brief "$(brief_for "$work" "$mode" "$READ_ONLY")" \
+            '. + {work: $work, brief: $brief}' > "$PRED_DIR/$n.json"
+        return 0
+    fi
+    claude -p "$(brief_for "$work" "$mode" "$READ_ONLY")" >/dev/null 2>&1 || true
+    emit_prediction "$c" "$work" > "$PRED_DIR/$n.json"
+    printf '[%s] pr %s -> %s\n' "$n" "$pr" \
+        "$(jq -r '.predicted + " " + ((.predicted_codes // []) | join(","))' "$PRED_DIR/$n.json" 2>/dev/null)" >&2
+}
 
-        if command -v claude >/dev/null 2>&1; then
-            claude -p "$(brief_for "$work" "$mode" "$READ_ONLY")" >/dev/null 2>&1 || true
-        else
-            printf 'no `claude` on PATH; use --print-briefs and orchestrate the cases yourself\n' >&2
-            exit 1
-        fi
-        emit_prediction "$c" "$work"
-        printf '[%s] pr %s -> %s\n' "$done_n" "$(printf '%s' "$c" | jq -r .pr)" \
-            "$("$SKILL_DIR/scripts/verdict-rule.sh" --work "$work" ${READ_ONLY:+--read-only} --json 2>/dev/null | jq -r '.verdict + " " + (.codes|join(","))')" >&2
-    done < "$CASES"
-} > >([ "$OUT" = - ] && cat || cat > "$OUT")
+if [ -z "$BRIEFS" ] && ! command -v claude >/dev/null 2>&1; then
+    printf 'no `claude` on PATH; use --print-briefs and orchestrate the cases yourself\n' >&2
+    exit 1
+fi
+
+done_n=0
+while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    if [ "$MAX_CASES" -gt 0 ] && [ "$done_n" -ge "$MAX_CASES" ]; then
+        printf 'stopping at --max-cases %s\n' "$MAX_CASES" >&2
+        break
+    fi
+    label="$(printf '%s' "$c" | jq -r '.label // ""')"
+    # AMBIGUOUS and EXCLUDED cases are kept in the file but never run: they
+    # cannot move a precision number, so reviewing them buys nothing.
+    case "$label" in ACCEPT_TRUTH|REJECT_TRUTH) : ;; *) continue ;; esac
+
+    # Bounded concurrency, polled rather than `wait -n`, which needs bash 4.3 --
+    # macOS still ships 3.2 as /bin/bash and this is meant to run there.
+    while [ "$(jobs -rp | wc -l | tr -d ' ')" -ge "$JOBS" ]; do sleep 0.5; done
+    done_n=$((done_n + 1))
+    review_one "$c" "$done_n" &
+done < "$CASES"
+wait
+
+printf 'reviewed %s case(s) at %s at a time\n' "$done_n" "$JOBS" >&2
+# Concatenate in case order, not completion order, so a rerun of the same
+# sample produces a byte-identical predictions file.
+if [ "$(ls -A "$PRED_DIR" 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
+    for n in $(seq 1 "$done_n"); do
+        [ -f "$PRED_DIR/$n.json" ] && cat "$PRED_DIR/$n.json"
+    done
+else
+    : # nothing ran; pilot.sh treats an empty predictions file as fatal
+fi > >([ "$OUT" = - ] && cat || cat > "$OUT")
 wait
