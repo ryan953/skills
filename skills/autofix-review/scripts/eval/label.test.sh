@@ -81,6 +81,27 @@ eq "a moot comment does not mask a later problem one" REJECT_TRUTH \
    "$(label '{"state":"CLOSED","close_comments":[{"author":"a","body":"closing"},{"author":"b","body":"this introduces a regression in the header"}]}')"
 
 echo ""
+echo "seer arm — a bot opened it, one human decided"
+eq "merged by the decider" ACCEPT_TRUTH \
+   "$(label '{"arm":"seer","state":"MERGED","decided_by":"ryan953"}')"
+# On this arm the close is the triage verdict, so silence still counts —
+# unlike the human closed arm, where an unexplained close is not judgeable.
+eq "closed unmerged, no reason given" REJECT_TRUTH \
+   "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953","close_comments":[]}')"
+eq "closed with a stated problem" REJECT_TRUTH \
+   "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953",
+              "close_comments":[{"author":"ryan953","body":"this only fixes one of the call sites"}]}')"
+# The one carve-out that survives from the other arms: the fix was never judged.
+eq "closed because it stopped mattering" EXCLUDED \
+   "$(label '{"arm":"seer","state":"CLOSED","decided_by":"ryan953",
+              "close_comments":[{"author":"ryan953","body":"issue is already fixed by #99, closing"}]}')"
+eq "nobody recorded as decider" EXCLUDED \
+   "$(label '{"arm":"seer","state":"CLOSED","decided_by":"","close_comments":[]}')"
+# The same close on the human arm stays unjudgeable — the arms genuinely differ.
+eq "the human arm still excludes a silent close" EXCLUDED \
+   "$(label '{"arm":"closed","state":"CLOSED","decided_by":"ryan953","close_comments":[]}')"
+
+echo ""
 echo "classify_close_comment directly"
 eq "problem vocabulary"  problem "$(classify_close_comment 'this breaks the null case')"
 eq "moot vocabulary"     moot    "$(classify_close_comment 'no longer relevant')"

@@ -17,7 +17,36 @@ collect.sh  →  slice.sh  →  label.sh  →  run.sh  →  score.sh
                first see     about it
 ```
 
-## Two arms, on purpose
+## The seer arm (start here)
+
+A Seer/autofix PR that one person merged or closed is the sharpest ground truth
+available, and the closest match to what this skill is actually for:
+
+- The chain exists by construction — a Sentry issue, an RCA, a stated fix. No
+  hunting for a linked issue that may not be there.
+- **The decision is explicit.** Merged means the reviewer accepted the autofix;
+  closed unmerged means they rejected it. No inferring intent from review
+  comments, no joining a comment to a later commit.
+
+```bash
+$E/collect.sh --repo getsentry/sentry --arm seer \
+  --bot-author app/seer-by-sentry --decider ryan953 --limit 60 --out raw.jsonl
+```
+
+It inverts the human-authorship filter on purpose: the *code* being bot-written
+is the point. What makes it ground truth is that the *judgement* was a human's,
+which is why `--decider` drops anything decided by somebody else or by
+automation.
+
+One rule differs from the other arms and is worth knowing before you read the
+numbers: **an unexplained close still counts as a reject here.** On a human PR,
+closing is ambiguous and silence is not evidence; on an autofix PR, closing it
+*is* the triage verdict — that is what the queue is for. The carve-out survives:
+a closing comment saying the fix stopped mattering is still `EXCLUDED`, because
+the code was never judged. Every label prints its reason, so scan them before
+trusting the matrix.
+
+## Two more arms, for human-written code
 
 **Merged.** Reviewers saw it, it landed. Did they make the author change it?
 
@@ -42,7 +71,7 @@ cd ~/code/sentry   # or wherever the clone is
 E=~/code/skills/skills/autofix-review/scripts/eval
 
 $E/collect.sh --repo getsentry/sentry --label Frontend --arm both --limit 60 \
-  --since 2025-01-01 --out raw.jsonl
+  --since 2025-01-01 --out raw.jsonl      # or --arm seer, above; --arm all for both
 $E/slice.sh   --repo getsentry/sentry --from raw.jsonl --out sliced.jsonl
 $E/label.sh   sliced.jsonl > labelled.jsonl
 
@@ -95,3 +124,6 @@ brief of the validator that produced it — not in the verdict rule.
   resolution, regression status have all moved.
 - **The closed arm over-represents changes bad enough to abandon**, which is not
   the same distribution as changes that were merely revised.
+- **The seer arm measures agreement with one person.** That is the right target
+  if the skill is meant to triage their queue, and the wrong one if you want a
+  verdict a whole team would sign off on.

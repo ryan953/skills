@@ -8,6 +8,7 @@
 #
 #   merged  — reviewers saw it and it landed. Did they make the author change it?
 #   closed  — it never landed. Why not?
+#   seer    — a bot opened it and one named human merged or closed it
 #
 # The closed arm exists because the merged arm alone is survivorship bias: a
 # change bad enough to be abandoned never appears in it, and those are exactly
@@ -56,12 +57,48 @@ classify_close_comment() {
 #   close_comments        [{author, body}] — on the closed arm
 label_case() {
     local c="$1"
-    local q; q() { printf '%s' "$c" | jq -r "$1"; }
+    q() { printf '%s' "$c" | jq -r "$1"; }
 
-    local state decision post_n
+    local state decision post_n arm decided_by
     state="$(q '.state // ""')"
     decision="$(q '.review_decision // ""')"
     post_n="$(q '.post_review_commits // 0')"
+    arm="$(q '.arm // ""')"
+    decided_by="$(q '.decided_by // ""')"
+
+    # ---- the seer arm ------------------------------------------------------
+    # A bot opened it; one person decided. That decision IS the label, with none
+    # of the inference the other arms need — no joining comments to commits, no
+    # reading intent out of review threads.
+    #
+    # It departs from the other arms in one place worth being explicit about: an
+    # unexplained close still counts as a reject here. On a human PR, closing is
+    # ambiguous and silence is not evidence. On an autofix PR, closing it *is*
+    # the triage verdict — that is what the queue is for — so the close carries
+    # meaning that a human PR's close does not. The one exception is a comment
+    # saying the change stopped mattering, which is excluded exactly as elsewhere.
+    if [ "$arm" = seer ]; then
+        [ -n "$decided_by" ] || { printf 'EXCLUDED\tno recorded decider\n'; return; }
+        if [ "$state" = MERGED ]; then
+            printf 'ACCEPT_TRUTH\t%s merged the autofix\n' "$decided_by"; return
+        fi
+        local n i verdict best=none
+        n="$(q '(.close_comments // []) | length')"
+        for ((i = 0; i < n; i++)); do
+            verdict="$(classify_close_comment "$(q ".close_comments[$i].body // \"\"")")"
+            case "$verdict" in
+                problem) best=problem; break ;;
+                moot)    [ "$best" = none ] && best=moot ;;
+            esac
+        done
+        if [ "$best" = moot ]; then
+            printf 'EXCLUDED\tclosed because it stopped mattering, not because the fix was wrong\n'; return
+        fi
+        if [ "$best" = problem ]; then
+            printf 'REJECT_TRUTH\t%s closed it with a stated problem in the fix\n' "$decided_by"; return
+        fi
+        printf 'REJECT_TRUTH\t%s closed the autofix unmerged (no reason given)\n' "$decided_by"; return
+    fi
 
     if [ "$state" = MERGED ]; then
         # A formal changes-requested review is the least ambiguous signal there

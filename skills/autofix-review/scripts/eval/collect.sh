@@ -3,14 +3,25 @@
 #
 #   merged  — reviewers saw it and it landed
 #   closed  — it never landed
+#   seer    — a bot opened it and one named human merged or closed it
 #
-# Both arms, always, unless you ask otherwise. The merged arm on its own is
+# The first two default to running together. The merged arm on its own is
 # survivorship bias: a change bad enough to be abandoned never appears in it,
 # and those are the cases a reject is meant to catch.
 #
+# The `seer` arm is the sharpest signal available and the closest match to what
+# this skill is actually for. A Seer/autofix PR carries the whole chain by
+# construction — a Sentry issue, an RCA, a stated fix — and one person's
+# merge-or-close IS the verdict, with no need to infer intent from review
+# comments. It inverts the human-authorship filter on purpose: the *code* being
+# bot-written is the point, and what makes it ground truth is that the *judgement*
+# was a human's.
+#
 # Usage:
-#   collect.sh --repo getsentry/sentry [--label Frontend] [--arm both|merged|closed]
-#              [--limit 40] [--out cases.raw.jsonl] [--since 2025-01-01]
+#   collect.sh --repo getsentry/sentry [--label Frontend]
+#              [--arm both|merged|closed|seer|all] [--limit 40]
+#              [--out cases.raw.jsonl] [--since 2025-01-01]
+#              [--bot-author app/seer-by-sentry] [--decider ryan953]
 #
 # Needs `gh`. Emits one raw JSON object per line; feed it to slice.sh.
 
@@ -18,9 +29,10 @@
 
 # is_human_authored <login> <is_bot> <commit-trailers>
 #
-# The evaluation is about agreeing with human reviewers on human-written code.
-# An AI co-authored PR is a different distribution and would quietly become a
-# test of whether this skill agrees with the model that wrote the patch.
+# For the merged/closed arms, where the evaluation is about agreeing with human
+# reviewers on human-written code. An AI co-authored PR there would quietly turn
+# the test into "does this skill agree with the model that wrote the patch".
+# The `seer` arm deliberately does not apply this filter — see the header.
 is_human_authored() {
     local login="${1-}" is_bot="${2-false}" trailers="${3-}"
     [ "$is_bot" = true ] && return 1
@@ -56,11 +68,14 @@ is_fix_shaped() {
 set -euo pipefail
 
 REPO=""; LABEL=""; ARM=both; LIMIT=40; OUT="-"; SINCE=""
+BOT_AUTHOR="app/seer-by-sentry"; DECIDER=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
         --label) LABEL="$2"; shift 2 ;;
         --arm) ARM="$2"; shift 2 ;;
+        --bot-author) BOT_AUTHOR="$2"; shift 2 ;;
+        --decider) DECIDER="$2"; shift 2 ;;
         --limit) LIMIT="$2"; shift 2 ;;
         --out) OUT="$2"; shift 2 ;;
         --since) SINCE="$2"; shift 2 ;;
@@ -71,7 +86,7 @@ done
 command -v gh >/dev/null 2>&1 || { printf 'gh (GitHub CLI) not found on PATH\n' >&2; exit 1; }
 
 LIST_FIELDS=number,title,url,author,headRefName,state,createdAt,mergedAt,closedAt,isDraft
-DETAIL_FIELDS=number,title,url,body,state,author,headRefName,baseRefName,headRefOid,createdAt,mergedAt,closedAt,commits,reviews,comments,reviewDecision,files
+DETAIL_FIELDS=number,title,url,body,state,author,headRefName,baseRefName,headRefOid,createdAt,mergedAt,closedAt,mergedBy,commits,reviews,comments,reviewDecision,files
 
 fetch_arm() {   # fetch_arm <merged|closed>
     local arm="$1" q="is:pr"
@@ -119,6 +134,8 @@ emit_cases() {
         both)   emit_cases merged; emit_cases closed ;;
         merged) emit_cases merged ;;
         closed) emit_cases closed ;;
+        seer)   emit_cases seer ;;
+        all)    emit_cases merged; emit_cases closed; emit_cases seer ;;
         *) printf 'unknown --arm: %s\n' "$ARM" >&2; exit 1 ;;
     esac
 } > >([ "$OUT" = - ] && cat || cat > "$OUT")
