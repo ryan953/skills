@@ -48,6 +48,40 @@ parse_issue_refs() {
     } | awk 'NF && !seen[$0]++'
 }
 
+# ---- evidence written into the description ----------------------------------
+# Not every fix links a tracker. Plenty of real bug fixes carry the whole case in
+# the PR body — a "## Bug" section, a pasted stack trace, a reproduction — and
+# treating those as "no anchor" would send the most self-documenting changes
+# straight to needs-human.
+#
+# Emits `kind<TAB>detail`. Deliberately narrow: structured headings, stack
+# traces, and explicit repro markers only. Loose causal prose ("because", "the
+# actual problem") is NOT enough — nearly every commit message contains some, and
+# accepting it would hollow out the N1 guard that stops a review being anchored
+# to nothing.
+#
+# Evidence found this way is weaker than a tracker issue, and reference/cards.md
+# says why: the author wrote both the evidence and the intent, so the two are no
+# longer independent. It is enough to build a chain, not enough to skip a probe.
+body_evidence() {
+    local text="${1-}"
+    [ -n "$text" ] || { return 0; }
+    {
+        printf '%s\n' "$text" | grep -oiE '^#{1,4}[[:space:]]*(the )?(bug|problem|issue|symptom|root ?cause|why (it|this) (broke|happens|fails)|what (broke|went wrong))\b.*' \
+            | sed 's/^/section\t/' || true
+        # Stack frames in three common shapes: JS `at fn (file:line)`, Python
+        # tracebacks, and a bare `SomeError: message` line.
+        printf '%s\n' "$text" | grep -oE '^[[:space:]]*at [A-Za-z_$][A-Za-z0-9_$.]*[[:space:]]*\(' \
+            | sed 's/^/stack\tjs frame/' || true
+        printf '%s\n' "$text" | grep -oE 'Traceback \(most recent call last\)' \
+            | sed 's/^/stack\t/' || true
+        printf '%s\n' "$text" | grep -oE '\b[A-Z][A-Za-z]*(Error|Exception)\b:' \
+            | sed 's/^/stack\t/' || true
+        printf '%s\n' "$text" | grep -oiE '(reproduced?( (it|on|with|today))?|steps to reproduce|repro:)[^.]{0,60}' \
+            | sed 's/^/repro\t/' || true
+    } | awk 'NF && !seen[$0]++'
+}
+
 # ---- lint signals -----------------------------------------------------------
 # Emits `kind<TAB>detail` for anything in the diff that looks like lint work.
 # Reads a unified diff on stdin or as $1.

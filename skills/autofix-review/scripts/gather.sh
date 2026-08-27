@@ -154,7 +154,18 @@ LINT_COUNT="$(wc -l < "$WORK/raw/lint.txt" | tr -d ' ')"
 printf '%s' "$DIFF" | changed_files > "$WORK/raw/files.txt" || true
 FILE_COUNT="$(wc -l < "$WORK/raw/files.txt" | tr -d ' ')"
 
+body_evidence "$ALL_TEXT" > "$WORK/raw/body-evidence.txt" || true
+BODY_EV_COUNT="$(wc -l < "$WORK/raw/body-evidence.txt" | tr -d ' ')"
+
 MODE="$(classify_mode "$PR_TITLE $COMMITS ${HEAD_REF:-}" "$LINT_COUNT" "$REF_COUNT")"
+
+# Where the evidence card will have to come from. A tracker issue is the strong
+# case; the description is the weaker one (the author wrote both the evidence and
+# the intent, so they are not independent); nothing is N1.
+if [ "$REF_COUNT" -gt 0 ]; then EVIDENCE_SOURCE=issue
+elif [ "$BODY_EV_COUNT" -gt 0 ]; then EVIDENCE_SOURCE=pr-body
+else EVIDENCE_SOURCE=none
+fi
 
 # Only docs that actually exist, so the standards scout is handed a reading list
 # rather than a guessing game.
@@ -169,18 +180,21 @@ DOC_COUNT="$(wc -l < "$WORK/raw/repo-docs.txt" | tr -d ' ')"
 
 # A bug fix with nothing to check against is the one gap worth reporting up
 # front: it is what routes the verdict to N1 instead of letting a later wave
-# review the diff against an imagined issue.
-if [ "$REF_COUNT" -eq 0 ] && [ "$MODE" = bugfix ]; then note_missing issue; fi
+# review the diff against an imagined issue. A description that states the bug
+# and its cause counts — weakly, but it counts.
+if [ "$EVIDENCE_SOURCE" = none ] && [ "$MODE" = bugfix ]; then note_missing issue; fi
 
 jq -n \
     --arg repo "${REPO:-}" --arg pr "${PR_NUMBER:-}" --arg title "${PR_TITLE:-}" \
     --arg url "${PR_URL:-}" --arg base "$BASE_SHA" --arg head "$HEAD_SHA" \
     --arg base_ref "${BASE_REF:-}" --arg head_ref "${HEAD_REF:-}" \
     --arg class "${AUTHOR_CLASS:-}" --arg mode "$MODE" --arg work "$WORK" \
+    --arg evsrc "$EVIDENCE_SOURCE" --arg repo_path "$(pwd)" \
     --argjson unavailable "$(printf '%s\n' "${UNAVAILABLE[@]+"${UNAVAILABLE[@]}"}" | jq -R . | jq -s 'map(select(. != ""))')" \
     '{repo:$repo, pr:$pr, title:$title, url:$url, base_sha:$base, head_sha:$head,
       base_ref:$base_ref, head_ref:$head_ref, author_class:$class, mode:$mode,
-      work:$work, unavailable:$unavailable}' > "$WORK/meta.json"
+      work:$work, repo_path:$repo_path, evidence_source:$evsrc,
+      unavailable:$unavailable}' > "$WORK/meta.json"
 
 emit WORK          "$WORK"
 emit MODE          "$MODE"
@@ -197,6 +211,8 @@ emit DIFF_FILE     "$WORK/raw/diff.patch"
 emit BODY_FILE     "$WORK/raw/body.md"
 emit REFS_FILE     "$WORK/raw/issue-refs.txt"
 emit LINT_FILE     "$WORK/raw/lint.txt"
+emit BODY_EV_FILE  "$WORK/raw/body-evidence.txt"
+emit EVIDENCE_SOURCE "$EVIDENCE_SOURCE"
 emit FILES_FILE    "$WORK/raw/files.txt"
 emit DOCS_FILE     "$WORK/raw/repo-docs.txt"
 emit META_FILE     "$WORK/meta.json"
@@ -213,6 +229,8 @@ emit UNAVAILABLE   "$(printf '%s' "${UNAVAILABLE[*]+"${UNAVAILABLE[*]}"}")"
 #   DIFF_FILE    the only file the `change` card writer may read
 #   BODY_FILE    the only file the `intent` card writer may read
 #   REFS_FILE    kind<TAB>ref — what the `evidence` writer goes and fetches
+#   EVIDENCE_SOURCE  issue | pr-body | none — where evidence has to come from
+#   BODY_EV_FILE embedded evidence found in the description, when there is no issue
 #   LINT_FILE    kind<TAB>detail — suppression and lint-config signals
 #   DOCS_FILE    repo guidance that exists and governs the changed files
 #   UNAVAILABLE  space-separated inputs that could not be read; drives N1

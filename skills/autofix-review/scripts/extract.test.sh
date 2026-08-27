@@ -99,6 +99,46 @@ eq "clean diff has no signals" "" "$(lint_signals '+++ b/a.ts
 +const x = 1;')"
 
 echo ""
+echo "body_evidence — evidence written into the description"
+eq "a Bug heading" \
+   "section	## Bug" \
+   "$(body_evidence '## Bug
+
+start.sh passed the wrong base.')"
+eq "a Root cause heading" \
+   "section	## Root cause" \
+   "$(body_evidence '## Root cause
+
+the ref was the tip, not the fork point')"
+eq "a js stack frame" \
+   "stack	js frame    at useThing (" \
+   "$(body_evidence '    at useThing (bar.tsx:88)')"
+eq "a python traceback" \
+   "stack	Traceback (most recent call last)" \
+   "$(body_evidence 'Traceback (most recent call last):')"
+eq "an error line" \
+   "stack	TypeError:" \
+   "$(body_evidence 'TypeError: cannot read id of undefined')"
+eq "a repro marker" \
+   "repro	Reproduced today on staging with an empty org" \
+   "$(body_evidence 'Reproduced today on staging with an empty org')"
+
+echo ""
+echo "body_evidence — deliberately narrow"
+# Loose causal prose appears in nearly every commit message. Accepting it would
+# hollow out the N1 guard that stops a review being anchored to nothing, so it
+# has to not fire.
+eq "causal prose alone"       "" "$(body_evidence 'this was broken because the ref was wrong, so instead we use the fork point')"
+eq "a plain summary"          "" "$(body_evidence '## Summary
+
+Tidies up the header. No behaviour change.')"
+eq "a test-plan heading"      "" "$(body_evidence '## Test plan
+
+ran the suite')"
+eq "the word bug in prose"    "" "$(body_evidence 'this fixes a bug in the header')"
+eq "empty"                    "" "$(body_evidence '')"
+
+echo ""
 echo "classify_mode"
 eq "lint title, no issue"        lintfix "$(classify_mode 'ref(lint): drop unused imports' 3 0)"
 eq "eslint title, no issue"      lintfix "$(classify_mode 'fix eslint no-unused-vars' 1 0)"

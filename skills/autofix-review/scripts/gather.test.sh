@@ -116,6 +116,37 @@ eq "meta.json carries it too" "issue" \
    "$(jq -r '.unavailable | join(",")' "$W3/meta.json")"
 
 echo ""
+echo "evidence written into the description, with no tracker link"
+R5="$(new_repo bodyevidence)"
+git -C "$R5" checkout -qb fix/from-body
+printf 'const a = 3;\n' > "$R5/app.ts"
+git -C "$R5" add -A && git -C "$R5" commit -qm 'fix(app): use the fork point
+
+## Bug
+
+The base ref was the branch tip rather than the fork point.
+TypeError: cannot read length of undefined
+
+Reproduced on a branch 400 commits behind.'
+W5="$TMPROOT/work-bodyevidence"
+eval "$("$GATHER" --repo-path "$R5" --work "$W5" 2>&1)"
+
+eq "no tracker reference"          0         "$REF_COUNT"
+# A self-documenting fix is not an anchorless one. Sending these to N1 would
+# defer exactly the changes that came with the most explanation.
+eq "evidence comes from the body"  pr-body   "$EVIDENCE_SOURCE"
+eq "so nothing is reported missing" ""       "$UNAVAILABLE"
+contains "the Bug section is recorded" "section	## Bug" "$(cat "$W5/raw/body-evidence.txt")"
+eq "meta.json carries the source" pr-body \
+   "$(jq -r .evidence_source "$W5/meta.json")"
+
+echo ""
+echo "a bug fix with no evidence anywhere still reaches N1"
+eval "$("$GATHER" --repo-path "$R3" --work "$TMPROOT/work-anchorless2" 2>&1)"
+eq "evidence source is none" none  "$EVIDENCE_SOURCE"
+eq "and the gap is reported" issue "$UNAVAILABLE"
+
+echo ""
 echo "repo docs discovery"
 R4="$(new_repo docs)"
 mkdir -p "$R4/static/app"

@@ -41,7 +41,7 @@ shape is filled from the rule and the failing lint output.
 ```json
 {
   "mode": "bugfix | lintfix",
-  "source": "https://sentry.io/... | eslint:rule-name",
+  "source": "https://sentry.io/... | eslint:rule-name | pr-body",
   "symptom": "TypeError: Cannot read properties of undefined (reading 'id')",
   "failing_frames": [
     {"file": "static/app/views/foo/bar.tsx", "line": 88, "fn": "useThing", "in_repo": true}
@@ -62,6 +62,24 @@ that is the reviewer inventing scope.
 
 `unavailable` names inputs that could not be read (`"seer_rca"`, `"breadcrumbs"`).
 A non-empty `unavailable` on a field a link depends on routes to `N1`.
+
+### `source: "pr-body"` — evidence with no tracker behind it
+
+Plenty of real fixes carry the whole case in the description: a `## Bug` section,
+a pasted stack trace, a reproduction. `gather.sh` detects these and sets
+`EVIDENCE_SOURCE=pr-body`, and the card is built from them rather than routing
+straight to `N1` — deferring the changes that came with the *most* explanation
+would be a strange way to behave.
+
+It is weaker evidence, and the reason is worth stating plainly: **the author
+wrote both the evidence and the intent, so `evidence` and `intent` are no longer
+independent.** `L1` (evidence ↔ rca) largely collapses — both sides are the same
+person's account. What still holds is `L4`, because the `change` card is blind to
+all of it, and the probe, because a test either reproduces the failure or does
+not regardless of who described it.
+
+So on a `pr-body` case: treat a `holds` from `L1` as carrying little weight, and
+lean on the probe. This is the case where skipping Wave 3 costs the most.
 
 ## `cards/rca.json`
 

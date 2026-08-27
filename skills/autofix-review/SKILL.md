@@ -57,6 +57,11 @@ becomes an entry in `UNAVAILABLE`, which the verdict rule knows how to handle.
 **Do not work around a missing input by inferring it.** A review anchored to an
 issue you guessed at produces a confident verdict about the wrong bug.
 
+`EVIDENCE_SOURCE` says where the evidence card has to come from: `issue` (a
+tracker), `pr-body` (a `## Bug` section, a pasted stack trace, a repro — real
+evidence, but the author wrote both it and the intent, so `L1` largely collapses
+and the probe matters more; see `reference/cards.md`), or `none`, which is `N1`.
+
 ## Step 2 — Wave 1: four blind card writers
 
 Four `Agent` calls **in one message**. Read `reference/cards.md` for the schemas;
@@ -64,7 +69,7 @@ each writes one JSON file to `$WORK/cards/`.
 
 | Agent | Prompt contains | Writes |
 |---|---|---|
-| evidence | `$REFS_FILE` + fetched issue (sentry MCP), or in lintfix mode the rule id from `$LINT_FILE` plus its docs | `cards/evidence.json` |
+| evidence | `$REFS_FILE` + fetched issue (sentry MCP); or `$BODY_EV_FILE` when `EVIDENCE_SOURCE=pr-body`; or in lintfix mode the rule id from `$LINT_FILE` plus its docs | `cards/evidence.json` |
 | rca | the Seer/root-cause analysis for that issue | `cards/rca.json` |
 | intent | `$BODY_FILE`, nothing else | `cards/intent.json` |
 | change | `$DIFF_FILE` + read access to the repo, nothing else | `cards/change.json` |
