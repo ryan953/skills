@@ -223,12 +223,18 @@ it.
 | `probe-run.sh` | one probe against base and head, with the base-must-fail gate |
 | `verdict-rule.sh` | the deterministic accept/reject/needs-human rule; sourced by its tests |
 | `eval/*.sh` | the precision harness — see `eval/README.md` |
+| `test.sh` | every test in this skill, in one call |
 
-Tests: `extract.test.sh`, `verdict-rule.test.sh` (pure, no repo),
-`gather.test.sh`, `probe-run.test.sh` (real throwaway repos, no network),
-`eval/label.test.sh`. Run all five before touching the taxonomy, the verdict
-rule, or the probe gate — those three are the precision surface, and a change
-that loosens one of them is exactly the kind that looks harmless in a diff.
+Tests: `scripts/test.sh` runs all seven — `extract`, `verdict-rule`,
+`eval/label`, `eval/collect` (pure, no repo); `gather`, `probe-run`,
+`eval/fixtures` (real throwaway repos, no network, no `gh`). Run it before
+touching the taxonomy, the verdict rule, or the probe gate: those three are the
+precision surface, and a change that loosens one of them is exactly the kind
+that looks harmless in a diff.
+
+`eval/fixtures.test.sh` is the end-to-end one — six known-answer repos with
+hand-written cards standing in for the model waves, so the join from
+broken-link + refutation + probe to a single verdict is covered.
 
 ## Cost
 

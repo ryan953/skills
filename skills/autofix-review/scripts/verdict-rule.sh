@@ -193,6 +193,19 @@ decide() {
 # Gather the records the waves wrote into the single blob `decide` consumes.
 # Missing files are absent facts, not errors: a run that stopped early should
 # reach N1 through the rule, not through a stack trace.
+# json_array_of <dir> <glob> — every matching file slurped into one JSON array,
+# or [] when nothing matches. A plain `cat dir/*.json | jq -s .  || echo []`
+# looks equivalent and is not: under `pipefail` the failing cat makes the whole
+# pipeline non-zero *after* jq already printed [], so the fallback appends a
+# second one and the result is two arrays glued together.
+json_array_of() {
+    local dir="$1" pat="$2" files=()
+    # shellcheck disable=SC2231
+    for f in "$dir"/$pat; do [ -e "$f" ] && files+=("$f"); done
+    if [ "${#files[@]}" -eq 0 ]; then printf '[]\n'; return; fi
+    cat "${files[@]}" | jq -s '.'
+}
+
 facts_from_work() {
     local work="$1" probes_required="${2:-true}"
     local cards="$work/cards" links="$work/links"
@@ -204,15 +217,15 @@ facts_from_work() {
     it="$([ -f "$cards/intent.json" ]   && cat "$cards/intent.json"   || echo '{}')"
 
     local link_json probe_json reason_json
-    link_json="$(cat "$links"/L*.json 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')"
-    probe_json="$(cat "$work"/probes/*.json 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')"
+    link_json="$(json_array_of "$links" 'L*.json')"
+    probe_json="$(json_array_of "$work/probes" '*.json')"
 
     # A reason is a broken link joined to the refutation that tried to kill it
     # and the probe that tried to back it. Assembled here rather than by a model
     # so the join cannot be fudged in either direction.
     reason_json="$(
         printf '%s' "$link_json" | jq -c '[ .[] | select(.status == "broken") ]' | \
-        jq --argjson refs "$(cat "$work"/refutations/*.json 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
+        jq --argjson refs "$(json_array_of "$work/refutations" '*.json')" \
            --argjson probes "$probe_json" '
             [ .[] | . as $l
               | ($refs   | map(select(.code == $l.code)) | .[0]) as $r
@@ -271,7 +284,14 @@ else
     die "need --work <dir> or --facts <file|->"
 fi
 
-IFS=$'\t' read -r VERDICT CODES SCORED SUMMARY < <(decide "$FACTS")
+# Split with awk, not `read -r` with IFS=$'\t': a tab is IFS *whitespace*, so
+# bash collapses consecutive tabs into one delimiter and an accept (whose CODES
+# field is empty) would shift every field one to the left.
+DECISION="$(decide "$FACTS")"
+VERDICT="$(printf '%s' "$DECISION" | awk -F'\t' '{print $1}')"
+CODES="$(printf  '%s' "$DECISION" | awk -F'\t' '{print $2}')"
+SCORED="$(printf '%s' "$DECISION" | awk -F'\t' '{print $3}')"
+SUMMARY="$(printf '%s' "$DECISION" | awk -F'\t' '{print $4}')"
 
 if [ -n "${OUT_JSON:-}" ]; then
     jq -n --arg v "$VERDICT" --arg c "$CODES" --arg s "$SCORED" --arg m "$SUMMARY" \

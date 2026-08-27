@@ -148,5 +148,48 @@ v "N4 and N3 together" "needs-human|N4,N3" \
   "$(facts '{"probes":[],"divergence_rationale":"deliberate","reasons":[{"id":"r1","code":"R5","citations":["a:1"],"survived":true}]}')"
 
 echo ""
+echo "the CLI, over a real work dir"
+# `decide` is pure and easy to test; the CLI that splits its output is where a
+# field-shift bug can hide, and an accept is the case that exposes it — its
+# CODES field is empty.
+CLI_WORK="$(mktemp -d "${TMPDIR:-/tmp}/autofix-review-cli.XXXXXX")"
+mkdir -p "$CLI_WORK"/{cards,links,probes,refutations}
+printf '{"mode":"bugfix","unavailable":[]}\n'          > "$CLI_WORK/cards/evidence.json"
+printf '{"present":true}\n'                            > "$CLI_WORK/cards/rca.json"
+printf '{"claims":[],"divergence_rationale":null}\n'   > "$CLI_WORK/cards/intent.json"
+printf '{"behavioral":true,"suppression_flags":[]}\n'  > "$CLI_WORK/cards/change.json"
+for l in L1 L2 L3 L4a L4b; do
+    printf '{"link":"%s","status":"holds","citations":[]}\n' "$l" > "$CLI_WORK/links/$l.json"
+done
+printf '{"verdict":"matches"}\n'  > "$CLI_WORK/links/P.json"
+printf '{"verdict":"followed"}\n' > "$CLI_WORK/links/S.json"
+printf '{"id":"p1","outcome":"proven"}\n' > "$CLI_WORK/probes/p1.json"
+
+CLI_OUT="$("$SCRIPT_DIR/verdict-rule.sh" --work "$CLI_WORK")"
+cli() { printf '%s' "$CLI_OUT" | sed -n "s/^$1='\(.*\)'$/\1/p"; }
+eq2() {
+    local name="$1" expected="$2" actual="$3"
+    if [ "$actual" = "$expected" ]; then PASS=$((PASS+1)); printf '  ok   %s\n' "$name"
+    else FAIL=$((FAIL+1)); printf '  FAIL %s\n       expected: [%s]\n       actual:   [%s]\n' "$name" "$expected" "$actual"; fi
+}
+eq2 "VERDICT"                  accept "$(cli VERDICT)"
+eq2 "CODES stays empty"        ""     "$(cli CODES)"
+eq2 "SCORED does not shift"    full   "$(cli SCORED)"
+eq2 "SUMMARY lands in SUMMARY" "probe-proven and every link holds" "$(cli SUMMARY)"
+
+CLI_JSON="$("$SCRIPT_DIR/verdict-rule.sh" --work "$CLI_WORK" --json)"
+eq2 "--json verdict"      accept "$(printf '%s' "$CLI_JSON" | jq -r .verdict)"
+eq2 "--json codes empty"  "0"    "$(printf '%s' "$CLI_JSON" | jq -r '.codes | length')"
+eq2 "--json scored"       full   "$(printf '%s' "$CLI_JSON" | jq -r .scored)"
+
+# Empty artifact directories must read as absent facts, not as a parse error:
+# a run that stopped early should reach N1 through the rule, not a stack trace.
+EMPTY_WORK="$(mktemp -d "${TMPDIR:-/tmp}/autofix-review-empty.XXXXXX")"
+mkdir -p "$EMPTY_WORK"/{cards,links,probes,refutations}
+eq2 "an empty work dir reaches N1" "needs-human" \
+    "$("$SCRIPT_DIR/verdict-rule.sh" --work "$EMPTY_WORK" --json | jq -r .verdict)"
+rm -rf "$CLI_WORK" "$EMPTY_WORK"
+
+echo ""
 printf 'verdict-rule: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
