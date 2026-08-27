@@ -18,12 +18,18 @@ for t in "$HERE"/*.test.sh "$HERE"/eval/*.test.sh; do
         printf '%s\n' "$out" | grep -B1 -A3 '  FAIL' | sed 's/^/    /'
     fi
 done
-# shellcheck, when it is installed. It found the bug that mattered most here —
-# a `local a=$1 b=$a` where every word is expanded before any assignment lands,
-# so `b` silently read an unset variable. Three of those shipped in this skill
-# before the linter was run on it.
+# Static analysis, when it is installed. It found the bug that mattered most
+# here: a `local a=$1 b=$a`, where every word is expanded before any assignment
+# lands, so `b` silently read an unset variable. Three of those shipped in this
+# skill before the linter was ever run on it.
+#
+# Note the wording of this comment. A line beginning "# shellcheck" is parsed as
+# a DIRECTIVE, and a prose one fails to parse and reports as a finding -- which
+# is how this block failed the first time it ran. LC_ALL is set because the
+# comments in these scripts are UTF-8 and shellcheck errors on non-ASCII output
+# under a C locale.
 if command -v shellcheck >/dev/null 2>&1; then
-    sc_out="$(shellcheck -S warning -e SC1090 -x "$HERE"/*.sh "$HERE"/eval/*.sh 2>&1)"
+    sc_out="$(LC_ALL=C.UTF-8 shellcheck -S warning -e SC1090 -x "$HERE"/*.sh "$HERE"/eval/*.sh 2>&1)"
     if [ -n "$sc_out" ]; then
         FAILED=1
         printf '%-24s %s\n' shellcheck "findings:"
