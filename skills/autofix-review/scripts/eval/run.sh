@@ -98,20 +98,17 @@ prepare_case() {   # prepare_case <case-json> -> work dir on stdout, or empty
     base_sha="$(git -C "$REPO_PATH" merge-base "origin/$base_ref" "$sha" 2>/dev/null || \
                 git -C "$REPO_PATH" rev-parse "$sha^" 2>/dev/null || true)"
 
-    "$SKILL_DIR/scripts/gather.sh" --repo-path "$wt" --work "$work" \
-        --base "$base_sha" --head "$sha" >/dev/null 2>&1 || {
-        printf 'pr %s: gather failed\n' "$pr" >&2; return 1; }
-
-    # The PR body is part of what the intent card must read, and the local clone
-    # has no idea what it was. Splice it in from the case record.
+    # The PR body has to reach gather as an INPUT, not be pasted in afterwards:
+    # issue refs, embedded evidence, divergence markers, MODE and
+    # meta.unavailable are all derived from it. Splicing it in after the fact
+    # left every one of those computed from commit messages alone -- so a PR
+    # whose evidence lives in its description looked anchorless, and once the
+    # precheck landed it short-circuited to N1 with no review run at all.
+    mkdir -p "$work/raw"
     printf '%s' "$c" | jq -r '.body // ""' > "$work/raw/pr-body.md"
-    {
-        printf '# %s\n\n## Pull request description\n\n' "$(printf '%s' "$c" | jq -r .title)"
-        cat "$work/raw/pr-body.md"
-        printf '\n\n'
-        sed -n '/^## Commit messages/,$p' "$work/raw/body.md"
-    } > "$work/raw/body.full.md"
-    mv "$work/raw/body.full.md" "$work/raw/body.md"
+    "$SKILL_DIR/scripts/gather.sh" --repo-path "$wt" --work "$work" \
+        --base "$base_sha" --head "$sha" --body-file "$work/raw/pr-body.md" >/dev/null 2>&1 || {
+        printf 'pr %s: gather failed\n' "$pr" >&2; return 1; }
 
     printf '%s\n' "$work"
 }
@@ -190,11 +187,12 @@ wait
 printf 'reviewed %s case(s) at %s at a time\n' "$done_n" "$JOBS" >&2
 # Concatenate in case order, not completion order, so a rerun of the same
 # sample produces a byte-identical predictions file.
-if [ "$(ls -A "$PRED_DIR" 2>/dev/null | wc -l | tr -d ' ')" -gt 0 ]; then
-    for n in $(seq 1 "$done_n"); do
-        [ -f "$PRED_DIR/$n.json" ] && cat "$PRED_DIR/$n.json"
-    done
-else
-    : # nothing ran; pilot.sh treats an empty predictions file as fatal
-fi > >([ "$OUT" = - ] && cat || cat > "$OUT")
-wait
+# Written to a plain file rather than through process substitution: that plus a
+# bare `wait` only flushes reliably on bash 5.1+, and the concurrency above is
+# deliberately written for macOS's bash 3.2.
+TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/autofix-review-pred.XXXXXX")"
+# Case order, not completion order, so rerunning a sample gives an identical file.
+for n in $(seq 1 "$done_n"); do
+    [ -f "$PRED_DIR/$n.json" ] && cat "$PRED_DIR/$n.json"
+done > "$TMP_OUT"
+if [ "$OUT" = - ]; then cat "$TMP_OUT"; rm -f "$TMP_OUT"; else mv "$TMP_OUT" "$OUT"; fi

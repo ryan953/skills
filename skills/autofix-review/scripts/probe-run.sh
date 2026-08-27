@@ -122,7 +122,15 @@ write_result() {   # write_result <outcome> <base> <head> <detail>
 OUT_CAPTURE=""
 run_probe() {
     local wt="$1" cmd out rc
-    cp "$TEST" "$wt/$DEST" 2>/dev/null || { mkdir -p "$wt/$(dirname "$DEST")" && cp "$TEST" "$wt/$DEST"; }
+    # Never write over something already there. The probe is deleted after the
+    # run, so a name collision with a tracked file would delete that file from
+    # the worktree -- persistently, under --keep-worktrees.
+    if [ -e "$wt/$DEST" ]; then
+        printf 'PROBE-ERROR: %s already exists in the worktree; choose another --dest\n' "$DEST" >&2
+        printf 'error\n'; return
+    fi
+    mkdir -p "$wt/$(dirname "$DEST")" 2>/dev/null || true
+    cp "$TEST" "$wt/$DEST" || { printf 'error\n'; return; }
     case "$RUNNER" in
         *"{}"*) cmd="${RUNNER//\{\}/$DEST}" ;;
         *)      cmd="$RUNNER $DEST" ;;

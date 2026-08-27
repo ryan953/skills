@@ -169,6 +169,12 @@ emit_cases() {
     done
 }
 
+# A plain file, not `> >(cat > "$OUT")`. Process substitution plus a bare `wait`
+# only flushes reliably on bash 5.1+, and this is written for macOS's 3.2; a
+# truncated output file here is indistinguishable from an empty sample.
+TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/autofix-review-out.XXXXXX")"
+trap 'rm -f "$TMP_OUT"' EXIT
+
 {
     case "$ARM" in
         both)   emit_cases merged; emit_cases closed ;;
@@ -178,5 +184,5 @@ emit_cases() {
         all)    emit_cases merged; emit_cases closed; emit_cases seer ;;
         *) printf 'unknown --arm: %s\n' "$ARM" >&2; exit 1 ;;
     esac
-} > >([ "$OUT" = - ] && cat || cat > "$OUT")
-wait
+} > "$TMP_OUT"
+if [ "$OUT" = - ]; then cat "$TMP_OUT"; else mv "$TMP_OUT" "$OUT"; fi

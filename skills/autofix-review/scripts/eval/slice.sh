@@ -131,11 +131,25 @@ slice_one() {
     # this PR claims to fix, and the commits that landed after it. Without them
     # `superseded_later` was dead outside its unit test -- and it is the check
     # that stops a merged-then-re-fixed PR being scored as a correct accept.
-    local issue later
+    local issue later own
     issue="$(printf '%s' "$raw" | jq -r '(.body // "") | capture("(?<i>[A-Z][A-Z0-9]{2,}-[A-Z0-9]{3,})").i // ""' 2>/dev/null || true)"
     later=""
     if [ -n "$issue" ] && git rev-parse --git-dir >/dev/null 2>&1; then
-        later="$(git log --format='%s%n%b' "$head_at_review"..HEAD 2>/dev/null | head -c 200000 || true)"
+        # Start AFTER this PR's own squash commit. `head_at_review..HEAD` still
+        # contains it, and it names the same issue -- so every merged case
+        # matched itself and came out REJECT_TRUTH. Squash-merge means the PR
+        # head is not an ancestor of HEAD, so the range has to be found by the
+        # `(#N)` marker the squash subject carries, not by ancestry.
+        own="$(git log --format='%H %s' -n 4000 2>/dev/null | grep -m1 -F "(#$number)" | cut -d" " -f1 || true)"
+        if [ -n "$own" ]; then
+            later="$(git log --format='%s%n%b' "$own..HEAD" 2>/dev/null | head -c 200000 || true)"
+        else
+            # Not found (branch tip absent from the clone, or a merge commit
+            # rather than a squash). Fall back to the old range but drop any
+            # commit that names this PR, so it still cannot match itself.
+            later="$(git log --format='%s%n%b' "$head_at_review..HEAD" 2>/dev/null \
+                     | grep -v -F "(#$number)" | head -c 200000 || true)"
+        fi
     fi
 
     jq -n --argjson raw "$raw" --arg t "$first_review" --arg head "$head_at_review" \
@@ -160,10 +174,16 @@ slice_one() {
     }'
 }
 
+# A plain file, not `> >(cat > "$OUT")`. Process substitution plus a bare `wait`
+# only flushes reliably on bash 5.1+, and this is written for macOS's 3.2; a
+# truncated output file here is indistinguishable from an empty sample.
+TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/autofix-review-out.XXXXXX")"
+trap 'rm -f "$TMP_OUT"' EXIT
+
 {
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         slice_one "$line" | jq -c .
     done < <([ "$FROM" = - ] && cat || cat "$FROM")
-} > >([ "$OUT" = - ] && cat || cat > "$OUT")
-wait
+} > "$TMP_OUT"
+if [ "$OUT" = - ]; then cat "$TMP_OUT"; else mv "$TMP_OUT" "$OUT"; fi

@@ -258,12 +258,18 @@ revives refuted findings and suppresses the N4 conversion at the same time.
 
 ```json
 {
-  "reason_id": "r1", "code": "R4",
+  "reason_id": "L4b", "code": "R4",
   "outcome": "refuted | survived",
   "argument": "why it dies, or what you tried and why it didn't",
   "citations": ["static/app/views/foo/baz.tsx:12"]
 }
 ```
+
+`reason_id` is the **link** you examined (`L4b` above), matching the `link`
+field of the finding. It is not a refutation id of your own invention: the join
+is by link, and a made-up id matches nothing, so a cited finding a refuter
+confirmed would come back `survived: false` and a real reject would degrade to
+`needs-human`.
 
 The refuter's brief is adversarial on purpose: *default to `refuted`, and only
 report `survived` after opening the files and failing to find a way out.* A

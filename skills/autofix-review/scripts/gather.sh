@@ -9,7 +9,12 @@
 #
 # Usage:
 #   gather.sh [<pr-url|pr-number|branch>] [--repo owner/name] [--repo-path <dir>]
-#             [--work <dir>] [--base <ref>] [--head <ref>]
+#             [--work <dir>] [--base <ref>] [--head <ref>] [--body-file <file>]
+#
+# --body-file supplies a PR description this checkout cannot know about (the
+# evaluation harness replays a merged PR from a local clone). It must be an
+# INPUT: issue refs, embedded evidence, divergence markers and MODE are all
+# derived from the body, so splicing it in afterwards changes nothing.
 #
 # Degrades on purpose: with no `gh`, or on a repo it cannot reach, it falls back
 # to git alone and reports what is missing rather than failing. A missing input
@@ -43,7 +48,7 @@ else
     }
 fi
 
-TARGET=""; REPO_ARG=""; REPO_PATH=""; WORK=""; BASE_IN=""; HEAD_IN=""
+TARGET=""; REPO_ARG=""; REPO_PATH=""; WORK=""; BASE_IN=""; HEAD_IN=""; BODY_IN=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo)      REPO_ARG="$2"; shift 2 ;;
@@ -51,6 +56,7 @@ while [ $# -gt 0 ]; do
         --work)      WORK="$2"; shift 2 ;;
         --base)      BASE_IN="$2"; shift 2 ;;
         --head)      HEAD_IN="$2"; shift 2 ;;
+        --body-file) BODY_IN="$2"; shift 2 ;;
         -*)          die "unknown flag: $1" ;;
         *)           TARGET="$1"; shift ;;
     esac
@@ -78,7 +84,11 @@ if [ -f "$PRCTX" ] && command -v gh >/dev/null 2>&1; then
         REPO="${REPO:-}"
     fi
 fi
-if [ -n "$PR_NUMBER" ] && command -v gh >/dev/null 2>&1; then
+# A body handed in on the command line stands in for one gh would have fetched.
+if [ -n "$BODY_IN" ] && [ -f "$BODY_IN" ]; then
+    PR_BODY="$(cat "$BODY_IN")"
+fi
+if [ -z "$PR_BODY" ] && [ -n "$PR_NUMBER" ] && command -v gh >/dev/null 2>&1; then
     PR_JSON="$(gh pr view "$PR_NUMBER" ${REPO_ARG:+--repo "$REPO_ARG"} \
         --json number,title,url,body,baseRefName,headRefName,headRefOid,author,labels,commits \
         2>/dev/null || echo '{}')"
@@ -161,7 +171,11 @@ body_evidence "$ALL_TEXT" > "$WORK/raw/body-evidence.txt" || true
 divergence_markers "$ALL_TEXT" > "$WORK/raw/divergence.txt" || true
 BODY_EV_COUNT="$(wc -l < "$WORK/raw/body-evidence.txt" | tr -d ' ')"
 
-MODE="$(classify_mode "$PR_TITLE $COMMITS ${HEAD_REF:-}" "$LINT_COUNT" "$REF_COUNT")"
+# Titles and the branch name only. Passing whole commit bodies meant one
+# sentence mentioning lint or prettier anywhere in a long description flipped a
+# bug fix to lintfix -- which turns off the N1 anchor guard at both ends.
+SUBJECTS="$(printf '%s\n' "$COMMITS" | awk 'NR==1 || prev=="---" {print} {prev=$0}')"
+MODE="$(classify_mode "$PR_TITLE $SUBJECTS ${HEAD_REF:-}" "$LINT_COUNT" "$REF_COUNT")"
 
 # Where the evidence card will have to come from. A tracker issue is the strong
 # case; the description is the weaker one (the author wrote both the evidence and

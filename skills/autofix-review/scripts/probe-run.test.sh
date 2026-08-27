@@ -100,6 +100,18 @@ eq "no worktrees left registered" "1" \
    "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')"
 
 echo ""
+echo "the probe never clobbers a tracked file"
+# The probe is removed after each run, so writing over an existing file would
+# delete it from the worktree -- and persist that under --keep-worktrees.
+P_CLOB="$(probe_for clobber 'exit 0')"
+out="$("$PROBE" --work "$WORK" --id p_clob --test "$P_CLOB" --runner 'bash {}' \
+        --repo-path "$REPO" --dest app.js 2>&1)"
+eq "refuses to overwrite app.js" "unprovable" \
+   "$(printf '%s' "$out" | sed -n "s/^OUTCOME='\(.*\)'$/\1/p")"
+eq "and app.js survives" "function read(o) { return o ? o.id : null; }" \
+   "$(git -C "$REPO" show HEAD:app.js | tr -d '\n')"
+
+echo ""
 echo "runner argument forms"
 P_ARG="$(probe_for argform 'grep -q "return o.id" app.js && exit 1 || exit 0')"
 eq "{} substitution"  "proven 0" "$(run "$P_ARG" 'bash {}' p_sub)"

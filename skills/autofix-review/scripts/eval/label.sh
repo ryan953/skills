@@ -9,6 +9,7 @@
 #   merged  — reviewers saw it and it landed. Did they make the author change it?
 #   closed  — it never landed. Why not?
 #   seer    — a bot opened it and one named human merged or closed it
+#             (a close with no stated reason is EXCLUDED, same as the human arm)
 #
 # The closed arm exists because the merged arm alone is survivorship bias: a
 # change bad enough to be abandoned never appears in it, and those are exactly

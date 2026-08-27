@@ -37,7 +37,12 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+# Absolute before anything else: the stages run with cwd inside the clone, so a
+# relative --out (the default is relative) resolved against two different
+# directories -- the log and every stage output failed to open, and the run died
+# with a "no candidates" message that had nothing to do with the real cause.
 mkdir -p "$OUT" || exit 1
+OUT="$(cd "$OUT" && pwd)"
 LOG="$OUT/pilot.log"
 : > "$LOG"
 say() { printf '%s\n' "$*" | tee -a "$LOG"; }
@@ -84,7 +89,7 @@ if [ -z "$RO" ]; then
     say "  --read-only skips that and is much faster; probe-score a few cases afterwards."
 fi
 "$HERE/run.sh" --cases "$OUT/labelled.jsonl" --repo-path "$REPO_PATH" $RO \
-    --max-cases "$MAX" --jobs "$JOBS" --out "$OUT/predictions.jsonl" 2> >(tee -a "$LOG" >&2)
+    --max-cases "$MAX" --jobs "$JOBS" --out "$OUT/predictions.jsonl" 2>&1 | tee -a "$LOG" >&2
 PREDS="$(wc -l < "$OUT/predictions.jsonl" 2>/dev/null | tr -d ' ')"
 say "predictions: ${PREDS:-0} (of $SCOREABLE scoreable)"
 # An empty predictions file is this harness's characteristic failure and it
