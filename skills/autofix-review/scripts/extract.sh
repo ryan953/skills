@@ -139,7 +139,7 @@ classify_mode() {
     titleish="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]')"
 
     case "$titleish" in
-        *lint*|*eslint*|*prettier*|*biome*|*typecheck*|*tsc\ *|*ruff*|*flake8*|*"style("*|*codemod*|*"no-unused"*)
+        *lint*|*prettier*|*biome*|*typecheck*|*tsc\ *|*ruff*|*flake8*|*"style("*|*codemod*|*"no-unused"*)
             [ "$ref_count" -gt 0 ] && { printf 'bugfix\n'; return; }
             printf 'lintfix\n'; return ;;
     esac

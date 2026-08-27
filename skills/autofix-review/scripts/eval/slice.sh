@@ -33,7 +33,11 @@ command -v gh >/dev/null 2>&1 || { printf 'gh (GitHub CLI) not found on PATH\n' 
 BOTS_RE='\[bot\]$|^codecov|^sentry-io|^getsentry-bot|^seer-by-sentry|^github-actions'
 
 slice_one() {
-    local raw="$1" repo="${REPO:-$(printf '%s' "$raw" | jq -r '.repo // ""')}"
+    # Two `local`s, not one: every word on a `local` line is expanded before any
+    # of its assignments take effect, so `$raw` would still be unset here and the
+    # fallback would parse an empty string into an empty repo.
+    local raw="$1"
+    local repo="${REPO:-$(printf '%s' "$raw" | jq -r '.repo // ""')}"
     local number author state
     number="$(printf '%s' "$raw" | jq -r '.number')"
     author="$(printf '%s' "$raw" | jq -r '.author.login // ""')"

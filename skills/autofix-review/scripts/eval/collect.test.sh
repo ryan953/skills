@@ -41,5 +41,39 @@ T="a plain refactor";          no_ is_fix_shaped 'ref(views): extract a hook' 'r
 T="docs";                      no_ is_fix_shaped 'docs: update the readme' 'docs/readme'
 
 echo ""
+echo "build_query — the arm wiring"
+# This is here because it was NOT here: `--arm seer` shipped dispatching to a
+# query that filtered on neither the author nor the state, so it returned every
+# PR in the repo and the bot filter threw them all away. Zero cases, no error,
+# no test. The query is pure now precisely so that cannot recur silently.
+qeq() {
+    local name="$1" expected="$2" actual="$3"
+    if [ "$actual" = "$expected" ]; then PASS=$((PASS+1)); printf '  ok   %s\n' "$name"
+    else FAIL=$((FAIL+1)); printf '  FAIL %s\n       expected: [%s]\n       actual:   [%s]\n' "$name" "$expected" "$actual"; fi
+}
+qeq "merged arm"       'is:pr is:merged'                 "$(build_query merged)"
+qeq "closed is unmerged only" 'is:pr is:closed is:unmerged' "$(build_query closed)"
+qeq "seer filters on the bot author" 'is:pr is:closed author:app/seer-by-sentry' \
+    "$(build_query seer '' '' app/seer-by-sentry)"
+qeq "label applies to the human arms" 'is:pr is:merged label:"Frontend"' \
+    "$(build_query merged Frontend)"
+# Autofix PRs are rarely labelled; applying a label filter there empties the sample.
+qeq "label does NOT apply to seer" 'is:pr is:closed author:app/seer-by-sentry' \
+    "$(build_query seer Frontend '' app/seer-by-sentry)"
+qeq "since applies everywhere" 'is:pr is:merged created:>=2025-06-01' \
+    "$(build_query merged '' 2025-06-01)"
+if build_query bogus >/dev/null 2>&1; then
+    FAIL=$((FAIL+1)); printf '  FAIL an unknown arm must not silently build a query\n'
+else
+    PASS=$((PASS+1)); printf '  ok   an unknown arm is rejected, not silently queried\n'
+fi
+
+echo ""
+echo "the seer arm must not be filtered out as a bot"
+# is_human_authored is correct to reject seer-by-sentry — and that is exactly why
+# emit_cases must not apply it on the seer arm, where bot-written code is the point.
+T="seer-by-sentry is a bot, correctly"; no_ is_human_authored seer-by-sentry false ""
+
+echo ""
 printf 'collect: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

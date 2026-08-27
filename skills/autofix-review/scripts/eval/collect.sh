@@ -54,12 +54,36 @@ is_fix_shaped() {
     b="$(printf '%s' "${2-}" | tr '[:upper:]' '[:lower:]')"
     case "$t" in
         fix\(*|fix:*|fix\ *|hotfix*|"revert "*) return 0 ;;
-        ref\(lint*|*lint*|*eslint*|*prettier*|*biome*|*typecheck*|*"type error"*) return 0 ;;
+        *lint*|*prettier*|*biome*|*typecheck*|*"type error"*) return 0 ;;
     esac
     case "$b" in
         fix/*|hotfix/*|bugfix/*|lint/*) return 0 ;;
     esac
     return 1
+}
+
+# build_query <arm> <label> <since> <bot-author> — the search string for one arm.
+#
+# Pure, so collect.test.sh can pin it. It was inline in fetch_arm before, which
+# meant nothing covered it, which is how `--arm seer` shipped dispatching to a
+# query that filtered on neither the author nor the state — returning every PR
+# in the repo, all of which the bot filter then threw away. Zero cases, no error.
+build_query() {
+    local arm="$1" label="${2-}" since="${3-}" bot="${4-}" q="is:pr"
+    case "$arm" in
+        merged) q="$q is:merged" ;;
+        closed) q="$q is:closed is:unmerged" ;;
+        # Both outcomes: the merge and the close are each a decision, and a
+        # sample of only the merges would measure nothing but agreement.
+        seer)   q="$q is:closed author:$bot" ;;
+        *)      return 1 ;;
+    esac
+    # A label filter is the human arms' way of scoping to frontend work. The
+    # seer arm scopes by author instead, and autofix PRs are rarely labelled, so
+    # applying it there would empty the sample.
+    [ -n "$label" ] && [ "$arm" != seer ] && q="$q label:\"$label\""
+    [ -n "$since" ] && q="$q created:>=$since"
+    printf '%s\n' "$q"
 }
 
 [ "${BASH_SOURCE[0]}" = "${0}" ] || return 0
@@ -88,21 +112,17 @@ command -v gh >/dev/null 2>&1 || { printf 'gh (GitHub CLI) not found on PATH\n' 
 LIST_FIELDS=number,title,url,author,headRefName,state,createdAt,mergedAt,closedAt,isDraft
 DETAIL_FIELDS=number,title,url,body,state,author,headRefName,baseRefName,headRefOid,createdAt,mergedAt,closedAt,mergedBy,commits,reviews,comments,reviewDecision,files
 
-fetch_arm() {   # fetch_arm <merged|closed>
-    local arm="$1" q="is:pr"
-    case "$arm" in
-        merged) q="$q is:merged" ;;
-        closed) q="$q is:closed is:unmerged" ;;
-    esac
-    [ -n "$LABEL" ] && q="$q label:\"$LABEL\""
-    [ -n "$SINCE" ] && q="$q created:>=$SINCE"
+fetch_arm() {   # fetch_arm <merged|closed|seer>
+    local arm="$1" q
+    q="$(build_query "$arm" "$LABEL" "$SINCE" "$BOT_AUTHOR")" || {
+        printf 'unknown arm: %s\n' "$arm" >&2; echo '[]'; return; }
     # `gh pr list --search` rather than --state: is:unmerged has no --state
     # equivalent, and mixing the two silently returns merged PRs in the closed arm.
     gh pr list --repo "$REPO" --limit "$LIMIT" --search "$q" --json "$LIST_FIELDS" 2>/dev/null || echo '[]'
 }
 
 emit_cases() {
-    local arm="$1" list n i number title login is_bot branch draft detail trailers
+    local arm="$1" list n i number title login is_bot branch draft detail trailers decided_by
     list="$(fetch_arm "$arm")"
     n="$(printf '%s' "$list" | jq 'length')"
     printf 'arm %s: %s candidate(s)\n' "$arm" "$n" >&2
@@ -115,17 +135,37 @@ emit_cases() {
         draft="$(printf '%s' "$list" | jq -r ".[$i].isDraft // false")"
 
         [ "$draft" = true ] && continue
-        is_fix_shaped "$title" "$branch" || continue
+        # A Seer PR is a fix by construction and its title conventions are the
+        # bot's, so the shape filter does not apply. Nor does the human-author
+        # filter: on this arm the code being bot-written is the POINT, and
+        # applying it would reject every case (seer-by-sentry is in the bot
+        # list) and return an empty sample without saying so.
+        if [ "$arm" != seer ]; then
+            is_fix_shaped "$title" "$branch" || continue
+        fi
 
         detail="$(gh pr view "$number" --repo "$REPO" --json "$DETAIL_FIELDS" 2>/dev/null || echo '')"
         [ -n "$detail" ] || continue
 
-        # Author trailers live on the commits, not the PR record, so the
-        # AI-co-authorship check needs the detail fetch.
-        trailers="$(printf '%s' "$detail" | jq -r '[.commits[]?.messageBody // ""] | join("\n")')"
-        is_human_authored "$login" "$is_bot" "$trailers" || continue
+        if [ "$arm" != seer ]; then
+            # Author trailers live on the commits, not the PR record, so the
+            # AI-co-authorship check needs the detail fetch.
+            trailers="$(printf '%s' "$detail" | jq -r '[.commits[]?.messageBody // ""] | join("\n")')"
+            is_human_authored "$login" "$is_bot" "$trailers" || continue
+        fi
 
-        printf '%s' "$detail" | jq -c --arg arm "$arm" --arg repo "$REPO" '. + {arm:$arm, repo:$repo}'
+        # Who actually decided. GitHub reports it in two places depending on the
+        # outcome — mergedBy on a merge, closed_by on a close — and neither alone
+        # covers both halves of the seer arm.
+        decided_by="$(printf '%s' "$detail" | jq -r '.mergedBy.login // ""')"
+        [ -n "$decided_by" ] || decided_by="$(gh api "repos/$REPO/issues/$number" --jq '.closed_by.login // ""' 2>/dev/null || true)"
+        # The seer arm is ground truth only when a named human made the call.
+        if [ "$arm" = seer ] && [ -n "$DECIDER" ] && [ "$decided_by" != "$DECIDER" ]; then
+            continue
+        fi
+
+        printf '%s' "$detail" | jq -c --arg arm "$arm" --arg repo "$REPO" --arg by "$decided_by" \
+            '. + {arm:$arm, repo:$repo, decided_by:$by}'
     done
 }
 
