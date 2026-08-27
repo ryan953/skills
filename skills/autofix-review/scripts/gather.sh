@@ -225,6 +225,10 @@ emit REF_COUNT     "$REF_COUNT"
 emit LINT_COUNT    "$LINT_COUNT"
 emit FILE_COUNT    "$FILE_COUNT"
 emit DOC_COUNT     "$DOC_COUNT"
+# No governing document exists, so the standards scout can only return
+# not-applicable. Skipping it costs nothing: an S verdict of not-applicable and
+# a skipped S are the same input to the rule.
+emit SKIP_STANDARDS "$([ "$DOC_COUNT" -eq 0 ] && printf yes || printf no)"
 emit UNAVAILABLE   "$(printf '%s' "${UNAVAILABLE[*]+"${UNAVAILABLE[*]}"}")"
 
 # EMITTED KEYS
@@ -240,4 +244,6 @@ emit UNAVAILABLE   "$(printf '%s' "${UNAVAILABLE[*]+"${UNAVAILABLE[*]}"}")"
 #                    writer reads this too, so N4 can fire wherever it was written
 #   LINT_FILE    kind<TAB>detail — suppression and lint-config signals
 #   DOCS_FILE    repo guidance that exists and governs the changed files
+#   SKIP_STANDARDS  yes when no governing doc exists, so the S scout would only
+#                   ever return not-applicable
 #   UNAVAILABLE  space-separated inputs that could not be read; drives N1

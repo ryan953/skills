@@ -9,6 +9,7 @@
 # around. Every branch below is asserted in verdict-rule.test.sh.
 #
 # Usage:
+#   verdict-rule.sh --work <dir> --precheck # settled already? print it, else exit 1
 #   verdict-rule.sh --work <dir>            # assemble facts from $WORK, decide
 #   verdict-rule.sh --facts <file|->        # decide over a facts JSON blob
 #   . verdict-rule.sh && decide '<json>'    # the pure function, for tests
@@ -189,6 +190,29 @@ decide() {
     printf 'accept\t\t%s\t%s\n' "$scored" "$how"
 }
 
+# ---- precheck ---------------------------------------------------------------
+# Is the verdict already determined by what gather.sh found, before any subagent
+# runs? Only one condition qualifies, and it has to be reasoned about narrowly.
+#
+# N1 is checked first in `decide` and outranks everything, a surviving reject
+# included. So when gather reports that the issue or the diff could not be read,
+# the answer is needs-human/N1 whatever sixteen subagents would go on to say.
+# A card writer handed no evidence cannot conjure any.
+#
+# Deliberately NOT reused here: `decide` itself. Run against meta.json alone it
+# would see a missing rca card, read rca_present as false, and short-circuit
+# every bugfix to N1 -- turning a safe optimisation into one that skips the
+# entire review of every change.
+precheck_verdict() {
+    local meta="$1"
+    [ -f "$meta" ] || return 1
+    local missing
+    missing="$(jq -r '[(.unavailable // [])[] | select(. == "issue" or . == "diff")] | length' "$meta" 2>/dev/null || echo 0)"
+    [ "${missing:-0}" -gt 0 ] || return 1
+    printf 'needs-human\tN1\t%s\n' \
+        "the chain has no anchor: $(jq -r '(.unavailable // []) | join(", ")' "$meta") unreadable. Settled before the review; no subagent was run."
+}
+
 # ---- facts assembly ---------------------------------------------------------
 # Gather the records the waves wrote into the single blob `decide` consumes.
 # Missing files are absent facts, not errors: a run that stopped early should
@@ -279,16 +303,35 @@ if [ -f "$LIB" ]; then . "$LIB"; else
     die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 fi
 
-WORK=""; FACTS_FILE=""; PROBES_REQUIRED=true
+WORK=""; FACTS_FILE=""; PROBES_REQUIRED=true; PRECHECK=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --work) WORK="$2"; shift 2 ;;
         --facts) FACTS_FILE="$2"; shift 2 ;;
         --read-only) PROBES_REQUIRED=false; shift ;;
+        --precheck) PRECHECK=1; shift ;;
         --json) OUT_JSON=1; shift ;;
         *) die "unknown flag: $1" ;;
     esac
 done
+
+# --precheck: print a verdict only if one is already settled, else exit 1 so the
+# caller knows to go ahead and run the review.
+if [ -n "$PRECHECK" ]; then
+    [ -n "$WORK" ] || die "--precheck needs --work <dir>"
+    PC="$(precheck_verdict "$WORK/meta.json")" || exit 1
+    VERDICT="$(printf '%s' "$PC" | awk -F'\t' '{print $1}')"
+    CODES="$(printf  '%s' "$PC" | awk -F'\t' '{print $2}')"
+    SUMMARY="$(printf '%s' "$PC" | awk -F'\t' '{print $3}')"
+    if [ -n "${OUT_JSON:-}" ]; then
+        jq -n --arg v "$VERDICT" --arg c "$CODES" --arg m "$SUMMARY" \
+            '{verdict:$v, codes:($c|split(",")), scored:"precheck", summary:$m, short_circuit:true}'
+    else
+        emit VERDICT "$VERDICT"; emit CODES "$CODES"
+        emit SCORED precheck; emit SUMMARY "$SUMMARY"
+    fi
+    exit 0
+fi
 
 if [ -n "$FACTS_FILE" ]; then
     FACTS="$([ "$FACTS_FILE" = - ] && cat || cat "$FACTS_FILE")"

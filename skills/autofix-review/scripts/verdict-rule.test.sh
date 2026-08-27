@@ -223,5 +223,35 @@ rm -rf "$META_WORK"
 rm -rf "$CLI_WORK" "$EMPTY_WORK"
 
 echo ""
+echo "--precheck settles what gather already knows"
+PC_WORK="$(mktemp -d "${TMPDIR:-/tmp}/autofix-review-pc.XXXXXX")"
+pc() { "$SCRIPT_DIR/verdict-rule.sh" --work "$PC_WORK" --precheck --json 2>/dev/null; }
+
+printf '{"mode":"bugfix","unavailable":["issue"]}\n' > "$PC_WORK/meta.json"
+eq2 "no issue -> N1 without running anything" "needs-human N1" \
+    "$(pc | jq -r '.verdict + " " + (.codes|join(","))')"
+eq2 "and it is marked a short-circuit" "true" "$(pc | jq -r '.short_circuit')"
+
+printf '{"mode":"bugfix","unavailable":["diff"]}\n' > "$PC_WORK/meta.json"
+eq2 "no diff -> N1 too" "needs-human" "$(pc | jq -r .verdict)"
+
+# The trap: reusing decide() here would read the absent rca card as
+# rca_present:false and short-circuit EVERY bugfix to N1, skipping the whole
+# review of every change. Only the unavailable-inputs condition may fire.
+printf '{"mode":"bugfix","unavailable":[]}\n' > "$PC_WORK/meta.json"
+if "$SCRIPT_DIR/verdict-rule.sh" --work "$PC_WORK" --precheck >/dev/null 2>&1; then
+    FAIL=$((FAIL+1)); printf '  FAIL a complete chain must NOT be short-circuited\n'
+else
+    PASS=$((PASS+1)); printf '  ok   a complete chain is not short-circuited\n'
+fi
+printf '{"mode":"bugfix","unavailable":["breadcrumbs"]}\n' > "$PC_WORK/meta.json"
+if "$SCRIPT_DIR/verdict-rule.sh" --work "$PC_WORK" --precheck >/dev/null 2>&1; then
+    FAIL=$((FAIL+1)); printf '  FAIL an unrelated missing input must not short-circuit\n'
+else
+    PASS=$((PASS+1)); printf '  ok   an unrelated missing input does not short-circuit\n'
+fi
+rm -rf "$PC_WORK"
+
+echo ""
 printf 'verdict-rule: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

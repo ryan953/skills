@@ -110,3 +110,13 @@ fi
 printf '\ncases that never entered the numbers:\n'
 printf '%s' "$ALL" | jq -sr '[ .[] | select(.label == "AMBIGUOUS" or .label == "EXCLUDED") ]
     | group_by(.label) | .[] | "  \(.[0].label)  \(length)"' 2>/dev/null || true
+
+# How much of the sample never needed a review at all. gather.sh can settle a
+# verdict on its own when the chain has no anchor, and N1 outranks anything the
+# review would find -- so those cases cost nothing and should be visible as such
+# rather than blending into the deferral count.
+SC="$(printf '%s' "$ALL" | jq -s '[ .[] | select(.short_circuit == true) ] | length' 2>/dev/null || echo 0)"
+if [ "${SC:-0}" -gt 0 ]; then
+    printf '\n%s case(s) short-circuited: gather saw no anchor, so no subagent ran.\n' "$SC"
+    printf '  They are real N1 verdicts, not skipped work.\n'
+fi

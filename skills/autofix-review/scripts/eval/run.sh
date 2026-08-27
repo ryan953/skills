@@ -135,6 +135,20 @@ review_one() {
     pr="$(printf '%s' "$c" | jq -r .pr)"
     work="$(prepare_case "$c")" || return 0
     mode="$(jq -r '.mode // "bugfix"' "$work/meta.json")"
+
+    # Settled already? gather.sh knows when the chain has no anchor, and N1
+    # outranks anything the review could find. Spending sixteen subagents to
+    # reach a verdict already on disk is the most expensive way to learn nothing.
+    local pc
+    if pc="$("$SKILL_DIR/scripts/verdict-rule.sh" --work "$work" --precheck --json 2>/dev/null)"; then
+        printf '%s' "$c" | jq -c --argjson v "$pc" --arg work "$work" \
+            '. + {predicted: $v.verdict, predicted_codes: $v.codes, scored: $v.scored,
+                  predicted_summary: $v.summary, short_circuit: true, work: $work}' > "$PRED_DIR/$n.json"
+        printf '[%s] pr %s -> %s %s (short-circuit, no review run)\n' "$n" "$pr" \
+            "$(printf '%s' "$pc" | jq -r .verdict)" "$(printf '%s' "$pc" | jq -r '.codes|join(",")')" >&2
+        return 0
+    fi
+
     printf '[%s] pr %s (%s) started\n' "$n" "$pr" "$mode" >&2
 
     if [ -n "$BRIEFS" ]; then

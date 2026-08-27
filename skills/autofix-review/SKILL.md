@@ -62,6 +62,43 @@ tracker), `pr-body` (a `## Bug` section, a pasted stack trace, a repro — real
 evidence, but the author wrote both it and the intent, so `L1` largely collapses
 and the probe matters more; see `reference/cards.md`), or `none`, which is `N1`.
 
+## Step 1b — is the answer already settled?
+
+```bash
+scripts/verdict-rule.sh --work "$WORK" --precheck --json    # exit 1 = go ahead
+```
+
+`N1` is checked first in the rule and outranks everything, a surviving reject
+included. So when `gather.sh` reports the issue or the diff unreadable, the
+verdict is fixed before any subagent runs, and running them is the most
+expensive way to learn something already on disk. **Do this first, every time.**
+
+The rest of the short-circuits, in the order they can fire:
+
+| When | Skip | Why it is safe |
+|---|---|---|
+| `SKIP_STANDARDS=yes` | the `S` scout | No governing doc exists, so it can only return `not-applicable` — the same input to the rule as not running it. |
+| `change.behavioral == false` | all of Wave 3 | Nothing to observe, and `accept` already takes the no-probe path for it. |
+| no link came back `broken` | all of Wave 4 | Refuters exist per finding; no findings, no refuters. |
+| a probe returns `proven-reject` | that finding's refuter | The rule already treats a probe-proven reason as immune to refutation — a test that shows the failure still happening has beaten the argument. |
+| a cited reason is confirmed surviving | `P`, and any Wave 3 work not already started | A reject is decided before the needs-human codes are even accumulated, so precedent and standards can only add a second code to a verdict that will not change. Let anything already running finish; just do not start more. |
+
+### What must never be short-circuited
+
+- **`L4b` because `L4a` said `holds`.** The two framings exist to disagree; the
+  disagreement *is* the `N2` guard. Running one is not a cheaper version of
+  running both, it is a different and much weaker check.
+- **A refuter, because the finding looks solid.** That is the precision
+  mechanism. A finding nobody attacked has not earned anything.
+- **The `change` card, because the diff is small.** Blindness is structural, not
+  proportional to size.
+- **`L1` or `L2` on a `pr-body` case**, on the grounds that they will collapse
+  anyway. They usually do — and the validator saying so *in its own words* is how
+  you learn the evidence was never independent.
+
+The rule of thumb: skip work whose result **cannot change the verdict**. Never
+skip work whose result you are merely *expecting*.
+
 ## Step 2 — Wave 1: four blind card writers
 
 Four `Agent` calls **in one message**. Read `reference/cards.md` for the schemas;
