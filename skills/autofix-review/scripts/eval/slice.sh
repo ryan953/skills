@@ -32,6 +32,37 @@ command -v gh >/dev/null 2>&1 || { printf 'gh (GitHub CLI) not found on PATH\n' 
 # commits landed, and the pre-review slice would collapse to nothing.
 BOTS_RE='\[bot\]$|^codecov|^sentry-io|^getsentry-bot|^seer-by-sentry|^github-actions'
 
+# Which comments count as explaining a close: everything from the start of the
+# day BEFORE it. Anchoring at midnight of the close day itself -- which is what
+# `.[0:10] + "T00:00:00Z"` did -- drops a reason given the previous evening, and
+# the case then reads as an unexplained close and is EXCLUDED.
+#
+# The window is computed inside jq. It used to be `date -u -d "$closedAt -1
+# day"`, and `-d` is GNU syntax that BSD (macOS) `date` rejects. The error went
+# to /dev/null and the window came out empty -- and an empty window is not a
+# wider window, it is no filter at all: `.createdAt >= ""` is true of every
+# string. So every comment the PR had ever received was read as a reason for the
+# close, and a review note from months earlier ("this only fixes one call site")
+# became the recorded explanation for closing it. Ground truth was corrupted in
+# the worst direction, silently, and only off GNU -- which is why the Linux
+# container this was written in never showed it.
+#
+# `try/catch` keeps a malformed timestamp from killing the whole slice; it falls
+# back to the same take-everything behaviour that an absent `closedAt` has
+# always had. Named, and fenced by the markers below, so close-window.test.sh
+# runs THIS filter instead of a copy that can drift away from it.
+#>>> close-window
+CLOSE_COMMENTS_JQ='
+    (.closedAt // "") as $c
+    | (if $c == "" then ""
+       else (try (($c | fromdateiso8601) - 86400 | strftime("%Y-%m-%dT00:00:00Z")) catch "")
+       end) as $window
+    | [ (.comments // [])[]
+        | select(((.author.login // "") | test($bots)) | not)
+        | select($window == "" or (.createdAt >= $window))
+        | {author: (.author.login // ""), body: (.body // "")} ]'
+#<<< close-window
+
 slice_one() {
     # Two `local`s, not one: every word on a `local` line is expanded before any
     # of its assignments take effect, so `$raw` would still be unset here and the
@@ -110,21 +141,11 @@ slice_one() {
               | select(((.user.login // "") | test($bots)) | not)
               | .path ] | unique')"
 
-    # Closing comments: what was said from the start of the day BEFORE the close
-    # onwards. Anchoring at midnight of the close day itself -- which is what
-    # `.[0:10] + "T00:00:00Z"` did -- drops a reason given the previous evening,
-    # and the case then reads as an unexplained close and is EXCLUDED.
+    # Closing comments: see CLOSE_COMMENTS_JQ above for what the window is and
+    # why it is not computed with `date`.
     local close_comments='[]'
     if [ "$state" = CLOSED ]; then
-        local window
-        window="$(date -u -d "$(printf '%s' "$raw" | jq -r '.closedAt // ""') -1 day" +%Y-%m-%dT00:00:00Z 2>/dev/null \
-                  || printf '')"
-        close_comments="$(printf '%s' "$raw" | jq -c --arg bots "$BOTS_RE" --arg window "$window" '
-            (.closedAt // "") as $c
-            | [ (.comments // [])[]
-                | select(((.author.login // "") | test($bots)) | not)
-                | select($c == "" or (.createdAt >= $window))
-                | {author: (.author.login // ""), body: (.body // "")} ]')"
+        close_comments="$(printf '%s' "$raw" | jq -c --arg bots "$BOTS_RE" "$CLOSE_COMMENTS_JQ")"
     fi
 
     # The supersession check needs two things nothing was providing: the issue
