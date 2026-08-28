@@ -109,6 +109,15 @@ prepare_case() {   # prepare_case <case-json> -> work dir on stdout, or empty
     if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then
         git -C "$REPO_PATH" worktree add --detach --force "$wt" "$sha" >/dev/null 2>&1 || {
             printf 'pr %s: could not create a worktree\n' "$pr" >&2; return 1; }
+    elif [ "$(git -C "$wt" rev-parse HEAD 2>/dev/null)" != "$sha" ]; then
+        # A tree kept from an earlier run is reused, which saves a full checkout
+        # -- but only if it is at the commit this case is about. It was reused
+        # unconditionally, so a work root outliving a change to the sample meant
+        # reviewing one PR's code under another PR's ground truth, and the run
+        # looked entirely healthy while doing it.
+        git -C "$wt" checkout -q --detach --force "$sha" 2>/dev/null || {
+            printf 'pr %s: reused worktree is at the wrong commit and will not move\n' "$pr" >&2
+            return 1; }
     fi
 
     base_sha="$(git -C "$REPO_PATH" merge-base "origin/$base_ref" "$sha" 2>/dev/null || \

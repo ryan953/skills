@@ -75,5 +75,13 @@ grep -q 'Wave 3 (probes)' "$T/preds3.jsonl" 2>/dev/null \
   && eq "--probes turns them on" "yes" "yes" \
   || eq "--probes turns them on" "yes" "no (brief did not ask for Wave 3)"
 
+# A work root that outlives a change to the sample must not review the wrong
+# commit. The tree is reused to save a full checkout; it has to be moved first.
+git -C "$WORK_ROOT/pr-1/tree" checkout -q --detach HEAD~1 2>/dev/null
+"$RUN" --cases "$CASES" --repo-path "$REPO" --work-root "$WORK_ROOT" \
+       --print-briefs --out "$T/preds4.jsonl" >/dev/null 2>&1
+eq "a reused tree is moved to this case's commit" "$SHA" \
+   "$(git -C "$WORK_ROOT/pr-1/tree" rev-parse HEAD 2>/dev/null)"
+
 printf 'run-artifacts: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
