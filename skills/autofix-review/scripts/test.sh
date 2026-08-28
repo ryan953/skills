@@ -32,7 +32,7 @@ done
 TMPD="$(mktemp -d "${TMPDIR:-/tmp}/autofix-review-test.XXXXXX")" || exit 1
 trap 'rm -rf "$TMPD"' EXIT
 
-# shellcheck is started first and in the background: it is the one check that
+# Static analysis starts first and in the background: it is the one check that
 # reads every file at once, so it overlaps with the tests instead of following
 # them. It found the bug that mattered most here: a `local a=$1 b=$a`, where
 # every word is expanded before any assignment lands, so `b` silently read an
