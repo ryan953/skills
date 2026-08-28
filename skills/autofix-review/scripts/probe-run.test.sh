@@ -92,12 +92,54 @@ eq "base/head results are both kept" "fail pass" \
 # resolve the way a real test in that package would.
 eq "dest sits beside the changed file" "real.probe.test.sh" \
    "$(jq -r .dest "$WORK/probes/p_real.json")"
-# Nothing survives the run: no probe files left behind, no worktrees still
-# registered against the user's clone.
+# No probe files left behind, and no worktrees beyond the shared pair. The pair
+# persisting is the point -- it is the cache -- so what matters is that the
+# count does not GROW with the number of probes run. Every probe above shared
+# one base and one head: 1 clone + 2 = 3.
 eq "no probe files left in the repo" "" \
    "$(find "$REPO" -name '*.probe.test.*' 2>/dev/null)"
-eq "no worktrees left registered" "1" \
+eq "only the shared pair is registered" "3" \
    "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')"
+
+echo ""
+echo "shared worktrees"
+# A second case, with its own work dir, must REUSE the pair rather than add to
+# it. This is the whole saving: on a monorepo a fresh worktree is minutes of
+# I/O, and it used to be paid once per case.
+WORK2="$TMPROOT/work2"
+mkdir -p "$WORK2/raw"
+printf 'app.js\n' > "$WORK2/raw/files.txt"
+jq -n --arg b "$BASE" --arg h "$HEAD" --arg r "$REPO" \
+    '{base_sha:$b, head_sha:$h, repo_path:$r}' > "$WORK2/meta.json"
+out2="$("$PROBE" --work "$WORK2" --id p2 --test "$P_REAL" --runner 'bash {}' --repo-path "$REPO" 2>&1)"
+eq "a second case still proves its probe" "proven" \
+   "$(printf '%s' "$out2" | sed -n "s/^OUTCOME='\(.*\)'$/\1/p")"
+eq "and adds no worktrees" "3" \
+   "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')"
+eq "it used the shared pair, not a private one" "" \
+   "$(ls -d "$WORK2"/wt-* 2>/dev/null)"
+
+# An untracked file left at the probe's path by a run that died must not fail
+# every later case at that path. In a per-case worktree this could not happen;
+# in a reused one it is the obvious way sharing goes wrong.
+printf 'stale\n' > "$TMPROOT/.probe-worktrees/base/$(basename "$P_REAL")"
+out3="$("$PROBE" --work "$WORK2" --id p3 --test "$P_REAL" --runner 'bash {}' --repo-path "$REPO" 2>&1)"
+eq "a leftover probe file is cleared, not fatal" "proven" \
+   "$(printf '%s' "$out3" | sed -n "s/^OUTCOME='\(.*\)'$/\1/p")"
+
+# Two cases run at once. The loser of the lock must still produce a real
+# result -- contention is allowed to cost time, never correctness -- and must
+# not leave its private pair behind.
+mkdir -p "$TMPROOT/.probe-worktrees/.lock"
+out4="$(AUTOFIX_REVIEW_WT_LOCK_WAIT=0 "$PROBE" --work "$WORK2" --id p4 --test "$P_REAL" \
+        --runner 'bash {}' --repo-path "$REPO" 2>&1)"
+rmdir "$TMPROOT/.probe-worktrees/.lock" 2>/dev/null || true
+eq "a locked-out case falls back and still proves" "proven" \
+   "$(printf '%s' "$out4" | sed -n "s/^OUTCOME='\(.*\)'$/\1/p")"
+eq "the fallback pair is torn down" "3" \
+   "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')"
+eq "and the lock is not held afterwards" "" \
+   "$(ls -d "$TMPROOT/.probe-worktrees/.lock" 2>/dev/null)"
 
 echo ""
 echo "the probe never clobbers a tracked file"

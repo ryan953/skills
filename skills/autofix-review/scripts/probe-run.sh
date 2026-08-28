@@ -12,7 +12,7 @@
 # Usage:
 #   probe-run.sh --work <dir> --id p1 --test <file> --runner '<cmd>'
 #                [--link L4b] [--repo-path <dir>] [--base <sha>] [--head <sha>]
-#                [--dest <path-in-tree>] [--keep-worktrees]
+#                [--dest <path-in-tree>] [--keep-worktrees] [--worktree-root <dir>]
 #
 # --link names the link this probe backs. verdict-rule.sh joins on it, and
 # without it a proven-reject here would be credited to every broken link at once.
@@ -34,6 +34,7 @@ if [ -f "$LIB" ]; then . "$LIB"; else
 fi
 
 WORK=""; ID=""; TEST=""; RUNNER=""; REPO_PATH=""; BASE=""; HEAD=""; DEST=""; KEEP=""; LINK=""
+WT_ROOT=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --work) WORK="$2"; shift 2 ;;
@@ -45,6 +46,7 @@ while [ $# -gt 0 ]; do
         --head) HEAD="$2"; shift 2 ;;
         --dest) DEST="$2"; shift 2 ;;
         --link) LINK="$2"; shift 2 ;;
+        --worktree-root) WT_ROOT="$2"; shift 2 ;;
         --keep-worktrees) KEEP=1; shift ;;
         *) die "unknown flag: $1" ;;
     esac
@@ -87,14 +89,53 @@ fi
 add_worktree() {
     local dir="$1" sha="$2"
     if [ -d "$dir/.git" ] || [ -f "$dir/.git" ]; then
-        git -C "$dir" checkout -q --detach "$sha" 2>/dev/null && return 0
+        # --force because this pair is reused: a probe file the last run died
+        # before deleting, or a half-applied checkout, must not make the next
+        # case fall back to a fresh (minutes-long) worktree.
+        git -C "$dir" checkout -q --detach --force "$sha" 2>/dev/null && return 0
         git -C "$REPO_PATH" worktree remove --force "$dir" >/dev/null 2>&1 || true
     fi
     git -C "$REPO_PATH" worktree add --detach --force "$dir" "$sha" >/dev/null 2>&1
 }
 
-WT_BASE="$WORK/wt-base"
-WT_HEAD="$WORK/wt-head"
+# One pair of worktrees for the whole run, not a pair per case. Creating a
+# worktree in a monorepo is minutes of I/O and a gigabyte of disk; checking a
+# different commit out of one that already exists touches only the files that
+# differ, which between two commits is usually a handful. Twenty probed cases
+# went from forty full checkouts to two, plus cheap updates.
+#
+# Shared state needs a lock, because cases run concurrently and two of them
+# checking different commits into one directory would each probe a tree the
+# other was rewriting -- and the result would look like an ordinary probe
+# outcome, not like a collision. `mkdir` is the atomic primitive available
+# everywhere; macOS ships no flock(1). A case that cannot get the lock in time
+# falls back to a private pair, so contention costs speed and never correctness.
+#
+# The shared pair outlives the run on purpose: it is the cache. Removing its
+# directory without `git worktree prune` leaves stale registrations behind.
+[ -n "$WT_ROOT" ] || WT_ROOT="${AUTOFIX_REVIEW_WT_ROOT:-$(dirname "$WORK")/.probe-worktrees}"
+LOCK_WAIT="${AUTOFIX_REVIEW_WT_LOCK_WAIT:-900}"
+LOCK_DIR="$WT_ROOT/.lock"
+SHARED=""
+
+acquire_lock() {   # acquire_lock <dir> <seconds>
+    local d="$1" limit="$2" waited=0
+    while ! mkdir "$d" 2>/dev/null; do
+        [ "$waited" -lt "$limit" ] || return 1
+        sleep 1; waited=$((waited + 1))
+    done
+    printf '%s\n' "$$" > "$d/owner" 2>/dev/null || true
+}
+
+if mkdir -p "$WT_ROOT" 2>/dev/null && acquire_lock "$LOCK_DIR" "$LOCK_WAIT"; then
+    SHARED=1
+    WT_BASE="$WT_ROOT/base"
+    WT_HEAD="$WT_ROOT/head"
+else
+    printf 'probe %s: shared worktrees unavailable, using a private pair\n' "$ID" >&2
+    WT_BASE="$WORK/wt-base"
+    WT_HEAD="$WORK/wt-head"
+fi
 
 write_result() {   # write_result <outcome> <base> <head> <detail>
     jq -n --arg id "$ID" --arg tf "$(basename "$TEST")" --arg o "$1" \
@@ -125,9 +166,17 @@ run_probe() {
     # Never write over something already there. The probe is deleted after the
     # run, so a name collision with a tracked file would delete that file from
     # the worktree -- persistently, under --keep-worktrees.
+    #
+    # An UNTRACKED file at the same path is a different thing: it is this
+    # probe's own leftover from a run that died, and in a reused worktree it
+    # would otherwise fail every later case at the same path forever. Clearing
+    # it is safe precisely because git does not know about it.
     if [ -e "$wt/$DEST" ]; then
-        printf 'PROBE-ERROR: %s already exists in the worktree; choose another --dest\n' "$DEST" >&2
-        printf 'error\n'; return
+        if git -C "$wt" ls-files --error-unmatch "$DEST" >/dev/null 2>&1; then
+            printf 'PROBE-ERROR: %s is a tracked file; choose another --dest\n' "$DEST" >&2
+            printf 'error\n'; return
+        fi
+        rm -f "$wt/$DEST"
     fi
     mkdir -p "$wt/$(dirname "$DEST")" 2>/dev/null || true
     cp "$TEST" "$wt/$DEST" || { printf 'error\n'; return; }
@@ -151,6 +200,9 @@ trim() { tail -n 20 "$1" 2>/dev/null | cut -c1-400 | tr '\n' ' '; }
 
 cleanup() {
     rm -f "$WORK/probes/.$ID.base.out" "$WORK/probes/.$ID.head.out"
+    # Release the lock before anything else, so a failure below cannot strand
+    # every other case waiting on it.
+    if [ -n "$SHARED" ]; then rm -rf "$LOCK_DIR"; return 0; fi
     [ -n "$KEEP" ] && return 0
     git -C "$REPO_PATH" worktree remove --force "$WT_BASE" >/dev/null 2>&1 || true
     git -C "$REPO_PATH" worktree remove --force "$WT_HEAD" >/dev/null 2>&1 || true
