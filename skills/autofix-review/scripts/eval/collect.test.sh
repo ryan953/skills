@@ -28,6 +28,40 @@ T="copilot co-author";        no_  is_human_authored ryan953 false 'Co-authored-
 T="a human co-author is fine"; yes_ is_human_authored ryan953 false 'Co-Authored-By: Alice <a@b.com>'
 
 echo ""
+echo "is_bot_login — who CLOSED it"
+# The seer arm is ground truth only because a human made the call. getsantry
+# closes stale PRs on a timer; six of nineteen closed cases in a real sample
+# were its doing, and each entered as though it were a decision.
+# yes_ means the predicate holds, so here it reads "this login IS a bot".
+T="the stale closer is a bot";  yes_ is_bot_login 'getsantry[bot]'
+T="getsentry-bot is a bot";     yes_ is_bot_login getsentry-bot
+T="seer closing its own PR";    yes_ is_bot_login seer-by-sentry
+T="github-actions is a bot";    yes_ is_bot_login github-actions
+T="nobody recorded counts too"; yes_ is_bot_login ''
+T="a real reviewer is not";     no_  is_bot_login ryan953
+T="another real reviewer";      no_  is_bot_login armenzg
+
+echo ""
+echo "involvement — ranking, not filtering"
+DETAIL_R='{"reviews":[{"author":{"login":"ryan953"}}],"comments":[]}'
+DETAIL_C='{"reviews":[],"comments":[{"author":{"login":"ryan953"}}]}'
+DETAIL_N='{"reviews":[{"author":{"login":"someone"}}],"comments":[{"author":{"login":"other"}}]}'
+eqs() { if [ "$2" = "$3" ]; then PASS=$((PASS+1)); printf '  ok   %s\n' "$1"
+        else FAIL=$((FAIL+1)); printf '  FAIL %s\n       expected: [%s]\n       actual:   [%s]\n' "$1" "$3" "$2"; fi; }
+eqs "the decider outranks all"  "$(involvement ryan953 "$DETAIL_R" ryan953)"  "$(printf '3\tdecider')"
+eqs "a reviewer outranks a commenter" "$(involvement ryan953 "$DETAIL_R" someone)" "$(printf '2\treviewer')"
+eqs "a commenter still counts"  "$(involvement ryan953 "$DETAIL_C" someone)"  "$(printf '1\tcommenter')"
+eqs "uninvolved ranks zero"     "$(involvement ryan953 "$DETAIL_N" someone)"  "$(printf '0\t')"
+# No --involves given: every case ranks the same, so the ordering is untouched.
+eqs "no login means no ranking" "$(involvement '' "$DETAIL_R" ryan953)"       "$(printf '0\t')"
+
+echo ""
+echo "build_query — involves widens past any single role"
+T="involves is added";  yes_ grep -q 'involves:ryan953' <<< "$(build_query seer '' '' app/seer-by-sentry ryan953)"
+T="absent by default";  no_  grep -q 'involves:'         <<< "$(build_query seer '' '' app/seer-by-sentry)"
+T="seer still filters by author"; yes_ grep -q 'author:app/seer-by-sentry' <<< "$(build_query seer '' '' app/seer-by-sentry ryan953)"
+
+echo ""
 echo "is_fix_shaped"
 T="conventional fix scope";   yes_ is_fix_shaped 'fix(issues): guard null org' 'fix/null-org'
 T="bare fix:";                yes_ is_fix_shaped 'fix: crash on empty list' 'x'

@@ -8,6 +8,12 @@
 #   pilot.sh [--repo owner/name] [--arm seer|both|all] [--decider <login>]
 #            [--repo-path ~/code/sentry] [--limit 100] [--since 2025-06-01]
 #            [--out <dir>] [--probes] [--max-cases N] [--jobs N]
+#            [--involves <login>]
+#
+# --involves ranks the sample so PRs that person touched are reviewed first.
+# It does not filter: only a handful of autofix PRs involve any one reviewer,
+# so requiring it would leave nothing to measure. PRs closed by a bot are
+# dropped either way -- a stale-closer firing on a timer is not a verdict.
 #
 # Defaults are the seer arm against getsentry/sentry, which is where the signal
 # is: the chain exists by construction and the merge-or-close IS the verdict.
@@ -26,11 +32,13 @@ REPO=getsentry/sentry; ARM=seer; DECIDER=""; REPO_PATH="$HOME/code/sentry"
 # RO is set: probes are off unless --probes asks for them, and JOBS is 2. See
 # the note at the top of run.sh for why more concurrency made runs slower.
 LIMIT=100; SINCE=2025-06-01; OUT="./autofix-review-pilot"; RO=--read-only; MAX=20; JOBS=2
+INVOLVES=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
         --arm) ARM="$2"; shift 2 ;;
         --decider) DECIDER="$2"; shift 2 ;;
+        --involves) INVOLVES="$2"; shift 2 ;;
         --repo-path) REPO_PATH="$2"; shift 2 ;;
         --limit) LIMIT="$2"; shift 2 ;;
         --since) SINCE="$2"; shift 2 ;;
@@ -59,7 +67,7 @@ command -v gh >/dev/null 2>&1 || { say "FATAL: gh not on PATH"; exit 1; }
 gh auth status >>"$LOG" 2>&1 || { say "FATAL: gh not authenticated (gh auth status)"; exit 1; }
 [ -d "$REPO_PATH/.git" ] || { say "FATAL: no git clone at $REPO_PATH (pass --repo-path)"; exit 1; }
 
-say "repo=$REPO arm=$ARM decider=${DECIDER:-<anyone>} clone=$REPO_PATH probes=$([ -n "$RO" ] && echo off || echo on)"
+say "repo=$REPO arm=$ARM decider=${DECIDER:-<anyone>} involves=${INVOLVES:-<anyone>} clone=$REPO_PATH probes=$([ -n "$RO" ] && echo off || echo on)"
 say "started $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 say ""
 
@@ -68,6 +76,7 @@ step() { say "--- $1 ---"; }
 
 step collect
 "$HERE/collect.sh" --repo "$REPO" --arm "$ARM" ${DECIDER:+--decider "$DECIDER"} \
+    ${INVOLVES:+--involves "$INVOLVES"} \
     --limit "$LIMIT" --since "$SINCE" --out "$OUT/raw.jsonl" 2>>"$LOG"
 say "candidates: $(wc -l < "$OUT/raw.jsonl" | tr -d ' ')"
 [ -s "$OUT/raw.jsonl" ] || { say "FATAL: no candidates. Widen --since, raise --limit, or drop --decider."; exit 1; }

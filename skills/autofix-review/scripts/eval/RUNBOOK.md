@@ -16,8 +16,14 @@ Sentry MCP available to whatever runs the skill.
 
 ```bash
 ~/code/skills/skills/autofix-review/scripts/eval/pilot.sh \
-  --repo-path ~/code/sentry --decider ryan953 --out ~/autofix-review-pilot
+  --repo-path ~/code/sentry --involves ryan953 --out ~/autofix-review-pilot
 ```
+
+`--involves` ranks rather than filters: PRs you reviewed, commented on, or
+decided come first, and the rest fill the sample behind them. Use it instead of
+`--decider`, which is a hard filter and cuts a 115-PR pool down to the two you
+personally closed. PRs closed by a bot are dropped either way — `getsantry[bot]`
+closes stale PRs on a timer, and that is not a verdict about the patch.
 
 Probes are off by default. That first pass gets verdicts across the whole
 sample; then re-run the few cases whose closing link you actually want measured
