@@ -82,6 +82,20 @@ body_evidence() {
             | sed 's/^/stack\t/' || true
         printf '%s\n' "$text" | grep -oiE '(reproduced?( (it|on|with|today))?|steps to reproduce|repro:)[^.]{0,60}' \
             | sed 's/^/repro\t/' || true
+        # A cause stated in PROSE, not under a heading. Seer writes "The root
+        # cause was a mismatch between X and Y", never "## Root cause", so the
+        # heading pattern above missed every autofix PR: 106382 yielded 16 bytes
+        # ("KeyError:") from a description that explains the fault in full. With
+        # no issue text fetched either, the RCA card had nothing legal to cite,
+        # reported present:false, and the rule settled the case at N1 -- 13 of 20
+        # cases in a real run deferred for want of a sentence that was there.
+        # Unbounded `[^.]*` with a `cut`, not `[^.]{0,240}`: a bounded repeat of
+        # a negated class over UTF-8 input is expanded per byte-class and ugrep
+        # (which some machines provide as `grep`) rejects it as "exceeds
+        # complexity limits" -- on stderr, so the pattern silently matched
+        # nothing while the surrounding `|| true` reported success.
+        printf '%s\n' "$text" | grep -oiE '(root ?cause (is|was|of)|the (issue|problem|bug|failure|error) (is|was)|(is|was|are|were) caused by|(occurs|occurred|happens|fails|crashes|throws) when|due to|leading to)[^.]*' \
+            | cut -c1-240 | sed 's/^/cause\t/' || true
     } | awk 'NF && !seen[$0]++'
 }
 

@@ -10,6 +10,7 @@
 # Usage:
 #   gather.sh [<pr-url|pr-number|branch>] [--repo owner/name] [--repo-path <dir>]
 #             [--work <dir>] [--base <ref>] [--head <ref>] [--body-file <file>]
+#             [--issue-file <file>]
 #
 # --body-file supplies a PR description this checkout cannot know about (the
 # evaluation harness replays a merged PR from a local clone). It must be an
@@ -49,6 +50,7 @@ else
 fi
 
 TARGET=""; REPO_ARG=""; REPO_PATH=""; WORK=""; BASE_IN=""; HEAD_IN=""; BODY_IN=""
+ISSUE_IN=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo)      REPO_ARG="$2"; shift 2 ;;
@@ -57,6 +59,10 @@ while [ $# -gt 0 ]; do
         --base)      BASE_IN="$2"; shift 2 ;;
         --head)      HEAD_IN="$2"; shift 2 ;;
         --body-file) BODY_IN="$2"; shift 2 ;;
+        # The tracker issue's TEXT, when the caller can reach the tracker. Its
+        # presence is what makes EVIDENCE_SOURCE=issue legitimate; a reference
+        # alone is not the issue.
+        --issue-file) ISSUE_IN="$2"; shift 2 ;;
         -*)          die "unknown flag: $1" ;;
         *)           TARGET="$1"; shift ;;
     esac
@@ -155,6 +161,10 @@ $COMMITS
 ${HEAD_REF:-}"
 
 # ---- the derived facts ------------------------------------------------------
+if [ -n "$ISSUE_IN" ] && [ -s "$ISSUE_IN" ]; then
+    cat "$ISSUE_IN" > "$WORK/raw/issue.md" 2>/dev/null || true
+fi
+
 parse_issue_refs "$ALL_TEXT" > "$WORK/raw/issue-refs.txt" || true
 REF_COUNT="$(wc -l < "$WORK/raw/issue-refs.txt" | tr -d ' ')"
 
@@ -180,7 +190,18 @@ MODE="$(classify_mode "$PR_TITLE $SUBJECTS ${HEAD_REF:-}" "$LINT_COUNT" "$REF_CO
 # Where the evidence card will have to come from. A tracker issue is the strong
 # case; the description is the weaker one (the author wrote both the evidence and
 # the intent, so they are not independent); nothing is N1.
-if [ "$REF_COUNT" -gt 0 ]; then EVIDENCE_SOURCE=issue
+#
+# `issue` requires the issue TEXT, not a reference to it. It used to be set on
+# REF_COUNT alone, and gather never fetches issue content -- so the card writers
+# were promised an anchor that existed in no file. Every legal `source` for the
+# RCA card lives inside the issue, so the writer reported `present: false`, the
+# rule read that as no anchor, and 13 of 20 cases in a real run came back
+# needs-human/N1 while their descriptions explained the fault in full.
+#
+# --issue-file is how a caller that CAN reach the tracker supplies it. Without
+# one we say pr-body and mean it, which is honest and reviewable, rather than
+# claiming a strength we do not have and deferring everything.
+if [ -s "$WORK/raw/issue.md" ]; then EVIDENCE_SOURCE=issue
 elif [ "$BODY_EV_COUNT" -gt 0 ]; then EVIDENCE_SOURCE=pr-body
 else EVIDENCE_SOURCE=none
 fi

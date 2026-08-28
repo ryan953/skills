@@ -69,7 +69,13 @@ eval "$OUT"
 eq "mode is bugfix"            bugfix "$MODE"
 eq "one issue reference"       1      "$REF_COUNT"
 eq "one changed file"          1      "$FILE_COUNT"
-eq "nothing missing"           ""     "$UNAVAILABLE"
+# A REFERENCE is not the issue. This fixture cites an issue URL and says nothing
+# else, and gather cannot fetch the tracker -- so there is no anchor, and saying
+# so here is what stops the card writers being promised text no file contains.
+# Claiming `issue` on the reference alone is what sent 13 of 20 cases in a real
+# run to needs-human/N1 after a full review that never had anything to read.
+eq "a bare reference is not an anchor" "issue" "$UNAVAILABLE"
+eq "and the source is none"            none    "$EVIDENCE_SOURCE"
 contains "the sentry url is captured" "sentry	https://sentry.sentry.io/issues/6789012" "$(cat "$REFS_FILE")"
 
 # The load-bearing assertion: the base is the fork point, so the commit that
@@ -186,5 +192,33 @@ contains "the root doc"      "CLAUDE.md"              "$(cat "$DOCS_FILE")"
 contains "the nearest doc"   "static/app/CLAUDE.md"   "$(cat "$DOCS_FILE")"
 
 echo ""
+echo ""
+echo "where the evidence is allowed to come from"
+
+# A description that states the cause IS an anchor -- the weak one. Seer writes
+# it in prose ("The root cause was ...", "The issue was that ..."), never under a
+# heading, which is why the heading-only extractor found nothing in autofix PRs.
+R2="$(new_repo prose)"
+git -C "$R2" checkout -qb fix/prose
+printf 'const a = org?.id ?? null;\n' > "$R2/app.ts"
+git -C "$R2" add -A
+git -C "$R2" commit -qm 'fix(org): guard null organization
+
+Fixes https://sentry.sentry.io/issues/6789012/. The root cause was that
+getOrg() returns undefined for deleted orgs, so the caller dereferenced it.'
+git -C "$R2" checkout -q main; git -C "$R2" checkout -q fix/prose
+W2="$TMPROOT/work-prose"
+eval "$("$GATHER" --repo-path "$R2" --work "$W2" 2>&1)"
+eq "a cause stated in prose is evidence" pr-body "$EVIDENCE_SOURCE"
+eq "so nothing is missing"               ""      "$UNAVAILABLE"
+
+# And the strong case: the caller reached the tracker and handed us the text.
+ISSUE="$TMPROOT/issue.md"
+printf '# ORG-1 null org crash\n\nStack: TypeError at getOrg\n' > "$ISSUE"
+W3="$TMPROOT/work-issue"
+eval "$("$GATHER" --repo-path "$R2" --work "$W3" --issue-file "$ISSUE" 2>&1)"
+eq "issue text makes the source issue" issue "$EVIDENCE_SOURCE"
+eq "and it is kept for the writers"    yes   "$([ -s "$W3/raw/issue.md" ] && echo yes || echo no)"
+
 printf 'gather: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

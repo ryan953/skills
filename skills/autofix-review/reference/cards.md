@@ -86,7 +86,7 @@ lean on the probe. This is the case where skipping Wave 3 costs the most.
 ```json
 {
   "present": true,
-  "source": "seer | issue-comment | linked-doc | derived-from-rule",
+  "source": "seer | issue-comment | linked-doc | pr-body | derived-from-rule",
   "mechanism": "one paragraph: the causal chain, not the symptom",
   "faulty_locations": [{"file": "static/app/views/foo/bar.tsx", "line": 88}],
   "proposed_remedy": "what the RCA suggests, or null",
@@ -98,6 +98,17 @@ lean on the probe. This is the case where skipping Wave 3 costs the most.
 `present: false` (no RCA anywhere) is legal and routes to `N1` unless
 `mode: lintfix`, where the rule's own rationale is a sufficient RCA and `source`
 becomes `derived-from-rule`.
+
+`source: pr-body` is the weak case, and it is the common one: every other source
+lives inside the tracker issue, and `gather.sh` cannot reach a tracker. A cause
+stated in the description — "The root cause was …", "The issue was that …" —
+counts, and `raw/body-evidence.txt` carries the sentences it was drawn from.
+Weak means **not independent**: the author wrote the cause and the fix, so `L1`
+largely collapses and the weight moves to `L2`, `L4a`/`L4b` and the probe. It
+does not mean absent. Requiring an unreachable source instead sent 13 of 20
+cases in a real run to `N1`, each after a full review of a description that
+explained the fault plainly — a system that defers is not a safe system, it is
+an unused one.
 
 `proposed_remedy` is advisory. A change that fixes `mechanism` by other means is
 not `R2` — only a change that fixes a *different mechanism* is.

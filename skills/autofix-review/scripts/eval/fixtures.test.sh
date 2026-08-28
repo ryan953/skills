@@ -36,6 +36,15 @@ eq() {
     fi
 }
 
+# The tracker issue's text. These fixtures are about the verdict rule, so they
+# need a real anchor: since gather cannot reach a tracker, a bare "Fixes <url>"
+# in the commit body is a reference to an issue nobody can read, and the rule
+# correctly settles that at N1 before any of the codes below can be exercised.
+ISSUE_TXT="$TMPROOT/issue.md"
+mkdir -p "$TMPROOT"
+printf '# ORG-1 TypeError: cannot read id of null\n\nat a (src/app.ts:2)\nat b (src/app.ts:6)\n' \
+    > "$ISSUE_TXT"
+
 # repo <name> <base-content> <head-content> <commit-msg> — a two-commit repo.
 repo() {
     local d="$TMPROOT/$1"
@@ -87,7 +96,7 @@ R="$(repo clean "$BASE" "$GUARD_BOTH" 'fix(org): guard null org in a and b
 
 Fixes https://sentry.sentry.io/issues/1/')"
 W="$TMPROOT/w-clean"
-eval "$("$GATHER" --repo-path "$R" --work "$W")"
+eval "$("$GATHER" --repo-path "$R" --work "$W" --issue-file "$ISSUE_TXT")"
 eq "  mode"          bugfix "$MODE"
 eq "  issue found"   1      "$REF_COUNT"
 card "$W" evidence "$EV_TWO"
@@ -107,7 +116,7 @@ R="$(repo partial "$BASE" "$GUARD_ONE" 'fix(org): guard null org
 
 Fixes https://sentry.sentry.io/issues/1/')"
 W="$TMPROOT/w-partial"
-eval "$("$GATHER" --repo-path "$R" --work "$W")" >/dev/null
+eval "$("$GATHER" --repo-path "$R" --work "$W" --issue-file "$ISSUE_TXT")" >/dev/null
 card "$W" evidence "$EV_TWO"
 card "$W" rca      "$RCA_OK"
 card "$W" intent   '{"claims":[{"id":"c1","text":"guards the null org","kind":"does"}],"divergence_rationale":null}'
@@ -129,7 +138,7 @@ R="$(repo swallow "$BASE" "$SWALLOW" 'fix(org): stop the crash
 
 Fixes https://sentry.sentry.io/issues/1/')"
 W="$TMPROOT/w-swallow"
-eval "$("$GATHER" --repo-path "$R" --work "$W")" >/dev/null
+eval "$("$GATHER" --repo-path "$R" --work "$W" --issue-file "$ISSUE_TXT")" >/dev/null
 card "$W" evidence "$EV_TWO"
 card "$W" rca      "$RCA_OK"
 card "$W" intent   '{"claims":[{"id":"c1","text":"stops the crash","kind":"does"}],"divergence_rationale":null}'
@@ -189,7 +198,7 @@ R="$(repo creep "$BASE" "$CREEP" 'fix(org): guard null org
 
 Fixes https://sentry.sentry.io/issues/1/')"
 W="$TMPROOT/w-creep"
-eval "$("$GATHER" --repo-path "$R" --work "$W")" >/dev/null
+eval "$("$GATHER" --repo-path "$R" --work "$W" --issue-file "$ISSUE_TXT")" >/dev/null
 card "$W" evidence "$EV_TWO"
 card "$W" rca      "$RCA_OK"
 card "$W" intent   '{"claims":[{"id":"c1","text":"guards the null org","kind":"does"}],"divergence_rationale":null}'
