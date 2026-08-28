@@ -63,6 +63,36 @@ CLOSE_COMMENTS_JQ='
         | {author: (.author.login // ""), body: (.body // "")} ]'
 #<<< close-window
 
+# The supersession fallback, for when the PR's own squash commit cannot be found
+# by its `(#N)` marker -- which is every CLOSED PR, because one that was never
+# merged has no squash commit at all. Whole commits naming this PR are dropped;
+# a per-line `grep -v` would strip the subject and leave "Fixes SENTRY-XXXX"
+# behind, so the PR matched itself, which is the bug this fallback exists to
+# prevent. The subject is what carries the marker, so only the subject is tested
+# -- a follow-up that cites this PR in its BODY is a real supersession and must
+# still be found.
+#
+# One `git log`, not two per commit. This range runs to five figures on a
+# monorepo -- 12,523 commits for the first case of a real run -- and the
+# per-commit loop spawned about 25,000 processes, taking longer than the review
+# it was preparing for.
+#
+# `|| true` is load-bearing, not defensive habit. `head -c` closes the pipe the
+# moment it has its 200KB, which SIGPIPEs git; under `set -o pipefail` that is a
+# failed pipeline, and `set -e` then killed slice.sh mid-stream. The EXIT trap
+# removed the temp file on the way out, so the run finished with no output, no
+# error message, and an empty sample indistinguishable from a real one -- and it
+# fired on the first CLOSED PR, so it took the whole run with it.
+#>>> supersession-fallback
+supersession_fallback() {   # <range> <pr-number>
+    git log --format='%x1e%s%n%b' "$1" 2>/dev/null \
+        | awk -v pat="(#$2)" '
+            BEGIN { RS = "\036" }
+            { split($0, line, "\n"); if (index(line[1], pat) == 0) print $0 }' \
+        | head -c 200000 || true
+}
+#<<< supersession-fallback
+
 slice_one() {
     # Two `local`s, not one: every word on a `local` line is expanded before any
     # of its assignments take effect, so `$raw` would still be unset here and the
@@ -169,17 +199,7 @@ slice_one() {
             # rather than a squash). Fall back to the old range, dropping whole
             # commits that name this PR.
             #
-            # Per commit, not per line: `grep -v "(#N)"` removes the subject and
-            # leaves the body, so the "Fixes SENTRY-XXXX" line on the next line
-            # survives and the PR matches itself anyway -- the exact bug this
-            # fallback exists to avoid.
-            later="$(
-                for sha in $(git log --format='%H' "$head_at_review..HEAD" 2>/dev/null); do
-                    subj="$(git log -1 --format='%s' "$sha" 2>/dev/null)"
-                    case "$subj" in *"(#$number)"*) continue ;; esac
-                    git log -1 --format='%s%n%b' "$sha" 2>/dev/null
-                done | head -c 200000
-            )"
+            later="$(supersession_fallback "$head_at_review..HEAD" "$number")"
         fi
     fi
 
