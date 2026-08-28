@@ -89,9 +89,9 @@ $E/score.sh --predictions predictions.jsonl --by-arm --reasons reasons.tsv
 
 Where there is no `claude` binary (an agent session driving this itself), use
 `run.sh --print-briefs`: it prepares each case's worktree and gathered inputs and
-emits one dispatch brief per line, for the caller to fan out. Add `--read-only`
-when the probe wave cannot run; `score.sh` will refuse to let you forget, and
-those cases are labelled `scored: read-only` in the output.
+emits one dispatch brief per line, for the caller to fan out. The probe wave is off unless you
+pass `--probes`; `score.sh` will refuse to let you forget, and those cases are
+labelled `scored: read-only` in the output.
 
 ## Reading the result
 

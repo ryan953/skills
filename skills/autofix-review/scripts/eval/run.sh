@@ -16,8 +16,11 @@
 #
 # Usage:
 #   run.sh --cases labelled.jsonl --repo-path ~/code/sentry [--out predictions.jsonl]
-#          [--read-only] [--print-briefs] [--work-root <dir>] [--max-cases N]
-#          [--jobs N]
+#          [--probes] [--print-briefs] [--work-root <dir>] [--max-cases N]
+#          [--jobs N] [--keep-artifacts]
+#
+# --probes turns the probe wave on; it is off by default. --read-only is still
+# accepted and is now the default, so old invocations keep working.
 #
 # Cases are independent, so they run --jobs at a time. Serially, twenty cases is
 # twenty full four-wave reviews back to back, each with its own worktree and test
@@ -34,7 +37,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"          # .../scripts/eval
 # sample that legitimately had nothing in it.
 SKILL_DIR="$(cd "$HERE/../.." && pwd)"
 
-CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=""; BRIEFS=""; WORK_ROOT=""; MAX_CASES=0; JOBS=4
+# Probes are OFF unless asked for. They are the only stage that executes the
+# project's code, they cost minutes per case, and they change the verdict only
+# where a card names a reproducible precondition. The everyday question -- is
+# the reasoning sound -- does not need them, and verdict-rule.sh labels a
+# probe-less run SCORED=read-only so it is never averaged in with a probed one.
+#
+# JOBS is 2, not 4. Each case starts a review that fans out around sixteen
+# subagents, so four cases meant sixty-odd agents competing; measured runs spent
+# up to 53 minutes between gather finishing and the first card being written --
+# latency paid, no throughput gained.
+CASES=""; REPO_PATH=""; OUT="-"; READ_ONLY=1; BRIEFS=""; WORK_ROOT=""; MAX_CASES=0; JOBS=2
+KEEP_ARTIFACTS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --cases) CASES="$2"; shift 2 ;;
@@ -44,6 +58,8 @@ while [ $# -gt 0 ]; do
         --max-cases) MAX_CASES="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
         --read-only) READ_ONLY=1; shift ;;
+        --probes) READ_ONLY=""; shift ;;
+        --keep-artifacts) KEEP_ARTIFACTS=1; shift ;;
         --print-briefs) BRIEFS=1; shift ;;
         *) printf 'unknown flag: %s\n' "$1" >&2; exit 1 ;;
     esac
@@ -104,6 +120,17 @@ prepare_case() {   # prepare_case <case-json> -> work dir on stdout, or empty
     # left every one of those computed from commit messages alone -- so a PR
     # whose evidence lives in its description looked anchorless, and once the
     # precheck landed it short-circuited to N1 with no review run at all.
+    # Clear what a previous run left. Nothing else does: gather.sh only
+    # `mkdir -p`s these directories, so a rerun over the same work root read the
+    # OLD cards, links and refutations back and scored them as if this run had
+    # produced them. After a change to the taxonomy or the ground truth that
+    # measures the previous version of the skill and calls it the new one --
+    # silently, because a full set of artifacts is exactly what success looks
+    # like. --keep-artifacts opts out, for resuming a run that died part way.
+    if [ -z "$KEEP_ARTIFACTS" ]; then
+        rm -rf "$work/cards" "$work/links" "$work/refutations" "$work/probes" "$work/facts.json"
+    fi
+
     mkdir -p "$work/raw"
     printf '%s' "$c" | jq -r '.body // ""' > "$work/raw/pr-body.md"
     "$SKILL_DIR/scripts/gather.sh" --repo-path "$wt" --work "$work" \

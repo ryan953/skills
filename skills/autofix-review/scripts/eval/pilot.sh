@@ -7,20 +7,25 @@
 # Usage:
 #   pilot.sh [--repo owner/name] [--arm seer|both|all] [--decider <login>]
 #            [--repo-path ~/code/sentry] [--limit 100] [--since 2025-06-01]
-#            [--out <dir>] [--read-only] [--max-cases N] [--jobs N]
+#            [--out <dir>] [--probes] [--max-cases N] [--jobs N]
 #
 # Defaults are the seer arm against getsentry/sentry, which is where the signal
 # is: the chain exists by construction and the merge-or-close IS the verdict.
 #
-# Needs `gh` authenticated and a clone to run probes against. Without
-# --read-only the probe wave runs, which is the point of running this locally
-# rather than in a sandbox.
+# Needs `gh` authenticated and a clone. Probes are off by default: they are the
+# only stage that runs the project's code, they cost minutes per case, and they
+# move the verdict only where a card named a reproducible precondition. Get the
+# confusion matrix first, then re-probe the handful of disagreements with
+# --probes. A probe-less verdict is labelled SCORED=read-only and is never
+# averaged in with a probed one.
 
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REPO=getsentry/sentry; ARM=seer; DECIDER=""; REPO_PATH="$HOME/code/sentry"
-LIMIT=100; SINCE=2025-06-01; OUT="./autofix-review-pilot"; RO=""; MAX=20; JOBS=4
+# RO is set: probes are off unless --probes asks for them, and JOBS is 2. See
+# the note at the top of run.sh for why more concurrency made runs slower.
+LIMIT=100; SINCE=2025-06-01; OUT="./autofix-review-pilot"; RO=--read-only; MAX=20; JOBS=2
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) REPO="$2"; shift 2 ;;
@@ -33,6 +38,7 @@ while [ $# -gt 0 ]; do
         --max-cases) MAX="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
         --read-only) RO=--read-only; shift ;;
+        --probes) RO=""; shift ;;
         *) printf 'unknown flag: %s\n' "$1" >&2; exit 1 ;;
     esac
 done
@@ -85,8 +91,10 @@ SCOREABLE="$(jq -r 'select(.label == "ACCEPT_TRUTH" or .label == "REJECT_TRUTH")
 step run
 say "reviewing up to $MAX case(s), $JOBS at a time -- the slow stage"
 if [ -z "$RO" ]; then
-    say "  probes are ON: each case builds worktrees and runs the project's tests."
-    say "  --read-only skips that and is much faster; probe-score a few cases afterwards."
+    say "  probes are ON: each case checks the shared worktree pair out at base"
+    say "  and at head and runs one test against each. Minutes per case."
+else
+    say "  probes are OFF (default). Pass --probes to run them."
 fi
 "$HERE/run.sh" --cases "$OUT/labelled.jsonl" --repo-path "$REPO_PATH" $RO \
     --max-cases "$MAX" --jobs "$JOBS" --out "$OUT/predictions.jsonl" 2>&1 | tee -a "$LOG" >&2

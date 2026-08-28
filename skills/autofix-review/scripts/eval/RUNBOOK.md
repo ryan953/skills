@@ -19,18 +19,20 @@ Sentry MCP available to whatever runs the skill.
   --repo-path ~/code/sentry --decider ryan953 --out ~/autofix-review-pilot
 ```
 
-Add `--read-only` for the first pass. With probes on, every case builds worktrees
-and runs the project's test suite, which on a monorepo dominates the wall clock —
-do a read-only sweep to get verdicts across the sample, then probe-score the few
-cases whose closing link you actually want measured.
+Probes are off by default. That first pass gets verdicts across the whole
+sample; then re-run the few cases whose closing link you actually want measured
+with `--probes`. With probes on, each case checks the shared worktree pair out at
+base and at head and runs one test against each — minutes per case on a monorepo.
 
-Cases run `--jobs` at a time (default 4); they are independent, so raise it if
-your machine and API limits allow. `--max-cases` (default 20) bounds the sample.
+Cases run `--jobs` at a time (default 2). They are independent, but each one fans
+out around sixteen subagents, so raising this mostly buys queueing: measured runs
+at `--jobs 4` sat up to 53 minutes between gathering a case and writing its first
+card. Lower it before you raise it. `--max-cases` (default 20) bounds the sample.
 
 That runs all five stages, tees to `<out>/pilot.log`, and prints a summary short
 enough to paste back. It fails loudly rather than quietly on the two ways this
 harness produces nothing: an empty candidate list, and every case failing to run.
-Add `--read-only` to skip the probe wave, drop `--decider` to widen past your own
+Add `--probes` to run the probe wave, drop `--decider` to widen past your own
 calls. The stage-by-stage version follows if you want to drive it yourself.
 
 ## 1. Collect both halves of the seer arm
@@ -77,8 +79,8 @@ supersession check cannot run, so those rows are worth a look.
 $E/run.sh --cases labelled.jsonl --repo-path ~/code/sentry --out predictions.jsonl
 ```
 
-No `--read-only`, so Wave 3 runs and the closing link is measured rather than
-reasoned about. `run.sh` drives `claude -p` per case when `claude` is on PATH.
+With `--probes`, Wave 3 runs and the closing link is measured rather than
+reasoned about; without it the run is labelled `scored: read-only`. `run.sh` drives `claude -p` per case when `claude` is on PATH.
 
 For the probes themselves, the runner is per-surface:
 
