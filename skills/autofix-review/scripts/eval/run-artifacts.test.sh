@@ -83,5 +83,50 @@ git -C "$WORK_ROOT/pr-1/tree" checkout -q --detach HEAD~1 2>/dev/null
 eq "a reused tree is moved to this case's commit" "$SHA" \
    "$(git -C "$WORK_ROOT/pr-1/tree" rev-parse HEAD 2>/dev/null)"
 
+# The review must be dispatched with EMPTY stdin. review_one runs inside
+# `while read ... done < "$CASES"`, and `claude -p` reads stdin even when given
+# a prompt argument -- it appends it. That sent the whole labelled.jsonl with
+# every brief (2.8MB, ~1.2M tokens against a 1M limit), so every review died on
+# its first turn and wrote nothing, and the empty card directories were then
+# read as N1. A stub `claude` on PATH records what it really receives.
+STUB="$T/bin"
+mkdir -p "$STUB"
+cat > "$STUB/claude" <<'STUBEOF'
+#!/usr/bin/env bash
+# Record the prompt and whatever arrived on stdin, then write one card so the
+# caller sees a review that produced something.
+prompt=""
+while [ $# -gt 0 ]; do case "$1" in -p) prompt="$2"; shift 2 ;; *) shift ;; esac; done
+printf '%s' "$prompt" > "$STUB_OUT/prompt.txt"
+cat >> "$STUB_OUT/stdin.txt"
+work="$(printf '%s' "$prompt" | sed -n 's/.*inputs in \([^ .]*\).*/\1/p' | head -1)"
+[ -n "$work" ] && mkdir -p "$work/cards" && printf '{"ok":true}' > "$work/cards/intent.json"
+STUBEOF
+chmod +x "$STUB/claude"
+export STUB_OUT="$T/stubout"; mkdir -p "$STUB_OUT"
+
+# TWO cases, and --jobs 1. With a single case the read loop is already at EOF by
+# the time the review is dispatched, so nothing is left on stdin to leak and the
+# check passes whether or not the bug is present. The leak only shows when a
+# later case is still unread -- which is every real run.
+CASES2="$T/labelled2.jsonl"
+jq -nc --arg sha "$SHA" '{pr:1, label:"ACCEPT_TRUTH", state:"MERGED", arm:"seer",
+    head_sha_at_review:$sha, base_ref:"main",
+    body:"Fixes SENTRY-1A2B.\n\n## Bug\nNull read on o.id, stack trace attached."}' > "$CASES2"
+jq -nc --arg sha "$SHA" '{pr:2, label:"ACCEPT_TRUTH", state:"MERGED", arm:"seer",
+    head_sha_at_review:$sha, base_ref:"main",
+    body:"Fixes SENTRY-9Z9Z.\n\n## Bug\nSecond case, present so stdin is not at EOF."}' >> "$CASES2"
+
+rm -rf "$WORK_ROOT/pr-1/cards"
+PATH="$STUB:$PATH" "$RUN" --cases "$CASES2" --repo-path "$REPO" --work-root "$WORK_ROOT" \
+    --jobs 1 --out "$T/preds5.jsonl" >/dev/null 2>&1
+
+eq "the review is dispatched with empty stdin" "0" \
+   "$(wc -c < "$STUB_OUT/stdin.txt" 2>/dev/null | tr -d ' ')"
+eq "the prompt is the brief, not the case file" "yes" \
+   "$([ "$(wc -c < "$STUB_OUT/prompt.txt" 2>/dev/null | tr -d ' ')" -lt 4000 ] && echo yes || echo no)"
+eq "no case JSON leaked into the prompt" "" \
+   "$(grep -o 'ACCEPT_TRUTH' "$STUB_OUT/prompt.txt" 2>/dev/null | head -1)"
+
 printf 'run-artifacts: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

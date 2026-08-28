@@ -189,7 +189,36 @@ review_one() {
             '. + {work: $work, brief: $brief}' > "$PRED_DIR/$n.json"
         return 0
     fi
-    claude -p "$(brief_for "$work" "$mode" "$READ_ONLY")" >/dev/null 2>&1 || true
+    # </dev/null, because a prompt argument does not stop `claude -p` reading
+    # stdin -- it appends what it finds. This function runs inside `while read
+    # ... done < "$CASES"`, so the cases file is what it would find.
+    #
+    # In a real run every brief went out as 850 bytes of instructions followed
+    # by the whole labelled.jsonl: 2,840,640 bytes, ~1.2M tokens against a 1M
+    # limit. Every review died on its first turn without writing a card, and
+    # verdict-rule.sh read the empty directories as N1 -- so 90 minutes of work
+    # reported "needs-human, no anchor" for all 19 cases, which reads as a
+    # finding about the PRs rather than a harness that never ran.
+    #
+    # The exact plumbing that put the file at offset 0 for every case is not
+    # pinned down: a shared descriptor would have handed each case only the
+    # remainder, and a small fixture does not reproduce it. What is certain is
+    # the payload (byte-identical to labelled.jsonl) and that nothing may reach
+    # this stdin. The test asserts the invariant, not the reproduction.
+    #
+    # The output is kept rather than discarded. `>/dev/null 2>&1 || true` is why
+    # this survived a full run unnoticed: the error existed, in the model's own
+    # words, and nothing ever looked at it.
+    claude -p "$(brief_for "$work" "$mode" "$READ_ONLY")" \
+        </dev/null >"$work/review.log" 2>&1 || true
+
+    # A review that wrote nothing is a failed review, not a verdict about the
+    # PR. Say so, with the reason, next to the case it belongs to.
+    if [ -z "$(ls -A "$work/cards" 2>/dev/null)" ]; then
+        printf '[%s] pr %s: the review wrote no cards; last line of %s:\n  %s\n' \
+            "$n" "$pr" "$work/review.log" \
+            "$(tail -n 1 "$work/review.log" 2>/dev/null | cut -c1-200)" >&2
+    fi
     emit_prediction "$c" "$work" > "$PRED_DIR/$n.json"
     printf '[%s] pr %s -> %s\n' "$n" "$pr" \
         "$(jq -r '.predicted + " " + ((.predicted_codes // []) | join(","))' "$PRED_DIR/$n.json" 2>/dev/null)" >&2
