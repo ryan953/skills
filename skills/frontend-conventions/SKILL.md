@@ -35,6 +35,7 @@ Scan the diff to decide which sub-agents to launch. Skip a category entirely if 
 | **UI components** | Diff contains `styled` import or raw HTML layout/text elements (`<div>`, `<span>`, `<h1>`–`<h6>`, `<p>`, `<img>`) | `rules/prefer-layout-components.md`, `rules/prefer-typography-components.md`, `rules/prefer-core-assets.md`, `rules/icons-and-images.md` |
 | **React patterns** | Diff contains `createContext`, `.Provider`, `.Consumer`, or `.displayName` | `rules/modern-context-patterns.md` |
 | **URL state** | Diff contains `useQueryParamState`, `useLocationQuery`, `updateLocation`, `updateNullableLocation`, `decodeScalar`, `decodeList`, `decodeInteger`, `decodeSorts`, `useUrlParams`, or manual `location.query` reads | `rules/prefer-nuqs-url-state.md` |
+| **Code comments** | Diff adds a comment line (`//`, `/*`, or `{/*`) | `rules/code-comments.md` |
 | **Testing** | Diff includes test files (`.spec.`, `.test.`) | `rules/testing-guidelines.md` |
 
 ## Step 3: Launch sub-agents in parallel
