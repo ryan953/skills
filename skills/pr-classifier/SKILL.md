@@ -37,6 +37,9 @@ zx scripts/label.mjs && zx scripts/eval.mjs --verbose    # only when re-measurin
 `classify.mjs` defaults to a dry run that renders prompts and prices the batch without
 calling anything. Add `--run`.
 
+The deterministic detectors have a test — `node scripts/detectors.test.mjs`, no runner and
+no dependencies. Run it after touching `scripts/detectors.mjs`.
+
 Cache lives in `~/.cache/pr-classifier/`. Harvest re-fetches only when `updatedAt` changes.
 
 ## Facts that cost real time to discover
@@ -61,6 +64,31 @@ Cache lives in `~/.cache/pr-classifier/`. Harvest re-fetches only when `updatedA
   rich description and a small diff but zero comments, and are perfectly judgeable.
 - **No embeddings.** Both AGENTS.md files together are 12.7 KB; inline them.
   `frontend-conventions` already has an exact regex gate, which beats retrieval here.
+
+## What this skill does not grade
+
+- **Tests and lint are CI's job, not this classifier's.** Ignore every signal about them:
+  "jest was not run in this sandbox", "lint passes", "added tests", a red or green check.
+  CI runs the suite on every PR and is the authority on the result, so a note about the
+  author's sandbox says nothing about the code. Never raise it as a caveat, never let it
+  lower a judgment, and never report it alongside a verdict — it reads as a finding when
+  it is not one. Test *code* is still graded for style by the `conventions` link; that is
+  a different question from whether the suite ran.
+
+## Signals that do move the verdict
+
+- **An explicit `any` downgrades.** `: any`, `as any`, `any[]`, `Foo<any>` on an added TS
+  line switches the type checker off for everything downstream, so a PR carrying one is
+  never `good` — `verdict.mjs` floors it at `needs-changes`. `conventions.mjs` finds them
+  with a regex over added lines (comments and string literals stripped first) rather than
+  asking the model, because a model reads `any` as pragmatic and waves it through. The
+  floor applies even when a ready link never ran: a fact in hand outranks a missing check.
+- **A demo image ranks a frontend PR higher.** A screenshot or recording is the one thing
+  a diff cannot carry — proof the rendered result is what the author intended. `timeline.mjs`
+  detects it in the body and in the author's own comments (not a reviewer's). It is a
+  ranking tiebreaker, never a verdict: it cannot make a broken PR good, and its absence
+  is not a defect. Deliberately kept out of the coherence weights so it never moves the
+  gate. Rows in `classifications.json` are sorted by `rank` — best first.
 
 ## Output contract
 
