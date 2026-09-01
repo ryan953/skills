@@ -1,0 +1,625 @@
+<title>PR Verdict Pipeline</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&display=swap">
+<style>
+  :root {
+    --ground: #f2f5f5;
+    --surface: #ffffff;
+    --surface-2: #e9eeee;
+    --ink: #151b1c;
+    --muted: #5f6c6d;
+    --faint: #8a9697;
+    --line: #d8e0e0;
+    --line-strong: #b9c5c5;
+    --accent: #0f6466;
+    --accent-soft: #dceceb;
+    --ok: #38714f;
+    --ok-soft: #dcebe1;
+    --warn: #96660f;
+    --warn-soft: #f3e7cd;
+    --bad: #9c3a34;
+    --bad-soft: #f2dedc;
+    --shadow: 0 1px 2px rgba(21, 27, 28, .06), 0 8px 24px -16px rgba(21, 27, 28, .3);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1515;
+      --surface: #171f1e;
+      --surface-2: #1e2827;
+      --ink: #e3eae9;
+      --muted: #97a3a3;
+      --faint: #6d7a7a;
+      --line: #283434;
+      --line-strong: #3a4948;
+      --accent: #59c3bc;
+      --accent-soft: #17302f;
+      --ok: #74b78c;
+      --ok-soft: #172c20;
+      --warn: #d5a44f;
+      --warn-soft: #302614;
+      --bad: #d98079;
+      --bad-soft: #2f1c1a;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0f1515;
+    --surface: #171f1e;
+    --surface-2: #1e2827;
+    --ink: #e3eae9;
+    --muted: #97a3a3;
+    --faint: #6d7a7a;
+    --line: #283434;
+    --line-strong: #3a4948;
+    --accent: #59c3bc;
+    --accent-soft: #17302f;
+    --ok: #74b78c;
+    --ok-soft: #172c20;
+    --warn: #d5a44f;
+    --warn-soft: #302614;
+    --bad: #d98079;
+    --bad-soft: #2f1c1a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 62rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.5rem 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: .9rem; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: .7rem;
+    font-weight: 500;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  h1 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 600;
+    line-height: 1.08;
+    letter-spacing: -.022em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst {
+    font-size: 1.1rem;
+    color: var(--muted);
+    max-width: 46ch;
+    margin: 0;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem .9rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem;
+    color: var(--faint);
+    border-top: 1px solid var(--line);
+    padding-top: .9rem;
+    margin-top: .4rem;
+  }
+  .meta b { color: var(--muted); font-weight: 500; }
+
+  /* ---------- generic sections ---------- */
+
+  section { display: flex; flex-direction: column; gap: 1.1rem; }
+
+  h2 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: -.014em;
+    line-height: 1.2;
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: .7rem;
+    text-wrap: balance;
+  }
+  h2 .num {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--accent);
+    border: 1px solid var(--line-strong);
+    border-radius: 2px;
+    padding: .1rem .38rem;
+    flex: none;
+  }
+
+  h3 {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: .95rem;
+    font-weight: 600;
+    letter-spacing: .002em;
+    margin: 0;
+  }
+
+  p { margin: 0; max-width: 68ch; }
+  p + p { margin-top: -.3rem; }
+
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: .84em;
+  }
+  p code, li code, td code {
+    background: var(--surface-2);
+    border-radius: 3px;
+    padding: .08em .32em;
+  }
+
+  ul { margin: 0; padding-left: 1.1rem; max-width: 68ch; display: flex; flex-direction: column; gap: .35rem; }
+
+  /* ---------- callout ---------- */
+
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--warn);
+    border-radius: 3px;
+    padding: 1.15rem 1.3rem;
+    display: flex;
+    flex-direction: column;
+    gap: .55rem;
+    box-shadow: var(--shadow);
+  }
+  .callout .label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--warn);
+    font-weight: 600;
+  }
+  .callout p { max-width: 70ch; }
+
+  /* ---------- tables ---------- */
+
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-size: .855rem;
+    line-height: 1.45;
+  }
+  thead th {
+    text-align: left;
+    font-weight: 600;
+    font-size: .68rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: .7rem .85rem;
+    border-bottom: 1px solid var(--line-strong);
+    white-space: nowrap;
+    background: var(--surface-2);
+  }
+  tbody td {
+    padding: .62rem .85rem;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num-cell {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  td.mono-cell { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .8rem; white-space: nowrap; }
+
+  .tag {
+    display: inline-block;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .68rem;
+    font-weight: 500;
+    letter-spacing: .04em;
+    padding: .12rem .42rem;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .tag.free { background: var(--ok-soft); color: var(--ok); }
+  .tag.cheap { background: var(--accent-soft); color: var(--accent); }
+  .tag.dear { background: var(--warn-soft); color: var(--warn); }
+  .tag.stop { background: var(--bad-soft); color: var(--bad); }
+
+  /* ---------- ladder ---------- */
+
+  .ladder { display: flex; flex-direction: column; gap: .5rem; }
+
+  .rung {
+    display: grid;
+    grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) 4.5rem;
+    align-items: center;
+    gap: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: .8rem 1rem;
+  }
+  .rung .anchor {
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: .9rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .rung .anchor .dot {
+    width: .5rem; height: .5rem; border-radius: 50%;
+    background: var(--accent); flex: none;
+  }
+  .rung .bar {
+    height: .42rem;
+    background: var(--surface-2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .rung .bar > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+  .rung .pct {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: .8rem;
+    text-align: right;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .rung.load { border-color: var(--accent); background: var(--accent-soft); }
+  .rung.load .pct { color: var(--accent); }
+
+  .link-note {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .74rem;
+    color: var(--faint);
+    padding-left: 1rem;
+  }
+
+  /* ---------- file tree ---------- */
+
+  pre {
+    margin: 0;
+    padding: 1rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow-x: auto;
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    font-size: .78rem;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  pre .c { color: var(--faint); }
+
+  /* ---------- decisions ---------- */
+
+  .decisions { display: flex; flex-direction: column; gap: .6rem; counter-reset: d; }
+  .decision {
+    display: flex;
+    gap: .9rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: .85rem 1.1rem;
+  }
+  .decision::before {
+    counter-increment: d;
+    content: counter(d);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .74rem;
+    font-weight: 600;
+    color: var(--accent);
+    padding-top: .18rem;
+    flex: none;
+  }
+  .decision .q { font-weight: 600; font-family: "IBM Plex Sans", system-ui, sans-serif; font-size: .92rem; }
+  .decision .rec { color: var(--muted); font-size: .9rem; }
+
+  hr.rule { border: none; border-top: 1px solid var(--line); margin: 0; }
+
+  @media (max-width: 620px) {
+    .rung { grid-template-columns: 1fr auto; }
+    .rung .bar { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">Skill plan &middot; pr-classifier</div>
+    <h1>PR Verdict Pipeline</h1>
+    <p class="standfirst">A cheap, fail-fast classifier that grades a pull request against the intent it claims to serve. Two stages are built and validated against 299 real PRs.</p>
+    <div class="meta">
+      <span><b>Status</b> harvester + timeline built, run over 299 PRs</span>
+      <span><b>Date</b> 2026-08-28</span>
+      <span><b>Spec</b> <code>~/.claude/skills/pr-classifier/PLAN.md</code></span>
+    </div>
+  </header>
+
+  <section>
+    <h2><span class="num">1</span> What the measurements changed</h2>
+    <p>I harvested the full corpus before writing any classifier: <b>299 PRs</b> in the <code>getsentry</code> org, with no fetch failures. Two results reshape the design, and one corrects an earlier estimate I took from a 60-PR sample that turned out to be unrepresentative.</p>
+
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr><th>Measurement</th><th>Result</th><th>Effect on the design</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Corpus harvested</td><td class="num-cell">299</td><td>244 merged, 33 closed, 17 superseded, 5 excluded.</td></tr>
+          <tr><td>PRs with any upstream anchor</td><td class="num-cell">65 / 299</td><td><span class="tag dear">revised</span> 22%, better than the 10&ndash;15% I first estimated.</td></tr>
+          <tr><td>&mdash; that you wrote</td><td class="num-cell">17 / 200</td><td><b>9%.</b> The top rungs of the ladder are absent here.</td></tr>
+          <tr><td>&mdash; that an agent wrote</td><td class="num-cell">38 / 52</td><td><b>73%.</b> The full ladder runs here.</td></tr>
+          <tr><td>&mdash; that another human wrote</td><td class="num-cell">10 / 47</td><td>21%. Mixed.</td></tr>
+          <tr><td>Sentry issue links</td><td class="num-cell">38</td><td><span class="tag dear">revised</span> All in the PR body, as <code>Fixes [SHORT-ID]</code> with a Seer drawer.</td></tr>
+          <tr><td>PRs the <code>getsantry</code> bot closed</td><td class="num-cell">5</td><td>Excluded, as planned.</td></tr>
+          <tr><td>Self-closed as superseded</td><td class="num-cell">17 / 50</td><td>34% of closes. The detector was checked by hand.</td></tr>
+          <tr><td>Commits needing the rebase guard</td><td class="num-cell">27 / 299</td><td>Without it, 11 PRs flip verdict. See below.</td></tr>
+          <tr><td>PRs with an empty description</td><td class="num-cell">25</td><td>The only genuinely unjudgeable class.</td></tr>
+          <tr><td>Both <code>AGENTS.md</code> files together</td><td class="num-cell">12.7 KB</td><td>Small enough to inline. No embeddings.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <div class="label">The main structural finding: the corpus is bimodal</div>
+      <p>The anchor rate is not uniform. It is <b>9% on the PRs you write</b> and <b>73% on agent-authored ones</b>. So <code>issue &rarr; RCA &rarr; description &rarr; code</code> is not uniformly sparse. It is fully populated on exactly the agent-authored PRs, and near-absent on your hand-written ones.</p>
+      <p>The classifier should route on that instead of running one uniform pipeline. The agent-authored slice is where it earns the most, because every rung exists there &mdash; and that is the same slice you want auto-labelled as correct and proper rather than sent to a human.</p>
+      <p>The chain itself still needs the adjustment I proposed: keep it, but treat each rung as optional and grade only the pairs where both rungs exist. A missing anchor is a skip, not a penalty.</p>
+    </div>
+
+    <div class="callout">
+      <div class="label">The rebase guard</div>
+      <p>A rebase rewrites a commit's <code>committedDate</code>. Without a guard, work you authored <i>before</i> feedback looks like a response <i>to</i> that feedback. Comparing <code>authoredDate</code> against <code>committedDate</code> catches it. The guard fired on 27 of 299 PRs, and 11 of those would otherwise have flipped from "never responded" to "responded".</p>
+    </div>
+
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">2</span> Cache the corpus</h2>
+    <p>One script, <code>scripts/harvest.mjs</code>, written with zx. It runs three <code>gh search</code> queries for the PRs you wrote, reviewed, and commented on. Then it makes one GraphQL call per PR.</p>
+    <p>I tested that call. It returns the metadata, every commit with its timestamp, every comment, every review with its inline comments, the linked issues, and the close event actor &mdash; about 3.5&nbsp;KB for a small PR.</p>
+
+    <pre><span class="c">~/.cache/pr-classifier/</span>
+  prs/&lt;owner&gt;__&lt;repo&gt;__&lt;num&gt;.json    <span class="c"># raw payload</span>
+  diffs/&lt;owner&gt;__&lt;repo&gt;__&lt;num&gt;.diff   <span class="c"># lazy: only if the PR reaches stage 3</span>
+  index.json                          <span class="c"># slim rows for fast iteration</span>
+  labels/gold.jsonl                   <span class="c"># hand labels for the eval</span></pre>
+
+    <p>A PR is re-fetched only when its <code>updatedAt</code> changes. The diff is never fetched during the harvest.</p>
+
+    <h3>Exclude the cleanup bot</h3>
+    <p>Drop the PR when the close event actor is <code>getsantry</code>, or when a <code>getsantry</code> comment says the PR <i>"has gone three weeks without activity"</i>. That is the exact wording in your corpus.</p>
+
+    <h3>Filter the other bots, but mine two of them</h3>
+    <p>These logins post on your PRs and none of them are feedback: <code class="mono">github-actions</code>, <code class="mono">linear-code</code>, <code class="mono">cursor</code>, <code class="mono">codecov</code>, <code class="mono">sentry-io</code>, <code class="mono">seer-by-sentry</code>. If you leave them in, the commit grouping in section 3 is wrong.</p>
+    <p>Two are useful before you drop them. The <code>linear-code</code> linkback carries the Linear issue key, such as <code>CW-771</code>. The <code>sentry-io</code> and <code>seer-by-sentry</code> comments carry the Sentry issue and the Autofix link. That is how you find the upstream issue.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">3</span> Group the commits around feedback</h2>
+    <p>The script <code>scripts/timeline.mjs</code> does this with no model call. It merges the commits and the feedback events into one list, sorts by timestamp, and splits the commits at the first feedback event.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Event</th><th>Polarity</th></tr></thead>
+        <tbody>
+          <tr><td>Review <code>APPROVED</code>, or a merge</td><td><span class="tag free">support</span></td></tr>
+          <tr><td>Review <code>CHANGES_REQUESTED</code>, or an inline review comment</td><td><span class="tag dear">change-request</span></td></tr>
+          <tr><td>A human comment with no request</td><td><span class="tag cheap">neutral</span> resolved later by stage 3</td></tr>
+          <tr><td>A close with no merge</td><td><span class="tag stop">negative</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <div class="label">Add a fifth polarity: superseded</div>
+      <p>You said that a close is negative or neutral feedback. In 6 of the 25 closed PRs I sampled, you closed your own PR with a reason: <i>"Superseded by #122900"</i>, <i>"Landed directly on main as c0aa2ce"</i>, <i>"Closing in favor of folding this into #121031"</i>.</p>
+      <p>Nobody rejected that code. It moved. If you score these as negative, the classifier learns the wrong lesson from a quarter of your closed PRs. I recommend a separate <code>superseded</code> outcome, treated as neutral and kept out of the bad set. Detect it when the closer is the author and the last human comment matches <code>/superseded|landed directly|in favor of|folding into/i</code>.</p>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">4</span> The ladder of intent anchors</h2>
+    <p>Each bar shows the measured share of the 299-PR corpus that has that anchor. On agent-authored PRs alone, the top two bars jump to 73%. Grade only the links between two anchors that both exist. The verdict is the worst link.</p>
+
+    <div class="ladder">
+      <div class="rung">
+        <div class="anchor"><span class="dot"></span>Sentry issue</div>
+        <div class="bar"><span style="width:22%"></span></div>
+        <div class="pct">22%</div>
+      </div>
+      <div class="link-note">&#8595; does the RCA explain the real error?</div>
+      <div class="rung">
+        <div class="anchor"><span class="dot"></span>Seer RCA / Autofix</div>
+        <div class="bar"><span style="width:17%"></span></div>
+        <div class="pct">17%</div>
+      </div>
+      <div class="link-note">&#8595; does the PR claim to do what the RCA proposed?</div>
+      <div class="rung load">
+        <div class="anchor"><span class="dot"></span>PR description</div>
+        <div class="bar"><span style="width:98%"></span></div>
+        <div class="pct">98%</div>
+      </div>
+      <div class="link-note">&#8595; does the diff do what the description says? &mdash; the load-bearing link</div>
+      <div class="rung">
+        <div class="anchor"><span class="dot"></span>Code</div>
+        <div class="bar"><span style="width:100%"></span></div>
+        <div class="pct">100%</div>
+      </div>
+      <div class="link-note">&#8595; does the diff obey AGENTS.md and the frontend conventions?</div>
+    </div>
+
+    <p>The <b>description &rarr; code</b> link carries about 78 percent of the corpus on its own. Build that link first and make it the best one. The issue and RCA links are a bonus that fires on a minority.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">5</span> Stages, cheapest first</h2>
+    <p>Every stage returns one small strict JSON verdict. The orchestrator keeps only that JSON. It never holds a diff or an issue body in its own context. That is how the context stays clean across many PRs.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Stage</th><th>Cost</th><th>It stops here when</th></tr></thead>
+        <tbody>
+          <tr><td class="num-cell">0</td><td>Exclusions, bot filter, timeline</td><td><span class="tag free">free</span></td><td><code>getsantry</code> closed the PR</td></tr>
+          <tr><td class="num-cell">1</td><td>Extract the Linear, Sentry, Seer and GitHub links</td><td><span class="tag free">free</span></td><td>never &mdash; it only annotates</td></tr>
+          <tr><td class="num-cell">2</td><td>Diff triage: size, file types, generated files</td><td><span class="tag free">free</span></td><td>the diff is too large or is all generated</td></tr>
+          <tr><td class="num-cell">3</td><td>description &rarr; code coherence</td><td><span class="tag cheap">Haiku 4.5</span></td><td>the diff contradicts the description</td></tr>
+          <tr><td class="num-cell">4</td><td>issue &rarr; RCA &rarr; description</td><td><span class="tag cheap">Haiku 4.5</span></td><td>skipped when there is no issue link</td></tr>
+          <tr><td class="num-cell">5</td><td>Conventions: AGENTS.md and frontend-conventions</td><td><span class="tag cheap">Haiku 4.5</span></td><td>never &mdash; it only adds findings</td></tr>
+          <tr><td class="num-cell">6</td><td>Adjudicate a split or borderline result</td><td><span class="tag dear">Sonnet 5</span></td><td>final</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Extra free exits</h3>
+    <ul>
+      <li>A PR with zero human comments that the author closed quickly returns <code>undecided</code> at stage 0. There is no feedback signal in it. Many of your closed PRs have this shape.</li>
+      <li>Cap the diff at 60&nbsp;KB. Drop lockfiles, snapshots and generated files before you measure it.</li>
+      <li>Run stages 3, 4 and 5 in parallel once stage 2 passes. Stage 6 runs only when they disagree.</li>
+    </ul>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">6</span> Why this plan has no embeddings</h2>
+    <p>You offered to index the <code>AGENTS.md</code> files or <code>~/code/sentry-docs</code>. I measured them. You do not need an index.</p>
+    <ul>
+      <li>Both <code>AGENTS.md</code> files together are <b>12.7 KB</b>. Put them in the prompt whole. An index would add a build step and a staleness risk for no gain.</li>
+      <li>The <code>frontend-conventions</code> skill already maps diff content to its rule docs with an exact regex table. That gate is free and precise. Semantic retrieval would be slower and would miss more.</li>
+      <li><code>~/code/sentry-docs</code> holds 5013 <code>.mdx</code> files, but this chain never asks a product question. Indexing it is work with no consumer.</li>
+    </ul>
+    <p>Keep one fallback in reserve. If rule lookup ever grows too large, search the headings with ripgrep first. Add embeddings only if ripgrep is not enough.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">6a</span> What is built, and what the data corrected</h2>
+    <p><code>harvest.mjs</code> and <code>timeline.mjs</code> are written and run. The harvest pulled 299 PRs in 59 seconds with no failures, into a 5.5&nbsp;MB cache that re-runs incrementally. Both are zx, and neither makes a model call.</p>
+
+    <div class="callout">
+      <div class="label">Correction: evidence is two axes, not one</div>
+      <p>My first evidence score was a single number, and it was wrong. It gated out 42 PRs as "thin evidence" that were perfectly judgeable. It had conflated two different questions.</p>
+      <p><b>Coherence</b> asks whether the ladder can run at all. It needs a description and a tractable diff. It does <i>not</i> need human comments. <b>Reception</b> asks how the PR landed, and needs comments, reviews and an outcome.</p>
+      <p>These come apart on real data. <b>44 PRs</b> have a rich description &mdash; median 1558 characters &mdash; and a small diff of median 72 lines, but zero human comments. The <code>description &rarr; code</code> link runs on them fine. They are <b>silent, not unjudgeable</b>.</p>
+      <p>So only coherence gates. Low reception became a finding the classifier reports, never a refusal to decide. That single change cut the undecided rate from <b>19% to 9%</b>, and the 9% that remains is 25 PRs with a literally empty description plus one oversized diff &mdash; a class with genuinely no intent statement to check the code against.</p>
+    </div>
+
+    <div class="callout">
+      <div class="label">Correction: drop near-constant terms from any score</div>
+      <p>My first score gave weight to "the outcome is known". That is true for essentially every PR in a closed-PR corpus, so it added a constant offset and pushed 78% of PRs into a single band. A constant carries no information. Removing it spread the distribution into something usable.</p>
+      <p>This is the same fake-precision trap section 6 warns about, and I walked into it once before the data caught me. It is a good argument for keeping the arithmetic in code, where a histogram can expose it, rather than inside a prompt.</p>
+    </div>
+
+    <h3>Measured distribution, 299 PRs</h3>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Outcome</th><th>n</th><th>Gate</th><th>n</th></tr></thead>
+        <tbody>
+          <tr><td>merged</td><td class="num-cell">244</td><td>proceed</td><td class="num-cell">268 &nbsp;<span class="tag free">90%</span></td></tr>
+          <tr><td>closed</td><td class="num-cell">33</td><td>undecided &mdash; no intent</td><td class="num-cell">26 &nbsp;<span class="tag dear">9%</span></td></tr>
+          <tr><td>superseded</td><td class="num-cell">17</td><td>excluded &mdash; cleanup bot</td><td class="num-cell">5 &nbsp;<span class="tag stop">2%</span></td></tr>
+          <tr><td>excluded</td><td class="num-cell">5</td><td></td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">7</span> Files and proof</h2>
+
+    <pre><span class="c">~/.claude/skills/pr-classifier/</span>
+  SKILL.md
+  PLAN.md                <span class="c"># the full written spec</span>
+  scripts/harvest.mjs    <span class="c"># built — search + GraphQL + cache</span>
+  scripts/timeline.mjs   <span class="c"># built — bot filter + pre/post grouping + evidence</span>
+  scripts/triage.mjs     <span class="c"># free gates, link extraction, diff triage</span>
+  scripts/eval.mjs       <span class="c"># run the classifier over the cache, score it</span>
+  rules/agents-md.md     <span class="c"># snapshot of both AGENTS.md files + refresh command</span>
+  labels/gold.jsonl      <span class="c"># hand labels</span></pre>
+
+    <p>Scripts are zx, not bash, because you prefer that. To prove the classifier works, hand-label about 30 PRs across the four shapes: merged clean, merged after changes, closed and superseded, closed and abandoned. Then <code>eval.mjs</code> prints a confusion matrix and the cost per PR.</p>
+    <p>Aim for high precision on <code>bad</code> and <code>needs-changes</code>. A wrong <code>good</code> is the most expensive error. <code>undecided</code> is the safety valve you allowed, but treat it as a cost and track its share, so the classifier does not drift into refusing to decide.</p>
+  </section>
+
+  <hr class="rule">
+
+  <section>
+    <h2><span class="num">8</span> Three decisions for you</h2>
+    <div class="decisions">
+      <div class="decision">
+        <div>
+          <div class="q">Does <code>superseded</code> get its own label?</div>
+          <div class="rec">Recommended: yes. It covers about a quarter of your closed PRs, and scoring it as negative teaches the wrong lesson.</div>
+        </div>
+      </div>
+      <div class="decision">
+        <div>
+          <div class="q">How large is the corpus?</div>
+          <div class="rec">Default if you say nothing: the <code>getsentry</code> org, 200 PRs you wrote plus 100 you reviewed.</div>
+        </div>
+      </div>
+      <div class="decision">
+        <div>
+          <div class="q">Does "reviewed" include PRs where you only commented?</div>
+          <div class="rec">Default if you say nothing: yes. It uses <code>--commenter</code> as well as <code>--reviewed-by</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
