@@ -78,6 +78,11 @@ const CATEGORIES = [
   },
 ];
 
+// `any` is the one style finding worth catching without asking a model: cheap to spot,
+// and a model that reads it as "pragmatic" will wave it through. Deterministic, so
+// verdict.mjs can downgrade on it whether or not the model noticed.
+import {scanAnyTypes} from './detectors.mjs';
+
 const SYSTEM = `You check one thing: does this diff obey the project's stated conventions?
 
 You are given the project's AGENTS.md files and the specific convention rules that apply
@@ -111,7 +116,17 @@ loophole; a rule doc's exceptions outrank its headline sentence.
 If a line partly follows a rule and partly does not, that is "partial", not "mismatch".
 Reserve "mismatch" for a clear, unambiguous breach of a stated rule.
 
-An empty violations array is correct and common. Most diffs obey the conventions.`;
+An empty violations array is correct and common. Most diffs obey the conventions.
+
+Two things are NOT yours to judge:
+  - Whether tests, linters or CI ran, passed, or were skipped. CI runs them. A note like
+    "jest was not run" is a process remark, never a violation.
+  - Whether the diff adds enough test coverage. Judge the style of test code you can see,
+    not the absence of test code you cannot.
+
+One thing you SHOULD always flag: an explicit \`any\` type on an added line — \`: any\`,
+\`as any\`, \`any[]\`, \`Foo<any>\`. It turns the type checker off for everything downstream.
+Report it under rule "no explicit any". A stated reason in a comment does not excuse it.`;
 
 // ---------------------------------------------------------------- inputs
 
@@ -176,7 +191,14 @@ ${order.paths.join('\n')}
 ${diff}
 </diff>`;
 
-  return {order, user, categories: fired.map((c) => c.name), docs, agents: agents.map((a) => a.rel)};
+  return {
+    order,
+    user,
+    categories: fired.map((c) => c.name),
+    docs,
+    agents: agents.map((a) => a.rel),
+    anyTypes: scanAnyTypes(diff),
+  };
 }
 
 const jobs = selected.map(build);
@@ -259,12 +281,16 @@ async function worker() {
       categories: j.categories,
       agentsMd: j.agents,
       ...parsed,
+      // Deterministic, and deliberately kept separate from the model's own violations —
+      // verdict.mjs downgrades on this whether or not the model called it out.
+      anyTypes: j.anyTypes,
       _cost: Number((d.total_cost_usd ?? 0).toFixed(6)),
     };
     results.push(verdict);
     fs.writeFileSync(path.join(OUT_DIR, `${j.order.key}.conventions.json`), JSON.stringify(verdict, null, 1));
+    const anyMark = j.anyTypes.length ? chalk.red(` any×${j.anyTypes.length}`) : '';
     console.log(
-      `  ${String(done).padStart(3)}/${jobs.length}  ${MARK[verdict.judgment]}  ${String(verdict.violations?.length ?? 0).padStart(2)} viol  ${j.order.key}`
+      `  ${String(done).padStart(3)}/${jobs.length}  ${MARK[verdict.judgment]}  ${String(verdict.violations?.length ?? 0).padStart(2)} viol  ${j.order.key}${anyMark}`
     );
   }
 }
@@ -277,5 +303,13 @@ for (const x of ['match', 'partial', 'mismatch', 'unclear']) {
   const c = tally(x);
   if (c) console.log(`  ${x.padEnd(10)} ${String(c).padStart(4)}`);
 }
+const withAny = results.filter((r) => r.anyTypes?.length);
+if (withAny.length) {
+  console.log(chalk.bold('\nexplicit any  (deterministic, downgrades in verdict.mjs)'));
+  for (const r of withAny) {
+    console.log(`  ${chalk.red(String(r.anyTypes.length).padStart(3))}  ${r.key}`);
+  }
+}
+
 console.log(chalk.bold(`\n  cost  $${cost.toFixed(4)}  ($${(cost / Math.max(done, 1)).toFixed(5)}/PR)`));
 console.log(chalk.dim(`  -> ${OUT_DIR}`));

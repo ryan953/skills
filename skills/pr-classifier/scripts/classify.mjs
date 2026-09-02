@@ -89,6 +89,12 @@ the description claims. If you simply cannot see enough to verify a claim, that 
 
 Do not list a claim as unfulfilled just because the supporting code is outside the diff.
 
+Ignore everything the description says about tests, linters and CI — "added tests",
+"jest was not run", "lint passes", "could not run the suite in this sandbox". CI runs
+those checks and is the authority on them. They are process remarks about the author's
+sandbox, not claims about what the code delivers, so they are never "unfulfilled" and
+never lower the judgment. Grade only claims about behaviour the code itself provides.
+
 Judge only what you can see. Never invent a file or a symbol that is not in the diff.
 Empty arrays are correct and common.`;
 

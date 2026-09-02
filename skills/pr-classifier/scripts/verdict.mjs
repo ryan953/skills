@@ -42,6 +42,26 @@ const CONF = {low: 0, medium: 1, high: 2};
 const MIN_CONFIDENCE_FOR_GOOD = CONF.medium;
 const MIN_COHERENCE = 0.4;
 
+// An explicit `any` disables the type checker for everything downstream, so a PR carrying
+// one is never simply `good`. The finding is deterministic (conventions.mjs greps for it),
+// so the floor is applied here rather than trusted to a model that may read `any` as
+// pragmatic. A floor, not a cap: it lifts `good` to `needs-changes` and leaves `bad` alone.
+const ANY_TYPE_FLOOR = SEVERITY['needs-changes'];
+
+// Ranking orders PRs from "ready to merge" down to "needs a human", so a reviewer works
+// the list top to bottom. Separate from the verdict on purpose — a demo image cannot
+// make a broken PR good, it only breaks ties between PRs that already passed.
+const TIER = {good: 5, incomplete: 4, undecided: 3, 'needs-changes': 2, bad: 1, excluded: 0};
+const POSITIVE = new Set(['good', 'incomplete', 'undecided']);
+
+// Confidence pushes toward the ends of the list, it does not push up. Being *sure* a PR
+// needs changes should sink it, not lift it above a PR we are merely unsure about.
+// Tier spacing (10) exceeds the widest confidence swing (4), so tiers never interleave.
+function rankOf(verdict, confidence, demoBonus) {
+  const dir = verdict === 'excluded' ? 0 : POSITIVE.has(verdict) ? 1 : -1;
+  return TIER[verdict] * 10 + dir * (CONF[confidence] ?? 0) * 2 + (demoBonus ? 1 : 0);
+}
+
 // ---------------------------------------------------------------- aggregate
 
 function aggregate({timeline, links, ready}) {
@@ -76,6 +96,21 @@ function aggregate({timeline, links, ready}) {
   const worst = Math.max(...asserted.map((a) => a.severity));
   const deciding = asserted.filter((a) => a.severity === worst);
   const conf = Math.max(...deciding.map((a) => a.confidence));
+
+  // Deterministic findings outrank the ladder. An `any` is a fact about the diff, not a
+  // judgement, so it is stated even when a ready link never ran — an absence of
+  // information cannot outweigh a finding we already have in hand.
+  const anyTypes = links.flatMap((l) => l.anyTypes ?? []);
+  if (anyTypes.length && worst < ANY_TYPE_FLOOR) {
+    return {
+      verdict: NAME[ANY_TYPE_FLOOR],
+      confidence: 'high',
+      deciding: ['explicit-any'],
+      reason: `explicit any on ${anyTypes.length} added line${anyTypes.length > 1 ? 's' : ''}`,
+      anyTypes,
+    };
+  }
+  // Past this point the ladder already reached the floor on its own.
 
   // `good` must mean every available check passed, not just the ones that are built.
   if (worst === SEVERITY.good && notRun.length) {
@@ -138,16 +173,31 @@ for (const [key, links] of byPr) {
     .filter((l) => l.status === 'ready')
     .map((l) => l.link);
   const out = aggregate({timeline, links, ready});
+
+  // A screenshot only counts where it can show something: on a frontend PR. Asking for
+  // one on a migration or a config change would be noise.
+  const hasFrontend = Boolean(orders.get(key)?.hasFrontend);
+  const demo = timeline.demo ?? {hasImage: false, where: null};
+  const demoBonus = hasFrontend && demo.hasImage;
+
   rows.push({
     key,
     url: timeline.url,
     population: timeline.population,
     outcome: timeline.outcome,
     ...out,
+    // Recorded on every row, not only when the floor decided the verdict. The `any` is a
+    // fact about the diff either way, and a reader should not have to infer it from the
+    // reason string on the one path where it happened to be the deciding link.
+    anyTypes: links.flatMap((l) => l.anyTypes ?? []),
+    rank: rankOf(out.verdict, out.confidence, demoBonus),
+    demo: {hasFrontend, ...demo, bonus: demoBonus},
     links: links.map((l) => ({link: l.link, judgment: l.judgment, confidence: l.confidence})),
     evidence: timeline.evidence,
   });
 }
+
+rows.sort((a, b) => b.rank - a.rank || a.key.localeCompare(b.key));
 
 fs.writeFileSync(
   path.join(CACHE, 'classifications.json'),
@@ -183,6 +233,22 @@ console.log(chalk.bold('\nconfidence on decided'));
 for (const c of ['high', 'medium', 'low']) {
   const k = count((r) => r.confidence === c && ['good', 'needs-changes', 'bad'].includes(r.verdict));
   if (k) console.log(`  ${c.padEnd(14)} ${String(k).padStart(4)}`);
+}
+
+const frontend = rows.filter((r) => r.demo?.hasFrontend);
+if (frontend.length) {
+  const shown = frontend.filter((r) => r.demo.bonus).length;
+  console.log(chalk.bold('\ndemo image  (frontend PRs)'));
+  console.log(`  demonstrated   ${String(shown).padStart(4)}  ${((shown / frontend.length) * 100).toFixed(0)}%  ${chalk.dim('ranks above its peers')}`);
+  console.log(`  no image       ${String(frontend.length - shown).padStart(4)}  ${chalk.dim('not a defect, just weaker evidence')}`);
+}
+
+const anyRows = rows.filter((r) => r.anyTypes?.length);
+if (anyRows.length) {
+  console.log(chalk.bold('\nexplicit any  (deterministic downgrade)'));
+  for (const r of anyRows) {
+    console.log(`  ${chalk.red(String(r.anyTypes.length).padStart(3))}  ${r.key}`);
+  }
 }
 
 if (argv.verbose) {

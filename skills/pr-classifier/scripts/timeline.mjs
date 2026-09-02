@@ -221,6 +221,11 @@ function scoreEvidence({pr, events, links}) {
 
 const band = (s) => (s >= 0.7 ? 'high' : s >= 0.4 ? 'medium' : 'low');
 
+// A screenshot or recording is the one piece of evidence a diff can never carry: proof
+// the rendered result is what the author intended. Kept out of the coherence weights on
+// purpose — it must never move the gate, only the ranking among PRs that already passed.
+import {demoEvidence} from './detectors.mjs';
+
 // ---------------------------------------------------------------- per PR
 
 function buildTimeline(record) {
@@ -299,6 +304,7 @@ function buildTimeline(record) {
     polarities: [...new Set(events.map((e) => e.polarity))],
     links,
     evidence: {coherence, reception},
+    demo: demoEvidence(pr, authorLogin),
     evidenceBand: {coherence: band(coherence), reception: band(reception)},
     evidenceSignals: signals,
     // Only coherence gates. Silence is a reception finding, not a refusal to decide.

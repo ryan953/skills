@@ -272,9 +272,16 @@ headings first. Add embeddings only if ripgrep fails.
   scripts/timeline.mjs   BUILT  bot filter + pre/post + evidence (offline)
   scripts/triage.mjs     BUILT  free gates + work orders         (offline, 87% reach a model)
   scripts/classify.mjs   BUILT  description -> code, Haiku 4.5   (dry run only so far)
+  scripts/detectors.mjs  BUILT  explicit `any` + demo image      (pure, no zx globals)
+  scripts/detectors.test.mjs    node scripts/detectors.test.mjs  (no runner, no deps)
   scripts/eval.mjs       todo   score the classifier vs gold labels
   labels/gold.jsonl      todo   hand labels
 ```
+
+The detectors live in their own module for one reason: they are the only load-bearing
+regexes in the pipeline, and both were wrong on their first pass against real data. A test
+that copied the patterns would have drifted from the code it claimed to guard, so the
+pipeline and the test import the same functions.
 
 Cache: `~/.cache/pr-classifier/` — `prs/`, `diffs/`, `timeline/`, `prompts/`, `verdicts/`,
 plus `index.json`, `timelines.json`, `workorders.json`, `verdicts.json`.
@@ -408,6 +415,60 @@ itself for being efficient.
 Links do not vote equally. A conventions violation caps at `needs-changes`. A
 description-to-code contradiction may reach `bad`. Each link declares its own cap, and the
 verdict is the highest severity any link both asserts and is allowed to assert.
+
+### Deterministic findings outrank the ladder — the `any` floor
+
+A model is the wrong instrument for a finding a regex can settle. Asked whether an
+explicit `any` is acceptable, a cheap model reasons about pragmatism and lets it through;
+asked to grep for `: any`, `as any`, `any[]` and `Foo<any>` on added lines, it is not
+asked at all. `conventions.mjs` scans the diff directly, after stripping comments and
+string literals so the prose word "any" and `no-explicit-any` disable comments do not
+register.
+
+`verdict.mjs` then applies it as a **floor**, not a cap: a PR carrying an explicit `any`
+cannot be `good`, and lands at `needs-changes`. `bad` is left alone — an `any` does not
+make a wrong PR worse.
+
+The floor is checked before the `incomplete` branch, which is a deliberate ordering.
+`incomplete` reports an absence of information; the `any` is information already in hand.
+A finding we have beats a check we have not run.
+
+### Tests and lint are CI's verdict, not this skill's
+
+Running the skill on getsentry/sentry#122082 surfaced the caveat "Jest was not run here
+(no installed frontend deps in this sandbox)" from the PR body, reported next to a `good`
+verdict. That is noise dressed as a finding. CI runs the suite on every PR, so a claim
+about the *author's sandbox* carries no information about the code, and putting it beside
+a verdict invites a reader to discount a verdict that was in fact sound.
+
+Both model prompts now say so explicitly, and `SKILL.md` says it for the reporting step.
+This is a scope statement, not a quality judgement: the `conventions` link still grades
+the style of test code it can see. What it does not grade is whether that code ran.
+
+### A demo image is evidence a diff cannot carry
+
+For a frontend change, a screenshot or recording shows the one thing no diff can: that the
+rendered result is what the author meant. `timeline.mjs` detects one deterministically in
+the body and in the author's own comments — a reviewer pasting a screenshot of a bug is
+not the author demonstrating the change.
+
+Two choices worth recording. It is kept **out of the coherence weights**, so it can never
+move the 0.4 gate; a screenshot does not make a thin description checkable. And it is a
+**ranking tiebreaker, not a verdict input**: rows carry a `rank` and `classifications.json`
+is sorted best-first, so among PRs that already passed their links, the demonstrated one
+sorts above. The absence of an image is not scored as a defect — most PRs do not need one,
+and penalising the rest would flood the flag list with noise, which is the failure mode
+this design spends most of its effort avoiding.
+
+Detection needs a badge filter. Of the first 30 hits, 8 were shields.io review pills and
+agent-vendor footer logos — images by markup, nothing by content. Stripping a short host
+blocklist first leaves 22 real screenshots across 304 PRs.
+
+In the rank itself, confidence pushes toward the **ends** of the list rather than upward.
+Being sure a PR needs changes should sink it, not lift it above a PR we are merely unsure
+about; the first version of the formula got this backwards and floated the most certainly
+broken PRs to the top. Tier spacing (10) exceeds the widest confidence swing (4), so the
+verdict tiers never interleave.
 
 ### `incomplete` — found by running the skill on one real PR
 
