@@ -131,6 +131,19 @@ function triage(record, timeline) {
       agentsMd: scopesFor(repo, reviewable),
     });
   }
+  // Duplication needs code to read, in a language the helper scanner parses. The
+  // cross-codebase half additionally wants a local clone; `duplication.mjs` degrades to
+  // the within-diff question when there is none, so readiness does not depend on it.
+  const hasCode = reviewable.some((f) => LANG.ts.test(f) || LANG.js.test(f) || LANG.py.test(f));
+  if (hasCode) {
+    links.push({
+      link: 'duplication',
+      status: 'ready',
+      needs: 'diff',
+      cap: 'needs-changes', // a duplicated helper is a glance, not a rejection
+      checkout: fs.existsSync(path.join(CODE_ROOT, repo, '.git')) ? repo : null,
+    });
+  }
 
   return {
     key: record._meta.key,
@@ -212,7 +225,12 @@ for (const k of [0, 1, 2, 3, 4]) {
 
 console.log(chalk.bold('\nlink coverage  (of PRs that reach the model)'));
 const live = orders.filter((o) => !o.skip);
-for (const l of ['issue->rca', 'rca->description', 'description->code', 'conventions']) {
+// Derived from the orders rather than hardcoded, so a new link shows up here by existing.
+const LINK_ORDER = ['issue->rca', 'rca->description', 'description->code', 'conventions', 'duplication'];
+const seenLinks = [...new Set(live.flatMap((o) => o.links.map((x) => x.link)))].sort(
+  (a, b) => LINK_ORDER.indexOf(a) - LINK_ORDER.indexOf(b)
+);
+for (const l of seenLinks) {
   const c = live.filter((o) => o.links.some((x) => x.link === l)).length;
   const blocked = live.filter((o) => o.links.some((x) => x.link === l && x.status === 'blocked')).length;
   console.log(
@@ -225,7 +243,9 @@ console.log(chalk.bold('\nby population  (reaching the model)'));
 for (const p of ['own', 'agent-authored', 'reviewed-human']) {
   const rows = live.filter((o) => o.population === p);
   if (!rows.length) continue;
-  const full = rows.filter((o) => o.links.length >= 3).length;
+  // "Full ladder" means the anchor rungs exist, not merely that several links do — adding
+  // a link must not inflate this number.
+  const full = rows.filter((o) => o.links.some((x) => x.link === 'issue->rca')).length;
   console.log(`  ${p.padEnd(16)} ${String(rows.length).padStart(4)}   full ladder ${String(full).padStart(3)}`);
 }
 

@@ -272,7 +272,8 @@ headings first. Add embeddings only if ripgrep fails.
   scripts/timeline.mjs   BUILT  bot filter + pre/post + evidence (offline)
   scripts/triage.mjs     BUILT  free gates + work orders         (offline, 87% reach a model)
   scripts/classify.mjs   BUILT  description -> code, Haiku 4.5   (dry run only so far)
-  scripts/detectors.mjs  BUILT  explicit `any` + demo image      (pure, no zx globals)
+  scripts/detectors.mjs  BUILT  `any`, demo image, helper sigs   (pure, no zx globals)
+  scripts/duplication.mjs BUILT the duplication link             (rg over a local clone)
   scripts/detectors.test.mjs    node scripts/detectors.test.mjs  (no runner, no deps)
   scripts/eval.mjs       todo   score the classifier vs gold labels
   labels/gold.jsonl      todo   hand labels
@@ -432,6 +433,56 @@ make a wrong PR worse.
 The floor is checked before the `incomplete` branch, which is a deliberate ordering.
 `incomplete` reports an absence of information; the `any` is information already in hand.
 A finding we have beats a check we have not run.
+
+### The duplication link — the signature is the search key
+
+Two questions share one call, because they share a diff and only one of them needs a
+codebase:
+
+1. Does the change repeat *itself*? Answerable from the diff alone, so it still runs when
+   no local clone exists.
+2. Does a helper the diff adds already exist? This is the one worth building for.
+
+The search key is the helper's own signature. A function named `formatDuration(ms)` tells
+you where to look: `utils/`, anything named `*duration*`, and an existing declaration of
+the same name. The claim is not decorative — sentry keeps `getDuration` in
+`static/app/utils/duration/getDuration.tsx`, and `getWidgetExploreUrl` in
+`views/dashboards/utils/`. Names and paths are written by the same instinct.
+
+So `scanHelpers` reads added declarations out of the diff and `searchPlan` turns each into
+distinctive words (stop words dropped — searching sentry for "get" returns sentry) plus the
+path words those names imply. `duplication.mjs` sweeps twice: exact name first, which is
+near-proof and never ranked away, then word matches ranked by whether they sit in a utils
+folder and whether the path echoes the helper's own words.
+
+Three things cost real time here:
+
+**Signatures span lines.** Prettier breaks anything past the line limit, so the arguments —
+the more selective half of the key — are usually not on the line that names the function. A
+regex capture cannot reach them; the scanner walks brackets across added lines instead. It
+also has to know that the comma in `Record<string, string>` and the one in `sep = ","` are
+not argument separators.
+
+**Candidates must be same-language.** The first working version offered four hits in
+`src/sentry/tasks/seer/explorer_index.py` for a `.tsx` helper. Cross-language duplication is
+not actionable, and a bad lead costs a reviewer more than no lead.
+
+**ripgrep ORs its inclusive globs.** Adding `-g '**/*explore*'` next to `-g '*.ts'` does not
+narrow the language filter, it widens the search — which is exactly how those Python files
+survived being filtered out. The fix is to filter by language in `rg` and rank by path in
+JS, never to express both as globs.
+
+**Why `rg` and not `ast-grep`.** Against the general preference for structural search, and
+deliberately. `ast-grep` needs a separate `--lang` pass per extension while sentry mixes
+`.ts`, `.tsx` and `.py` in one tree, and it has no standalone pattern for "a declaration
+named X" that does not also have to match the body — `export function getDuration($$$A)`
+matches nothing. What this stage wants is declaration *headers*, which a regex states
+exactly.
+
+Measured on the corpus: the link is ready on 218 of 264 PRs that reach a model (82%). Two
+checks either way — the real PR 122082 came back `match` ("candidates parse/tokenize search
+strings, not API param objects"), and a synthetic PR re-adding sentry's own `getDuration`
+came back `mismatch` pointing at `utils/duration/getDuration.tsx:74`.
 
 ### Tests and lint are CI's verdict, not this skill's
 

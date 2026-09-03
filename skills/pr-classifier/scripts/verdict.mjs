@@ -22,6 +22,7 @@ const NAME = ['good', 'needs-changes', 'bad'];
 const ASSERTS = {
   'description->code': {match: 'good', partial: 'needs-changes', mismatch: 'bad', unclear: null},
   conventions: {match: 'good', partial: 'needs-changes', mismatch: 'needs-changes', unclear: null},
+  duplication: {match: 'good', partial: 'needs-changes', mismatch: 'needs-changes', unclear: null},
   'issue->rca': {match: 'good', partial: 'needs-changes', mismatch: 'bad', unclear: null},
   'rca->description': {match: 'good', partial: 'needs-changes', mismatch: 'bad', unclear: null},
 };
@@ -31,6 +32,7 @@ const ASSERTS = {
 const CAPS = {
   'description->code': 'bad',
   conventions: 'needs-changes',
+  duplication: 'needs-changes',
   'issue->rca': 'bad',
   'rca->description': 'bad',
 };

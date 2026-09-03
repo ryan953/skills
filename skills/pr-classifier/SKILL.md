@@ -21,7 +21,8 @@ threshold or a prompt — most of the obvious ideas were already tried and measu
 | 3 | `triage.mjs` | free, offline | Fail-fast gates, work orders, AGENTS.md scoping |
 | 4 | `classify.mjs` | ~2 cents/PR | The `description -> code` link, via Haiku |
 | 5a | `conventions.mjs` | ~3 cents/PR | The `conventions` link: AGENTS.md + frontend-conventions rules |
-| 5b | `verdict.mjs` | free | Aggregate links into one verdict |
+| 5b | `duplication.mjs` | ~2-7 cents/PR | The `duplication` link: repeated logic, and helpers that already exist |
+| 5c | `verdict.mjs` | free | Aggregate links into one verdict |
 | 6 | `label.mjs` / `eval.mjs` | ~25 cents/PR | Gold labels and scoring |
 
 ```bash
@@ -30,6 +31,7 @@ zx scripts/timeline.mjs
 zx scripts/triage.mjs --population agent-authored --fetch-diffs --limit 30
 zx scripts/classify.mjs --population agent-authored --limit 25 --run --concurrency 6
 zx scripts/conventions.mjs --population agent-authored --limit 25 --run --concurrency 6
+zx scripts/duplication.mjs --population agent-authored --limit 25 --run --concurrency 6
 zx scripts/verdict.mjs --verbose
 zx scripts/label.mjs && zx scripts/eval.mjs --verbose    # only when re-measuring
 ```
@@ -83,6 +85,20 @@ Cache lives in `~/.cache/pr-classifier/`. Harvest re-fetches only when `updatedA
   with a regex over added lines (comments and string literals stripped first) rather than
   asking the model, because a model reads `any` as pragmatic and waves it through. The
   floor applies even when a ready link never ran: a fact in hand outranks a missing check.
+- **Duplication is searched from the helper's own signature.** When a diff adds or changes
+  a helper, its **name and arguments are the search key**: `formatDuration(ms)` says to look
+  in `utils/`, in anything named `*duration*` or `*format*`, and for an existing declaration
+  of the same name. This is not a heuristic dressed up — sentry keeps `getDuration` in
+  `static/app/utils/duration/getDuration.tsx`, and a synthetic PR re-adding that helper is
+  found by exact name on the first sweep. `duplication.mjs` also asks the cheaper question
+  the diff answers alone: does the change repeat *itself*? Capped at `needs-changes`.
+  Two traps, both hit while building it:
+  - **Candidates must be same-language.** A `.tsx` helper is not duplicated by a Python
+    function sharing a word. The first version returned four hits in
+    `src/sentry/tasks/seer/explorer_index.py` for a TypeScript helper.
+  - **ripgrep ORs its inclusive globs.** Passing `-g '*.ts'` *and* `-g '**/*explore*'`
+    widens the search rather than narrowing it, which is how those Python files survived
+    a language filter. Filter by language in `rg`; rank by path in JS.
 - **A demo image ranks a frontend PR higher.** A screenshot or recording is the one thing
   a diff cannot carry — proof the rendered result is what the author intended. `timeline.mjs`
   detects it in the body and in the author's own comments (not a reviewer's). It is a
@@ -119,8 +135,14 @@ fan-out suits reviewing one branch interactively, but is far too expensive per P
 batch classifier, and the gate is deterministic either way. The scoped AGENTS.md files come
 from the work order. Capped at `needs-changes`.
 
-A PR still lands on `incomplete` whenever some ready link has not been run yet, so run both
-`classify.mjs` and `conventions.mjs` before reading a `good`.
+The `duplication` link is built (`duplication.mjs`), ready on 82% of the PRs that reach a
+model. Verified in both directions on exactly two cases — a real PR judged `match`, and a
+synthetic PR re-adding sentry's own `getDuration` judged `mismatch` against
+`utils/duration/getDuration.tsx`. That is a smoke test, not a measurement: it has no gold
+labels and no false-positive rate yet. Treat its flags as leads until it is scored.
+
+A PR still lands on `incomplete` whenever some ready link has not been run yet, so run
+`classify.mjs`, `conventions.mjs` and `duplication.mjs` before reading a `good`.
 
 Do not quote those numbers as settled. n=20, the intervals are wide (precision 23-88%),
 and the prompt fix that produced them was tuned on the same 20 PRs it was scored against.
@@ -130,4 +152,10 @@ Not built yet: `issue -> RCA` and `rca -> description`, which need a Sentry issu
 Triage marks them `blocked`, so they never silently count as passes.
 
 Single PR: `zx scripts/harvest.mjs --pr <url>` then `timeline`, `triage --key N
---fetch-diffs`, `classify --key N --run`, `conventions --key N --run`, `verdict`.
+--fetch-diffs`, `classify --key N --run`, `conventions --key N --run`,
+`duplication --key N --run`, `verdict`.
+
+`duplication.mjs` reads a local clone at `~/code/<repo>`. Without one it still answers the
+within-diff question and records `searched: skipped-no-checkout`. The clone may be behind
+the PR branch, so it reports the clone's age and treats candidates as leads — see
+[[feedback_fetch_before_reusing_local_clones]].

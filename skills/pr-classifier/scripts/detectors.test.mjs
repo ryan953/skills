@@ -4,7 +4,7 @@
 // image detector counted 8 vendor badges as screenshots, and the `any` scanner has to
 // survive the word "any" appearing in prose, strings and eslint-disable comments.
 import assert from 'node:assert';
-import {scanAnyTypes, hasImage} from './detectors.mjs';
+import {scanAnyTypes, hasImage, scanHelpers, searchPlan, words} from './detectors.mjs';
 
 // ---------------------------------------------------------------- explicit any
 
@@ -66,5 +66,61 @@ assert.ok(
   ),
   'a badge must not mask a real screenshot'
 );
+
+// ---------------------------------------------------------------- helper signatures
+
+const named = (diff) => Object.fromEntries(scanHelpers(diff).map((h) => [h.name, h.args]));
+
+// Prettier breaks long signatures, so the arguments are usually not on the naming line.
+const MULTILINE = `+++ b/static/app/utils/x.tsx
++export function mergeSpans(
++  spans: Array<Span>,
++  window: Record<string, number>
++): Span[] {
+`;
+assert.deepEqual(named(MULTILINE), {mergeSpans: ['spans', 'window']}, 'multi-line signature');
+
+// A generic's comma is not an argument separator, and a string default's comma is not one
+// either — both split one parameter into fragments if handled naively.
+const TRICKY = `+++ b/a/utils/time.ts
++export function formatDuration(ms: number, opts: {short: boolean} = {short: true}) {
++const parseList = (raw: string, sep = ",") => raw.split(sep);
++++ b/a/x.py
++def normalize_url(url, base_url=None):
+`;
+assert.deepEqual(named(TRICKY), {
+  formatDuration: ['ms', 'opts'],
+  parseList: ['raw', 'sep'],
+  normalize_url: ['url', 'base_url'],
+});
+
+// Components are not utils, and a throwaway name carries no search signal.
+assert.deepEqual(
+  named('+++ b/a/C.tsx\n+export function MyComponent(props: Props) {\n+const fn = (x) => x;\n'),
+  {},
+  'PascalCase components and generic names are skipped'
+);
+
+assert.deepEqual(
+  named('+++ b/a/x.ts\n-export function removed(a) {\n export function untouched(b) {\n'),
+  {},
+  'only added lines count'
+);
+
+assert.deepEqual(named('+++ b/a/notes.md\n+function inMarkdown(a) {\n'), {}, 'only code files');
+
+// ---------------------------------------------------------------- search plan
+
+assert.deepEqual(words('getDurationFromHTTPRequest'), [
+  'get', 'duration', 'from', 'http', 'request',
+]);
+assert.deepEqual(words('normalize_url'), ['normalize', 'url']);
+
+const plan = searchPlan({name: 'getDuration', args: ['seconds', 'fixedDigits']});
+assert.equal(plan.exactName, 'getDuration');
+assert.ok(!plan.terms.includes('get'), 'stop words are dropped — "get" matches the whole repo');
+assert.ok(plan.terms.includes('duration'), 'the distinctive word survives');
+// This is the claim the whole stage rests on: the helper's own words name the path.
+assert.deepEqual(plan.pathWords, ['duration']);
 
 console.log('detectors: all checks passed');
