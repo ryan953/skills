@@ -10,6 +10,8 @@
     --line-strong: #a9b3c4;
     --accent: #2f55c9;
     --accent-soft: #e2e9fb;
+    --split: #95640f;
+    --split-soft: #f5ead2;
     --done: #2b7a57;
     --done-soft: #ddefe6;
     --focus: #2f55c9;
@@ -25,6 +27,8 @@
       --line-strong: #46516a;
       --accent: #86a3f5;
       --accent-soft: #1f2a48;
+      --split: #dcab55;
+      --split-soft: #33280f;
       --done: #72c49c;
       --done-soft: #16301f;
       --focus: #86a3f5;
@@ -40,6 +44,8 @@
     --line-strong: #46516a;
     --accent: #86a3f5;
     --accent-soft: #1f2a48;
+    --split: #dcab55;
+    --split-soft: #33280f;
     --done: #72c49c;
     --done-soft: #16301f;
     --focus: #86a3f5;
@@ -51,7 +57,7 @@
     font: 15px/1.55 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   .wrap {
-    max-width: 960px;
+    max-width: 980px;
     margin: 0 auto;
     padding-inline: 20px;
     padding-block: 40px 64px;
@@ -87,17 +93,20 @@
     border-radius: 10px;
     padding: 12px;
   }
-  .diagram-scroll svg { display: block; width: 100%; min-width: 640px; height: auto; color: var(--ink); }
-  figcaption { color: var(--muted); font-size: 13.5px; max-width: 70ch; }
+  .diagram-scroll svg { display: block; width: 100%; min-width: 660px; height: auto; color: var(--ink); }
+  figcaption { color: var(--muted); font-size: 13.5px; max-width: 72ch; }
   .node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
   .node text { fill: currentColor; font: 600 14px "Instrument Sans", system-ui, sans-serif; }
   .node .sub { fill: var(--muted); font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; }
   .node.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
-  .node.is-current.is-final rect { fill: var(--done-soft); stroke: var(--done); }
-  .edge line { stroke: var(--line-strong); stroke-width: 1.5; transition: stroke .2s; }
+  .node.is-current[data-state="decomposed"] rect { fill: var(--split-soft); stroke: var(--split); }
+  .node.is-current[data-state="complete"] rect { fill: var(--done-soft); stroke: var(--done); }
+  .edge .wire { fill: none; stroke: var(--line-strong); stroke-width: 1.5; transition: stroke .2s; }
+  .edge.spawn .wire { stroke-dasharray: 5 4; }
   .edge text { fill: currentColor; font: 500 11.5px "JetBrains Mono", ui-monospace, monospace; }
   .edge .actor { fill: var(--muted); font: 400 10.5px "Instrument Sans", system-ui, sans-serif; }
-  .edge.is-last line { stroke: var(--accent); stroke-width: 2.25; }
+  .edge.spawn text { fill: var(--muted); font: 400 11px "Instrument Sans", system-ui, sans-serif; }
+  .edge.is-last .wire { stroke: var(--accent); stroke-width: 2.25; }
   .start-dot { fill: currentColor; }
   .arrowhead { fill: var(--line-strong); }
   .arrowhead-hot { fill: var(--accent); }
@@ -105,11 +114,11 @@
   /* Simulator */
   .sim {
     display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
     gap: 20px;
     align-items: start;
   }
-  @media (max-width: 720px) { .sim { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .sim { grid-template-columns: 1fr; } }
   .panel {
     background: var(--surface);
     border: 1px solid var(--line);
@@ -119,7 +128,7 @@
     gap: 12px;
   }
   form { display: flex; gap: 8px; flex-wrap: wrap; }
-  input[type="text"] {
+  input[type="text"], textarea {
     flex: 1 1 200px;
     min-width: 0;
     font: inherit;
@@ -129,13 +138,14 @@
     border-radius: 7px;
     padding: 8px 10px;
   }
+  textarea { flex-basis: 100%; resize: vertical; min-height: 72px; }
   button {
-    font: 600 13.5px "Instrument Sans", system-ui, sans-serif;
+    font: 600 13px "Instrument Sans", system-ui, sans-serif;
     color: var(--surface);
     background: var(--accent);
     border: 1px solid var(--accent);
     border-radius: 7px;
-    padding: 8px 12px;
+    padding: 7px 11px;
     cursor: pointer;
   }
   button.ghost { color: var(--accent); background: transparent; }
@@ -143,7 +153,8 @@
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
   .tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  .task {
+  .tasks .tasks { margin-top: 8px; margin-left: 14px; padding-left: 12px; border-left: 1.5px solid var(--line); }
+  .task-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px 12px;
@@ -153,12 +164,12 @@
     border-radius: 8px;
     cursor: pointer;
   }
-  .task.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .task-row.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .task-title { font-weight: 500; overflow-wrap: anywhere; }
-  .task.is-complete .task-title { color: var(--muted); text-decoration: line-through; }
+  .task-row.is-complete .task-title { color: var(--muted); text-decoration: line-through; }
   .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .chip {
-    justify-self: start;
     font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace;
     padding: 4px 7px;
     border-radius: 999px;
@@ -166,38 +177,40 @@
     color: var(--muted);
   }
   .chip[data-state="in_progress"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .chip[data-state="decomposed"] { color: var(--split); border-color: var(--split); background: var(--split-soft); }
   .chip[data-state="complete"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
-  .final-note { font-size: 12.5px; color: var(--muted); }
+  .note { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .editor { grid-column: 1 / -1; cursor: default; }
 
-  .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 320px; overflow-y: auto; }
+  .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 360px; overflow-y: auto; }
   .log li { font: 12px/1.45 "JetBrains Mono", ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
   .log b { color: var(--ink); font-weight: 500; }
   .empty { color: var(--muted); font-size: 13.5px; }
 
   /* Transition table */
   .table-scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; min-width: 520px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  table { border-collapse: collapse; width: 100%; min-width: 600px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
   th { font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
   tr:last-child td { border-bottom: 0; }
 
   @media (prefers-reduced-motion: reduce) {
-    .node rect, .edge line { transition: none; }
+    .node rect, .edge .wire { transition: none; }
   }
 </style>
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v0</div>
+    <div class="eyebrow">State machine · v1 · decomposition</div>
     <h1>Task Lifecycle</h1>
-    <p class="lede">The smallest useful model of a task: a person enters it, it is saved, someone later reads it and starts work, and they mark it complete. Every transition is made by a human; there is no automation yet.</p>
+    <p class="lede">A person enters a task and it is saved. Later someone reads it and either works it directly or splits it into subtasks first. A split task waits until every subtask is done, then gets marked complete. Every transition is made by a human.</p>
   </header>
 
   <section aria-labelledby="diagram-h">
     <h2 id="diagram-h">States and transitions</h2>
     <figure>
       <div class="diagram-scroll">
-        <svg id="diagram" viewBox="0 0 820 150" role="img" aria-label="A task starts when a human enters it and it becomes Saved. A human reads and starts it, moving it to In progress. A human marks it complete, moving it to Complete, which is final.">
+        <svg id="diagram" viewBox="0 0 820 310" role="img" aria-label="A human enters a task and it becomes Saved. From Saved, a human either reads and starts it (In progress, then mark complete) or decomposes it (Decomposed). Decomposing creates subtasks, each entered as a new task that runs the same machine. A decomposed task can take more subtasks, and is marked complete only when all its subtasks are complete. Complete is final.">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
@@ -209,20 +222,39 @@
 
           <circle class="start-dot" cx="40" cy="75" r="8"></circle>
 
-          <g class="edge" data-event="ENTER">
-            <line x1="50" y1="75" x2="148" y2="75" marker-end="url(#arrow)"></line>
+          <g class="edge" data-edge="new:ENTER">
+            <line class="wire" x1="50" y1="75" x2="148" y2="75" marker-end="url(#arrow)"></line>
             <text x="99" y="62" text-anchor="middle">enter task</text>
             <text class="actor" x="99" y="95" text-anchor="middle">human</text>
           </g>
-          <g class="edge" data-event="START">
-            <line x1="300" y1="75" x2="398" y2="75" marker-end="url(#arrow)"></line>
+          <g class="edge" data-edge="saved:START">
+            <line class="wire" x1="300" y1="75" x2="398" y2="75" marker-end="url(#arrow)"></line>
             <text x="349" y="62" text-anchor="middle">read &amp; start</text>
             <text class="actor" x="349" y="95" text-anchor="middle">human</text>
           </g>
-          <g class="edge" data-event="COMPLETE">
-            <line x1="550" y1="75" x2="648" y2="75" marker-end="url(#arrow)"></line>
+          <g class="edge" data-edge="in_progress:COMPLETE">
+            <line class="wire" x1="550" y1="75" x2="648" y2="75" marker-end="url(#arrow)"></line>
             <text x="599" y="62" text-anchor="middle">mark complete</text>
             <text class="actor" x="599" y="95" text-anchor="middle">human</text>
+          </g>
+          <g class="edge" data-edge="saved:DECOMPOSE">
+            <polyline class="wire" points="260,103 260,228 398,228" marker-end="url(#arrow)"></polyline>
+            <text x="329" y="218" text-anchor="middle">decompose</text>
+            <text class="actor" x="329" y="245" text-anchor="middle">human</text>
+          </g>
+          <g class="edge" data-edge="decomposed:COMPLETE">
+            <polyline class="wire" points="550,228 725,228 725,105" marker-end="url(#arrow)"></polyline>
+            <text x="636" y="218" text-anchor="middle">mark complete</text>
+            <text class="actor" x="636" y="245" text-anchor="middle">human · all subtasks done</text>
+          </g>
+          <g class="edge" data-edge="decomposed:ADD_SUBTASK">
+            <path class="wire" d="M505,256 C505,294 540,294 540,259" marker-end="url(#arrow)"></path>
+            <text x="552" y="284">add subtask</text>
+            <text class="actor" x="552" y="298">human</text>
+          </g>
+          <g class="edge spawn" data-edge="spawn">
+            <polyline class="wire" points="430,256 430,290 40,290 40,86" marker-end="url(#arrow)"></polyline>
+            <text x="235" y="282" text-anchor="middle">creates subtasks · each one enters here as a new task</text>
           </g>
 
           <g class="node" data-state="saved">
@@ -235,21 +267,26 @@
             <text x="475" y="72" text-anchor="middle">In progress</text>
             <text class="sub" x="475" y="90" text-anchor="middle">in_progress</text>
           </g>
-          <g class="node is-final" data-state="complete">
+          <g class="node" data-state="complete">
             <rect x="650" y="47" width="150" height="56" rx="8"></rect>
             <rect x="654" y="51" width="142" height="48" rx="6" fill="none"></rect>
             <text x="725" y="72" text-anchor="middle">Complete</text>
             <text class="sub" x="725" y="90" text-anchor="middle">complete · final</text>
           </g>
+          <g class="node" data-state="decomposed">
+            <rect x="400" y="200" width="150" height="56" rx="8"></rect>
+            <text x="475" y="225" text-anchor="middle">Decomposed</text>
+            <text class="sub" x="475" y="243" text-anchor="middle">decomposed</text>
+          </g>
         </svg>
       </div>
-      <figcaption>One path, no branches. The dot on the left is "the task doesn't exist yet"; the double border marks the final state. Select a task below to see where it sits; the arrow it last took turns blue.</figcaption>
+      <figcaption>Two ways from Saved to Complete. The top row is working a task directly. The bottom path splits it: the dashed line shows each subtask starting over at the entry dot as a task of its own, so subtasks can be split again. The parent's final arrow only opens once all of its direct subtasks are complete. Select a task below to see where it sits; the arrow it last took turns blue.</figcaption>
     </figure>
   </section>
 
   <section aria-labelledby="sim-h">
     <h2 id="sim-h">Try it</h2>
-    <p class="lede" style="margin-top:0">The two tasks below are examples. Only the transitions the machine allows from a task's current state are offered.</p>
+    <p class="lede" style="margin-top:0">The tasks below are examples. Each one only offers the transitions the machine allows from its current state.</p>
     <div class="sim">
       <div class="panel">
         <form id="new-task">
@@ -270,7 +307,7 @@
     <h2 id="table-h">Transition table</h2>
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Event</th><th>From</th><th>To</th><th>Who</th></tr></thead>
+        <thead><tr><th>Event</th><th>From</th><th>To</th><th>Only if</th><th>Who</th></tr></thead>
         <tbody id="table"></tbody>
       </table>
     </div>
@@ -288,87 +325,159 @@
   const input = document.getElementById('task-title');
 
   let nextId = 1;
-  const tasks = [];
+  const byId = {};
+  const roots = [];
   const log = [];
   let selectedId = null;
+  let editing = null; // {id, event} while the subtask editor is open
 
-  const stateName = s => (s ? M.states[s].label : '(none)');
   const time = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  const ctxFor = (task, newSubtasks = 0) => ({newSubtasks, childStates: task.children.map(id => byId[id].state)});
 
-  function fire(task, event, title) {
-    const from = task ? task.state : null;
-    const to = M.transition(from, event);
-    if (!task) {
-      task = {id: nextId++, title, state: to, lastEvent: event};
-      tasks.push(task);
-    } else {
-      task.state = to;
-      task.lastEvent = event;
+  function enter(title, parent) {
+    const to = M.transition(null, 'ENTER');
+    const task = {id: nextId++, title, state: to, parent: parent ? parent.id : null, children: [], lastEdge: parent ? 'spawn' : 'new:ENTER'};
+    byId[task.id] = task;
+    (parent ? parent.children : roots).push(task.id);
+    log.unshift({t: time(), id: task.id, title, event: 'ENTER', from: null, to, note: parent ? `subtask of #${parent.id}` : ''});
+    return task;
+  }
+
+  function fire(task, event, subtaskTitles = []) {
+    const from = task.state;
+    const to = M.transition(from, event, ctxFor(task, subtaskTitles.length));
+    task.state = to;
+    task.lastEdge = `${from}:${event}`;
+    log.unshift({t: time(), id: task.id, title: task.title, event, from, to, note: subtaskTitles.length ? `+${subtaskTitles.length} subtask${subtaskTitles.length > 1 ? 's' : ''}` : ''});
+    subtaskTitles.forEach(t => enter(t, task));
+  }
+
+  function select(id) { selectedId = id; render(); }
+
+  function button(text, onClick, opts = {}) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    if (opts.ghost) b.className = 'ghost';
+    if (opts.disabled) b.disabled = true;
+    if (opts.title) b.title = opts.title;
+    b.addEventListener('click', e => { e.stopPropagation(); onClick(); });
+    return b;
+  }
+
+  function subtaskEditor(task) {
+    const f = document.createElement('form');
+    f.className = 'editor';
+    f.addEventListener('click', e => e.stopPropagation());
+    const id = `subtasks-${task.id}`;
+    const label = document.createElement('label');
+    label.className = 'eyebrow';
+    label.htmlFor = id;
+    label.style.flexBasis = '100%';
+    label.textContent = 'Subtasks, one per line';
+    const ta = document.createElement('textarea');
+    ta.id = id;
+    ta.addEventListener('keydown', e => e.stopPropagation());
+    const save = document.createElement('button');
+    save.type = 'submit';
+    save.textContent = editing.event === 'DECOMPOSE' ? 'Decompose' : 'Add subtasks';
+    const cancel = button('Cancel', () => { editing = null; render(); }, {ghost: true});
+    f.append(label, ta, save, cancel);
+    f.addEventListener('submit', e => {
+      e.preventDefault();
+      const titles = ta.value.split('\n').map(s => s.trim()).filter(Boolean);
+      if (!titles.length) { ta.focus(); return; }
+      fire(task, editing.event, titles);
+      editing = null;
+      select(task.id);
+    });
+    requestAnimationFrame(() => ta.focus());
+    return f;
+  }
+
+  function renderTask(task) {
+    const li = document.createElement('li');
+    const row = document.createElement('div');
+    row.className = 'task-row' + (task.id === selectedId ? ' is-selected' : '') + (task.state === 'complete' ? ' is-complete' : '');
+    row.tabIndex = 0;
+    row.setAttribute('aria-label', `${task.title}, ${M.states[task.state].label}`);
+    row.addEventListener('click', () => select(task.id));
+    row.addEventListener('keydown', e => {
+      if ((e.key === 'Enter' || e.key === ' ') && e.target === row) { e.preventDefault(); select(task.id); }
+    });
+
+    const title = document.createElement('div');
+    title.className = 'task-title';
+    title.textContent = task.title;
+
+    const actions = document.createElement('div');
+    actions.className = 'task-actions';
+    const moves = M.available(task.state);
+    moves.forEach(t => {
+      const text = t.label[0].toUpperCase() + t.label.slice(1);
+      if (t.event === 'DECOMPOSE' || t.event === 'ADD_SUBTASK') {
+        actions.append(button(text, () => { editing = {id: task.id, event: t.event}; selectedId = task.id; render(); }, {ghost: true}));
+      } else {
+        const res = M.check(task.state, t.event, ctxFor(task));
+        actions.append(button(text, () => { fire(task, t.event); select(task.id); }, {disabled: !res.ok, title: res.ok ? '' : `Waits until ${t.guardLabel}`}));
+      }
+    });
+    if (!moves.length) {
+      const n = document.createElement('span');
+      n.className = 'note';
+      n.textContent = 'Final, no moves';
+      actions.append(n);
     }
-    log.unshift({t: time(), id: task.id, title: task.title, event, from, to});
-    selectedId = task.id;
-    render();
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.dataset.state = task.state;
+    chip.textContent = task.state;
+    meta.append(chip);
+    if (task.children.length) {
+      const done = task.children.filter(id => byId[id].state === 'complete').length;
+      const n = document.createElement('span');
+      n.className = 'note';
+      n.textContent = `${done} of ${task.children.length} subtasks complete`;
+      meta.append(n);
+    }
+
+    row.append(title, actions, meta);
+    if (editing && editing.id === task.id) row.append(subtaskEditor(task));
+    li.append(row);
+
+    if (task.children.length) {
+      const ul = document.createElement('ul');
+      ul.className = 'tasks';
+      ul.append(...task.children.map(id => renderTask(byId[id])));
+      li.append(ul);
+    }
+    return li;
   }
 
   function render() {
-    tasksEl.replaceChildren(...tasks.map(task => {
-      const li = document.createElement('li');
-      li.className = 'task' + (task.id === selectedId ? ' is-selected' : '') + (task.state === 'complete' ? ' is-complete' : '');
-      li.tabIndex = 0;
-      li.setAttribute('aria-label', `${task.title}, ${stateName(task.state)}`);
-      li.addEventListener('click', () => { selectedId = task.id; render(); });
-      li.addEventListener('keydown', e => {
-        if ((e.key === 'Enter' || e.key === ' ') && e.target === li) { e.preventDefault(); selectedId = task.id; render(); }
-      });
-
-      const title = document.createElement('div');
-      title.className = 'task-title';
-      title.textContent = task.title;
-
-      const actions = document.createElement('div');
-      actions.className = 'task-actions';
-      const moves = M.available(task.state);
-      moves.forEach(t => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = t.label[0].toUpperCase() + t.label.slice(1);
-        b.addEventListener('click', e => { e.stopPropagation(); fire(task, t.event); });
-        actions.append(b);
-      });
-      if (!moves.length) {
-        const n = document.createElement('span');
-        n.className = 'final-note';
-        n.textContent = 'Final, no moves';
-        actions.append(n);
-      }
-
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.dataset.state = task.state;
-      chip.textContent = task.state;
-
-      li.append(title, actions, chip);
-      return li;
-    }));
+    tasksEl.replaceChildren(...roots.map(id => renderTask(byId[id])));
 
     if (!log.length) {
       logEl.innerHTML = '<li class="empty">No events yet.</li>';
     } else {
       logEl.replaceChildren(...log.map(e => {
         const li = document.createElement('li');
-        li.innerHTML = `${e.t} · #${e.id} <b></b> ${e.from ?? '∅'} → ${e.to}`;
+        li.innerHTML = `${e.t} · #${e.id} <b></b> ${e.from ?? '∅'} → ${e.to}${e.note ? ' · ' + e.note : ''}`;
         li.querySelector('b').textContent = e.event;
         li.title = e.title;
         return li;
       }));
     }
 
-    const sel = tasks.find(t => t.id === selectedId);
+    const sel = byId[selectedId];
     svg.querySelectorAll('.node').forEach(n => n.classList.toggle('is-current', !!sel && n.dataset.state === sel.state));
     svg.querySelectorAll('.edge').forEach(g => {
-      const hot = !!sel && g.dataset.event === sel.lastEvent;
+      const hot = !!sel && g.dataset.edge === sel.lastEdge;
       g.classList.toggle('is-last', hot);
-      g.querySelector('line').setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)');
+      g.querySelector('.wire').setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)');
     });
   }
 
@@ -376,13 +485,14 @@
     e.preventDefault();
     const title = input.value.trim();
     if (!title) return;
-    fire(null, 'ENTER', title);
+    const task = enter(title, null);
     input.value = '';
+    select(task.id);
   });
 
   document.getElementById('table').replaceChildren(...M.transitions.map(t => {
     const tr = document.createElement('tr');
-    [t.event, t.from ?? '∅ (new)', t.to, t.actor].forEach((v, i) => {
+    [t.event, t.from ?? '∅ (new)', t.to, t.guardLabel ?? '—', t.actor].forEach((v, i) => {
       const td = document.createElement('td');
       td.textContent = v;
       if (i < 3) td.className = 'mono';
@@ -392,8 +502,14 @@
   }));
 
   // Example tasks so the page opens in a working state.
-  fire(null, 'ENTER', 'Example: Book the team offsite');
-  fire(null, 'ENTER', 'Example: Draft the Q4 roadmap');
-  fire(tasks[1], 'START');
+  const offsite = enter('Example: Plan the team offsite', null);
+  fire(offsite, 'DECOMPOSE', ['Pick dates', 'Book a venue', 'Send invites']);
+  const [dates, venue] = offsite.children.map(id => byId[id]);
+  fire(dates, 'START');
+  fire(dates, 'COMPLETE');
+  fire(venue, 'START');
+  const roadmap = enter('Example: Draft the Q4 roadmap', null);
+  fire(roadmap, 'START');
+  select(offsite.id);
 })();
 </script>
