@@ -107,6 +107,28 @@ no task runs the PR machine alone; merging or closing it affects no task.
 On others' PRs, "review & comment" covers pulling the code to self-review
 first and turning your notes into comments.
 
+## Storage (`schema.sql`)
+
+SQLite, following the same rule as the models: store real state and facts,
+derive the rest in views.
+
+| Table / view             | Holds |
+|--------------------------|-------|
+| `tasks`                  | title, `status` (todo/in_progress/in_review/done), `parent_id` from DECOMPOSE |
+| `task_transitions`       | every (event, from, to) the task machine allows; test-checked against `machine.js` |
+| `prs`                    | repo + number (upsert key for detection), `kind`, `origin`, `task_id`, and the facts: `ci`, `accepted`, `head_sha`, `merged_at`, `closed_at` |
+| `pr_comments`            | one row per review thread; unresolved = `resolved_at IS NULL` |
+| `events`                 | append-only log of every event from both machines, with actor and JSON detail |
+| `pr_state` (view)        | PR row + `open_comments` + derived `status`, same priority as `pr-machine.js` |
+| `task_state` (view)      | task row + `is_parent`, `incomplete_subtasks`, `open_prs`, `merged_prs`, `closed_prs`, `ready_for_done` |
+| `tasks_to_auto_complete` (view) | tasks `settle()` should move to done now |
+
+Triggers refuse rows no event could produce: tasks not starting in todo,
+status changes outside `task_transitions`, done with open PRs or subtasks,
+subtasks on a done task, task PRs on a task that hasn't started, CI results
+without a pending run, merging a PR that isn't accepted, and any change to a
+merged or closed PR.
+
 ## Files
 
 - `machine.js`: the definition. `transitions` are status changes and `actions`
@@ -117,4 +139,5 @@ first and turning your notes into comments.
   lists, per status, each event and the statuses it can lead to; the map uses it.
 - `index.html`: a lifecycle map (one band per loop, one column per status, with
   the actions available in each) generated from both machines, plus a simulator with nested subtasks. Open it next to `machine.js`.
-- `machine.test.js`, `pr-machine.test.js`: run with `node --test`.
+- `schema.sql`: the SQLite schema; `schema.test.js` checks it with `node:sqlite`.
+- `machine.test.js`, `pr-machine.test.js`, `schema.test.js`: run with `node --test`.
