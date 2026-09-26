@@ -155,3 +155,53 @@ test('events log accepts both machines and valid JSON only', () => {
   assert.throws(() => run(d, "INSERT INTO events (pr_id, event, actor, detail) VALUES (?, 'X', 'me', 'not json')", p), /CHECK/);
   assert.equal(one(d, 'SELECT count(*) n FROM events').n, 2);
 });
+
+test('skill SQL: closing the last open PR steps back before settle runs', () => {
+  const d = db();
+  const stepBack = `UPDATE tasks SET status = CASE WHEN s.merged_prs > 0 THEN 'in_progress' ELSE 'todo' END
+    FROM task_state s WHERE tasks.id = :task_id AND s.id = :task_id AND s.status = 'in_review' AND s.open_prs = 0`;
+  const settle = "UPDATE tasks SET status = 'done' WHERE id IN (SELECT id FROM tasks_to_auto_complete)";
+
+  // One merged, then the other closed: back to in progress, not done.
+  const t = task(d, 'Venue');
+  setStatus(d, t, 'in_progress');
+  const a = pr(d, {taskId: t});
+  setStatus(d, t, 'in_review');
+  const b = pr(d, {taskId: t});
+  run(d, 'UPDATE prs SET accepted = 1 WHERE id = ?', a);
+  run(d, "UPDATE prs SET merged_at = 'now' WHERE id = ?", a);
+  run(d, "UPDATE prs SET closed_at = 'now' WHERE id = ?", b);
+  d.prepare(stepBack).run({task_id: t});
+  d.exec(settle);
+  assert.equal(status(d, t), 'in_progress');
+
+  // Only PR closed: back to todo.
+  const u = task(d, 'Pricing');
+  setStatus(d, u, 'in_progress');
+  const c = pr(d, {taskId: u});
+  setStatus(d, u, 'in_review');
+  run(d, "UPDATE prs SET closed_at = 'now' WHERE id = ?", c);
+  d.prepare(stepBack).run({task_id: u});
+  assert.equal(status(d, u), 'todo');
+});
+
+test('skill SQL: settle cascades from a subtask to its in-review parent', () => {
+  const d = db();
+  const settle = "UPDATE tasks SET status = 'done' WHERE id IN (SELECT id FROM tasks_to_auto_complete)";
+  const parent = task(d, 'Parent');
+  setStatus(d, parent, 'in_progress');
+  const child = task(d, 'Child', parent);
+  const pp = pr(d, {taskId: parent});
+  setStatus(d, parent, 'in_review');
+  setStatus(d, child, 'in_progress');
+  const cp = pr(d, {taskId: child});
+  setStatus(d, child, 'in_review');
+  for (const id of [pp, cp]) {
+    run(d, 'UPDATE prs SET accepted = 1 WHERE id = ?', id);
+    run(d, "UPDATE prs SET merged_at = 'now' WHERE id = ?", id);
+  }
+  let changed;
+  do { changed = d.prepare(settle).run().changes; } while (changed);
+  assert.equal(status(d, child), 'done');
+  assert.equal(status(d, parent), 'done');
+});

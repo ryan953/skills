@@ -129,6 +129,29 @@ subtasks on a done task, task PRs on a task that hasn't started, CI results
 without a pending run, merging a PR that isn't accepted, and any change to a
 merged or closed PR.
 
+## Skills (stubs)
+
+One Claude skill per action that changes state or creates something, in
+`skills/tasklist-*/SKILL.md`. Each names its state change, the PR kinds it
+applies to, its preconditions, and its `schema.sql` writes; the steps marked
+TODO are still to be written.
+
+| Skill | Event(s) | Who |
+|-------|----------|-----|
+| `tasklist-enter-task` | ENTER | you |
+| `tasklist-start-task` | START | you |
+| `tasklist-decompose-task` | DECOMPOSE (+ ENTER per subtask) | you |
+| `tasklist-create-pr` | PR_CREATED, new `mine` PR | you |
+| `tasklist-mark-done` | COMPLETE (tasks with no PRs) | you |
+| `tasklist-fix-pr` | NEW_COMMITS: self-review & push fixes | you, on `mine` and `bot` |
+| `tasklist-address-feedback` | COMMENT_REPLIED | you, on `mine` |
+| `tasklist-review-pr` | COMMENT_ADDED: review & comment | you, on `other` |
+| `tasklist-accept-pr` | ACCEPTED | you, on `bot` and `other` |
+| `tasklist-merge-pr` | MERGED | you, on `mine` and `bot` |
+| `tasklist-close-pr` | CLOSED, and the task's PR_CLOSED step-back | you, on `mine` and `bot` |
+| `tasklist-detect-prs` | DETECTED, plus everything others and CI do | external system |
+| `tasklist-settle` | AUTO_DONE, cascading to parents | automatic |
+
 ## Files
 
 - `machine.js`: the definition. `transitions` are status changes and `actions`
