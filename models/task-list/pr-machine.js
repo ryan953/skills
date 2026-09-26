@@ -22,6 +22,15 @@
     return {ci: 'pending', openComments: 0, accepted: false, merged: false, closed: false};
   }
 
+  // A new PR of a kind, from an origin that kind allows. Its facts start fresh
+  // either way, which is awaiting_review.
+  function open(kind, origin) {
+    if (!kinds[kind].origins.includes(origin)) {
+      throw new Error(`${kinds[kind].label} are not ${origins[origin]}`);
+    }
+    return {kind, origin, facts: create()};
+  }
+
   function status(pr) {
     if (pr.merged) return 'merged';
     if (pr.closed) return 'closed';
@@ -96,6 +105,45 @@
     return events[event].apply(pr);
   }
 
+  // Who wrote the PR decides who takes each action; the statuses and rules above are
+  // the same for all three. Actors: 'me' (you), 'author', 'bot', 'reviewer', 'ci'.
+  // `labels` renames an event when it is your action on that kind of PR.
+  // Where a PR comes from. `task`: created from a task you are working on, and
+  // linked to it. `detected`: found by an external system and inserted here for
+  // tracking, with no task.
+  const origins = {
+    task: 'created from a task',
+    detected: 'detected by an external system',
+  };
+
+  const kinds = {
+    mine: {
+      label: 'My PRs',
+      origins: ['task', 'detected'],
+      summary: 'You wrote it. You self-review and push fixes, address feedback directly, and merge it yourself.',
+      actors: {NEW_COMMITS: 'me', COMMENT_REPLIED: 'me', MERGED: 'me', CLOSED: 'me', COMMENT_ADDED: 'reviewer', ACCEPTED: 'reviewer', CI_PASSED: 'ci', CI_FAILED: 'ci'},
+      labels: {NEW_COMMITS: 'Self-review & push fixes', COMMENT_REPLIED: 'Address feedback', MERGED: 'Merge'},
+    },
+    bot: {
+      label: 'Bot PRs',
+      origins: ['detected'],
+      summary: 'A bot wrote it. You self-review and push fixes, then merge it yourself.',
+      actors: {NEW_COMMITS: 'me', MERGED: 'me', CLOSED: 'me', ACCEPTED: 'me', COMMENT_REPLIED: 'bot', COMMENT_ADDED: 'reviewer', CI_PASSED: 'ci', CI_FAILED: 'ci'},
+      labels: {NEW_COMMITS: 'Self-review & push fixes', MERGED: 'Merge', ACCEPTED: 'Accept'},
+    },
+    other: {
+      label: "Others' PRs",
+      origins: ['detected'],
+      summary: 'Someone else wrote it. You comment, maybe pulling the code to self-review first and turning your notes into comments. The author merges, not you.',
+      actors: {COMMENT_ADDED: 'me', ACCEPTED: 'me', NEW_COMMITS: 'author', COMMENT_REPLIED: 'author', MERGED: 'author', CLOSED: 'author', CI_PASSED: 'ci', CI_FAILED: 'ci'},
+      labels: {COMMENT_ADDED: 'Review & comment', ACCEPTED: 'Accept'},
+    },
+  };
+
+  const actor = (kind, event) => kinds[kind].actors[event];
+  const label = (kind, event) => kinds[kind].labels[event] ?? events[event].label;
+  const myEvents = kind => Object.keys(events).filter(e => actor(kind, e) === 'me');
+
   // For each open status, every event that can happen there and the statuses it can
   // lead to. Found by trying every event on every combination of facts, so it stays
   // true to status() and the guards. Used to draw the map.
@@ -123,7 +171,7 @@
     return result;
   }
 
-  const PrMachine = {statuses, priority, events, create, status, check, apply, outcomes};
+  const PrMachine = {statuses, priority, events, origins, kinds, open, actor, label, myEvents, create, status, check, apply, outcomes};
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = PrMachine;

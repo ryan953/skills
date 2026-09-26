@@ -81,6 +81,32 @@ to `awaiting_review` by itself, or to `accepted` if it was accepted earlier. CI
 and feedback outrank accepted. Only an accepted PR can merge. Nothing is
 allowed on a merged or closed PR.
 
+## Three kinds of PR
+
+Every PR has the same statuses and rules. Who wrote it decides who takes each
+action (`kinds` in `pr-machine.js`; `actor(kind, event)`, `label(kind, event)`,
+`myEvents(kind)`):
+
+| Event               | My PRs                     | Bot PRs                    | Others' PRs              |
+|---------------------|----------------------------|----------------------------|--------------------------|
+| `NEW_COMMITS`       | **you**: self-review & push fixes | **you**: self-review & push fixes | author            |
+| `COMMENT_ADDED`     | reviewer                   | reviewer                   | **you**: review & comment |
+| `COMMENT_REPLIED`   | **you**: address feedback  | bot                        | author                   |
+| `ACCEPTED`          | reviewer                   | **you**: accept            | **you**: accept          |
+| `MERGED`            | **you**                    | **you**                    | author                   |
+| `CLOSED`            | **you**                    | **you**                    | author                   |
+| `CI_PASSED` / `CI_FAILED` | CI                   | CI                         | CI                       |
+
+**Where PRs come from** (`origins`, `open(kind, origin)`): a task's `PR_CREATED`
+creates one of *my* PRs, linked to that task. Bot PRs and other people's PRs
+are only ever `detected`: an external system finds them and inserts them for
+tracking, with no task. My own PRs can be detected too, for the ones that
+didn't start from a task. Every new PR starts in `awaiting_review`. A PR with
+no task runs the PR machine alone; merging or closing it affects no task.
+
+On others' PRs, "review & comment" covers pulling the code to self-review
+first and turning your notes into comments.
+
 ## Files
 
 - `machine.js`: the definition. `transitions` are status changes and `actions`

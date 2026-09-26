@@ -118,3 +118,50 @@ test('outcomes: a new comment on an accepted PR means has_feedback', () => {
   assert.deepEqual(o.accepted.COMMENT_ADDED, ['has_feedback']);
   assert.deepEqual(o.ci_failed.COMMENT_ADDED, ['ci_failed']);
 });
+
+test('every kind names an actor for every event', () => {
+  const {kinds, events} = require('./pr-machine.js');
+  for (const k of Object.values(kinds)) {
+    assert.deepEqual(Object.keys(k.actors).sort(), Object.keys(events).sort());
+  }
+});
+
+test('my PRs: I push fixes, address feedback and merge', () => {
+  const {myEvents} = require('./pr-machine.js');
+  assert.deepEqual(myEvents('mine').sort(), ['CLOSED', 'COMMENT_REPLIED', 'MERGED', 'NEW_COMMITS']);
+});
+
+test('bot PRs: I push fixes and merge, but the bot answers feedback', () => {
+  const {myEvents, actor} = require('./pr-machine.js');
+  assert.ok(myEvents('bot').includes('NEW_COMMITS'));
+  assert.ok(myEvents('bot').includes('MERGED'));
+  assert.equal(actor('bot', 'COMMENT_REPLIED'), 'bot');
+});
+
+test("others' PRs: I comment and accept; the author fixes and merges", () => {
+  const {myEvents, actor} = require('./pr-machine.js');
+  assert.deepEqual(myEvents('other').sort(), ['ACCEPTED', 'COMMENT_ADDED']);
+  assert.equal(actor('other', 'MERGED'), 'author');
+  assert.equal(actor('other', 'NEW_COMMITS'), 'author');
+});
+
+test('my actions get kind-specific names', () => {
+  const {label} = require('./pr-machine.js');
+  assert.equal(label('mine', 'NEW_COMMITS'), 'Self-review & push fixes');
+  assert.equal(label('other', 'COMMENT_ADDED'), 'Review & comment');
+  assert.equal(label('other', 'MERGED'), 'Merge PR');
+});
+
+test('my PRs come from tasks, or are detected when they did not', () => {
+  const {open, status} = require('./pr-machine.js');
+  assert.equal(open('mine', 'task').origin, 'task');
+  assert.equal(status(open('mine', 'detected').facts), 'awaiting_review');
+});
+
+test('bot and other people\'s PRs are only ever detected', () => {
+  const {open} = require('./pr-machine.js');
+  assert.equal(open('bot', 'detected').kind, 'bot');
+  assert.equal(open('other', 'detected').kind, 'other');
+  assert.throws(() => open('bot', 'task'), /not created from a task/);
+  assert.throws(() => open('other', 'task'), /not created from a task/);
+});
