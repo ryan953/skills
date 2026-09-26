@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const {states, transition, available, check} = require('./machine.js');
+const {states, transition, available, check, hasIncompleteChildren} = require('./machine.js');
 
 test('happy path: enter, start, complete', () => {
   let state = transition(null, 'ENTER');
@@ -24,28 +24,33 @@ test('cannot re-enter an existing task', () => {
   assert.throws(() => transition('saved', 'ENTER'), /not allowed/);
 });
 
-test('decompose a saved task into subtasks', () => {
-  assert.equal(transition('saved', 'DECOMPOSE', {newSubtasks: 2}), 'decomposed');
+test('there is no decomposed state', () => {
+  assert.deepEqual(Object.keys(states), ['saved', 'in_progress', 'complete']);
 });
 
-test('decompose needs at least one subtask', () => {
-  assert.throws(() => transition('saved', 'DECOMPOSE', {newSubtasks: 0}), /at least one subtask/);
+test('decompose is an action: the task stays saved', () => {
+  assert.equal(transition('saved', 'DECOMPOSE', {newSubtasks: 2}), 'saved');
+});
+
+test('decompose can repeat to add more subtasks', () => {
+  assert.equal(transition('saved', 'DECOMPOSE', {newSubtasks: 1, childStates: ['saved', 'complete']}), 'saved');
+});
+
+test('decompose needs at least one new subtask', () => {
+  assert.throws(() => transition('saved', 'DECOMPOSE', {newSubtasks: 0}), /at least one new subtask/);
 });
 
 test('cannot decompose once work has started', () => {
   assert.throws(() => transition('in_progress', 'DECOMPOSE', {newSubtasks: 1}), /not allowed/);
 });
 
-test('can add more subtasks while decomposed', () => {
-  assert.equal(transition('decomposed', 'ADD_SUBTASK', {newSubtasks: 1}), 'decomposed');
+test('incomplete subtasks are derived from child states', () => {
+  assert.equal(hasIncompleteChildren({}), false);
+  assert.equal(hasIncompleteChildren({childStates: ['complete', 'complete']}), false);
+  assert.equal(hasIncompleteChildren({childStates: ['complete', 'in_progress']}), true);
 });
 
-test('decomposed task completes only when every subtask is complete', () => {
-  assert.equal(check('decomposed', 'COMPLETE', {childStates: ['complete', 'in_progress']}).ok, false);
-  assert.equal(check('decomposed', 'COMPLETE', {childStates: ['complete', 'decomposed']}).ok, false);
-  assert.equal(transition('decomposed', 'COMPLETE', {childStates: ['complete', 'complete']}), 'complete');
-});
-
-test('decomposed task cannot be started directly', () => {
-  assert.throws(() => transition('decomposed', 'START'), /not allowed/);
+test('a task with incomplete subtasks cannot be started', () => {
+  assert.equal(check('saved', 'START', {childStates: ['complete', 'saved']}).ok, false);
+  assert.equal(transition('saved', 'START', {childStates: ['complete', 'complete']}), 'in_progress');
 });

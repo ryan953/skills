@@ -93,18 +93,19 @@
     border-radius: 10px;
     padding: 12px;
   }
-  .diagram-scroll svg { display: block; width: 100%; min-width: 660px; height: auto; color: var(--ink); }
+  .diagram-scroll svg { display: block; width: 100%; min-width: 700px; height: auto; color: var(--ink); }
   figcaption { color: var(--muted); font-size: 13.5px; max-width: 72ch; }
   .node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
   .node text { fill: currentColor; font: 600 14px "Instrument Sans", system-ui, sans-serif; }
   .node .sub { fill: var(--muted); font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; }
   .node.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
-  .node.is-current[data-state="decomposed"] rect { fill: var(--split-soft); stroke: var(--split); }
+  .node.is-current.is-waiting rect { fill: var(--split-soft); stroke: var(--split); }
   .node.is-current[data-state="complete"] rect { fill: var(--done-soft); stroke: var(--done); }
   .edge .wire { fill: none; stroke: var(--line-strong); stroke-width: 1.5; transition: stroke .2s; }
   .edge.spawn .wire { stroke-dasharray: 5 4; }
   .edge text { fill: currentColor; font: 500 11.5px "JetBrains Mono", ui-monospace, monospace; }
   .edge .actor { fill: var(--muted); font: 400 10.5px "Instrument Sans", system-ui, sans-serif; }
+  .edge .guard { fill: var(--split); font: 500 10.5px "Instrument Sans", system-ui, sans-serif; }
   .edge.spawn text { fill: var(--muted); font: 400 11px "Instrument Sans", system-ui, sans-serif; }
   .edge.is-last .wire { stroke: var(--accent); stroke-width: 2.25; }
   .start-dot { fill: currentColor; }
@@ -177,7 +178,7 @@
     color: var(--muted);
   }
   .chip[data-state="in_progress"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-  .chip[data-state="decomposed"] { color: var(--split); border-color: var(--split); background: var(--split-soft); }
+  .chip.waiting { color: var(--split); border-color: var(--split); background: var(--split-soft); }
   .chip[data-state="complete"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
   .note { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .editor { grid-column: 1 / -1; cursor: default; }
@@ -201,16 +202,16 @@
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v1 · decomposition</div>
+    <div class="eyebrow">State machine · v2 · decompose as an action</div>
     <h1>Task Lifecycle</h1>
-    <p class="lede">A person enters a task and it is saved. Later someone reads it and either works it directly or splits it into subtasks first. A split task waits until every subtask is done, then gets marked complete. Every transition is made by a human.</p>
+    <p class="lede">A person enters a task and it is saved. Before starting it, someone can decompose it into subtasks. That is an action on the task, not a new state: the task stays saved, and it cannot be started while any of its subtasks are incomplete. Every transition is made by a human.</p>
   </header>
 
   <section aria-labelledby="diagram-h">
     <h2 id="diagram-h">States and transitions</h2>
     <figure>
       <div class="diagram-scroll">
-        <svg id="diagram" viewBox="0 0 820 310" role="img" aria-label="A human enters a task and it becomes Saved. From Saved, a human either reads and starts it (In progress, then mark complete) or decomposes it (Decomposed). Decomposing creates subtasks, each entered as a new task that runs the same machine. A decomposed task can take more subtasks, and is marked complete only when all its subtasks are complete. Complete is final.">
+        <svg id="diagram" viewBox="0 0 870 225" role="img" aria-label="A human enters a task and it becomes Saved. While saved, a human can decompose it, which keeps it Saved and creates subtasks; each subtask enters as a new task running the same machine. A human reads and starts a saved task only when it has no incomplete subtasks, moving it to In progress, then marks it complete. Complete is final.">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
@@ -228,33 +229,24 @@
             <text class="actor" x="99" y="95" text-anchor="middle">human</text>
           </g>
           <g class="edge" data-edge="saved:START">
-            <line class="wire" x1="300" y1="75" x2="398" y2="75" marker-end="url(#arrow)"></line>
-            <text x="349" y="62" text-anchor="middle">read &amp; start</text>
-            <text class="actor" x="349" y="95" text-anchor="middle">human</text>
+            <line class="wire" x1="300" y1="75" x2="418" y2="75" marker-end="url(#arrow)"></line>
+            <text x="359" y="62" text-anchor="middle">read &amp; start</text>
+            <text class="actor" x="359" y="95" text-anchor="middle">human</text>
+            <text class="guard" x="359" y="124" text-anchor="middle">only if no incomplete subtasks</text>
           </g>
           <g class="edge" data-edge="in_progress:COMPLETE">
-            <line class="wire" x1="550" y1="75" x2="648" y2="75" marker-end="url(#arrow)"></line>
-            <text x="599" y="62" text-anchor="middle">mark complete</text>
-            <text class="actor" x="599" y="95" text-anchor="middle">human</text>
+            <line class="wire" x1="570" y1="75" x2="688" y2="75" marker-end="url(#arrow)"></line>
+            <text x="629" y="62" text-anchor="middle">mark complete</text>
+            <text class="actor" x="629" y="95" text-anchor="middle">human</text>
           </g>
           <g class="edge" data-edge="saved:DECOMPOSE">
-            <polyline class="wire" points="260,103 260,228 398,228" marker-end="url(#arrow)"></polyline>
-            <text x="329" y="218" text-anchor="middle">decompose</text>
-            <text class="actor" x="329" y="245" text-anchor="middle">human</text>
-          </g>
-          <g class="edge" data-edge="decomposed:COMPLETE">
-            <polyline class="wire" points="550,228 725,228 725,105" marker-end="url(#arrow)"></polyline>
-            <text x="636" y="218" text-anchor="middle">mark complete</text>
-            <text class="actor" x="636" y="245" text-anchor="middle">human · all subtasks done</text>
-          </g>
-          <g class="edge" data-edge="decomposed:ADD_SUBTASK">
-            <path class="wire" d="M505,256 C505,294 540,294 540,259" marker-end="url(#arrow)"></path>
-            <text x="552" y="284">add subtask</text>
-            <text class="actor" x="552" y="298">human</text>
+            <path class="wire" d="M200,103 C200,160 240,160 240,106" marker-end="url(#arrow)"></path>
+            <text x="252" y="150">decompose</text>
+            <text class="actor" x="252" y="164">human · task stays saved</text>
           </g>
           <g class="edge spawn" data-edge="spawn">
-            <polyline class="wire" points="430,256 430,290 40,290 40,86" marker-end="url(#arrow)"></polyline>
-            <text x="235" y="282" text-anchor="middle">creates subtasks · each one enters here as a new task</text>
+            <polyline class="wire" points="165,103 165,208 40,208 40,86" marker-end="url(#arrow)"></polyline>
+            <text x="175" y="212">each new subtask enters here as its own task</text>
           </g>
 
           <g class="node" data-state="saved">
@@ -263,24 +255,19 @@
             <text class="sub" x="225" y="90" text-anchor="middle">saved</text>
           </g>
           <g class="node" data-state="in_progress">
-            <rect x="400" y="47" width="150" height="56" rx="8"></rect>
-            <text x="475" y="72" text-anchor="middle">In progress</text>
-            <text class="sub" x="475" y="90" text-anchor="middle">in_progress</text>
+            <rect x="420" y="47" width="150" height="56" rx="8"></rect>
+            <text x="495" y="72" text-anchor="middle">In progress</text>
+            <text class="sub" x="495" y="90" text-anchor="middle">in_progress</text>
           </g>
           <g class="node" data-state="complete">
-            <rect x="650" y="47" width="150" height="56" rx="8"></rect>
-            <rect x="654" y="51" width="142" height="48" rx="6" fill="none"></rect>
-            <text x="725" y="72" text-anchor="middle">Complete</text>
-            <text class="sub" x="725" y="90" text-anchor="middle">complete · final</text>
-          </g>
-          <g class="node" data-state="decomposed">
-            <rect x="400" y="200" width="150" height="56" rx="8"></rect>
-            <text x="475" y="225" text-anchor="middle">Decomposed</text>
-            <text class="sub" x="475" y="243" text-anchor="middle">decomposed</text>
+            <rect x="690" y="47" width="150" height="56" rx="8"></rect>
+            <rect x="694" y="51" width="142" height="48" rx="6" fill="none"></rect>
+            <text x="765" y="72" text-anchor="middle">Complete</text>
+            <text class="sub" x="765" y="90" text-anchor="middle">complete · final</text>
           </g>
         </svg>
       </div>
-      <figcaption>Two ways from Saved to Complete. The top row is working a task directly. The bottom path splits it: the dashed line shows each subtask starting over at the entry dot as a task of its own, so subtasks can be split again. The parent's final arrow only opens once all of its direct subtasks are complete. Select a task below to see where it sits; the arrow it last took turns blue.</figcaption>
+      <figcaption>Three states, one path. Decompose loops back onto Saved, and the dashed line shows each new subtask entering at the entry dot as a task of its own, so subtasks can be decomposed too. "Has incomplete subtasks" is not a box on this diagram. It is worked out from the subtasks, and it is the condition that holds the read &amp; start arrow shut. Select a task below: Saved turns amber while its subtasks are open, and the arrow the task last took turns blue.</figcaption>
     </figure>
   </section>
 
@@ -380,7 +367,7 @@
     ta.addEventListener('keydown', e => e.stopPropagation());
     const save = document.createElement('button');
     save.type = 'submit';
-    save.textContent = editing.event === 'DECOMPOSE' ? 'Decompose' : 'Add subtasks';
+    save.textContent = 'Add subtasks';
     const cancel = button('Cancel', () => { editing = null; render(); }, {ghost: true});
     f.append(label, ta, save, cancel);
     f.addEventListener('submit', e => {
@@ -415,8 +402,8 @@
     const moves = M.available(task.state);
     moves.forEach(t => {
       const text = t.label[0].toUpperCase() + t.label.slice(1);
-      if (t.event === 'DECOMPOSE' || t.event === 'ADD_SUBTASK') {
-        actions.append(button(text, () => { editing = {id: task.id, event: t.event}; selectedId = task.id; render(); }, {ghost: true}));
+      if (t.event === 'DECOMPOSE') {
+        actions.append(button(task.children.length ? 'Decompose further' : text, () => { editing = {id: task.id, event: t.event}; selectedId = task.id; render(); }, {ghost: true}));
       } else {
         const res = M.check(task.state, t.event, ctxFor(task));
         actions.append(button(text, () => { fire(task, t.event); select(task.id); }, {disabled: !res.ok, title: res.ok ? '' : `Waits until ${t.guardLabel}`}));
@@ -437,10 +424,16 @@
     chip.textContent = task.state;
     meta.append(chip);
     if (task.children.length) {
-      const done = task.children.filter(id => byId[id].state === 'complete').length;
+      const open = task.children.filter(id => byId[id].state !== 'complete').length;
+      if (M.hasIncompleteChildren(ctxFor(task))) {
+        const w = document.createElement('span');
+        w.className = 'chip waiting';
+        w.textContent = `${open} incomplete subtask${open > 1 ? 's' : ''}`;
+        meta.append(w);
+      }
       const n = document.createElement('span');
       n.className = 'note';
-      n.textContent = `${done} of ${task.children.length} subtasks complete`;
+      n.textContent = `${task.children.length - open} of ${task.children.length} subtasks complete`;
       meta.append(n);
     }
 
@@ -473,7 +466,12 @@
     }
 
     const sel = byId[selectedId];
-    svg.querySelectorAll('.node').forEach(n => n.classList.toggle('is-current', !!sel && n.dataset.state === sel.state));
+    const waiting = !!sel && M.hasIncompleteChildren(ctxFor(sel));
+    svg.querySelectorAll('.node').forEach(n => {
+      const current = !!sel && n.dataset.state === sel.state;
+      n.classList.toggle('is-current', current);
+      n.classList.toggle('is-waiting', current && waiting);
+    });
     svg.querySelectorAll('.edge').forEach(g => {
       const hot = !!sel && g.dataset.edge === sel.lastEdge;
       g.classList.toggle('is-last', hot);

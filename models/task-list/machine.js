@@ -4,15 +4,11 @@
   const states = {
     saved: {
       label: 'Saved',
-      description: 'A human entered the task and it was stored. Nobody has picked it up yet.',
+      description: 'A human entered the task and it was stored. Nobody has started it yet.',
     },
     in_progress: {
       label: 'In progress',
       description: 'A human read the task and is working on it.',
-    },
-    decomposed: {
-      label: 'Decomposed',
-      description: 'The task was split into subtasks. It waits here until every subtask is complete.',
     },
     complete: {
       label: 'Complete',
@@ -21,42 +17,40 @@
     },
   };
 
-  // `from: null` means the task does not exist yet; ENTER is how it comes into being.
-  // Subtasks are ordinary tasks: each one is created with ENTER and runs this same machine.
   // Guards read a context the caller supplies:
   //   newSubtasks  - how many subtasks this event creates
   //   childStates  - current states of the task's direct subtasks
+  //
+  // "Has incomplete subtasks" is not a state. It is derived from childStates,
+  // and it is what holds a saved task back from being started.
+  function hasIncompleteChildren(ctx = {}) {
+    return (ctx.childStates ?? []).some(s => s !== 'complete');
+  }
+
+  // `from: null` means the task does not exist yet; ENTER is how it comes into being.
+  // DECOMPOSE is an action, not a state change: the task stays saved and gains subtasks.
+  // Each subtask is an ordinary task, created with ENTER, running this same machine.
   const transitions = [
     {event: 'ENTER', from: null, to: 'saved', actor: 'human', label: 'enter task'},
-    {event: 'START', from: 'saved', to: 'in_progress', actor: 'human', label: 'read & start'},
-    {event: 'COMPLETE', from: 'in_progress', to: 'complete', actor: 'human', label: 'mark complete'},
     {
       event: 'DECOMPOSE',
       from: 'saved',
-      to: 'decomposed',
+      to: 'saved',
       actor: 'human',
       label: 'decompose',
       guard: ctx => (ctx.newSubtasks ?? 0) > 0,
-      guardLabel: 'at least one subtask',
+      guardLabel: 'at least one new subtask',
     },
     {
-      event: 'ADD_SUBTASK',
-      from: 'decomposed',
-      to: 'decomposed',
+      event: 'START',
+      from: 'saved',
+      to: 'in_progress',
       actor: 'human',
-      label: 'add subtask',
-      guard: ctx => (ctx.newSubtasks ?? 0) > 0,
-      guardLabel: 'at least one subtask',
+      label: 'read & start',
+      guard: ctx => !hasIncompleteChildren(ctx),
+      guardLabel: 'no incomplete subtasks',
     },
-    {
-      event: 'COMPLETE',
-      from: 'decomposed',
-      to: 'complete',
-      actor: 'human',
-      label: 'mark complete',
-      guard: ctx => (ctx.childStates ?? []).length > 0 && ctx.childStates.every(s => s === 'complete'),
-      guardLabel: 'all subtasks complete',
-    },
+    {event: 'COMPLETE', from: 'in_progress', to: 'complete', actor: 'human', label: 'mark complete'},
   ];
 
   function available(state) {
@@ -82,7 +76,7 @@
     return result.transition.to;
   }
 
-  const TaskMachine = {states, transitions, available, check, transition};
+  const TaskMachine = {states, transitions, available, check, transition, hasIncompleteChildren};
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = TaskMachine;
