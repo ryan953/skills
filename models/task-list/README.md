@@ -1,32 +1,37 @@
 # Task list state machine
 
-v3: a human enters a task and it is **todo**. A human reads it and starts it
-(**in_progress**), then marks it **done**.
+v4: a human enters a task and it is **todo**. A human reads it and starts it
+(**in_progress**). Creating a PR moves it to **in_review**, and merging that PR
+moves it to **done**.
 
 At any point before done, a human can **decompose** a task into subtasks.
 Decompose is an action against the task, not a status change: the task becomes
 a parent and keeps whatever status it had. Being a parent is not a status
 either. "Has incomplete subtasks" is derived from the subtasks' own statuses,
-and a task can't be marked done while it holds. Every change is human-driven.
+and a task can't move to done while it holds.
 
 ```mermaid
 stateDiagram-v2
     [*] --> todo: ENTER (human enters task)
-    todo --> todo: DECOMPOSE (action, status unchanged)
     todo --> in_progress: START (human reads & starts)
+    in_progress --> in_review: PR_CREATED (PR event)
+    in_review --> done: PR_MERGED (PR event, only if no incomplete subtasks)
+    todo --> todo: DECOMPOSE (action, status unchanged)
     in_progress --> in_progress: DECOMPOSE (action, status unchanged)
-    in_progress --> done: COMPLETE (human marks done, only if no incomplete subtasks)
+    in_review --> in_review: DECOMPOSE (action, status unchanged)
     done --> [*]
 ```
 
-| Event       | From                  | To            | Only if                  | Actor |
-|-------------|-----------------------|---------------|--------------------------|-------|
-| `ENTER`     | ∅ (new task)          | `todo`        |                          | human |
-| `START`     | `todo`                | `in_progress` |                          | human |
-| `COMPLETE`  | `in_progress`         | `done`        | no incomplete subtasks   | human |
-| `DECOMPOSE` | `todo`, `in_progress` | unchanged     | at least one new subtask | human |
+| Event        | From                               | To            | Only if                  | Actor    |
+|--------------|------------------------------------|---------------|--------------------------|----------|
+| `ENTER`      | ∅ (new task)                       | `todo`        |                          | human    |
+| `START`      | `todo`                             | `in_progress` |                          | human    |
+| `PR_CREATED` | `in_progress`                      | `in_review`   |                          | PR event |
+| `PR_MERGED`  | `in_review`                        | `done`        | no incomplete subtasks   | PR event |
+| `DECOMPOSE`  | `todo`, `in_progress`, `in_review` | unchanged     | at least one new subtask | human    |
 
-Any other event/status pair is rejected. Nothing is allowed on a done task.
+Any other event/status pair is rejected. Nothing is allowed on a done task, and
+work can't skip review.
 
 Subtasks are ordinary tasks. Each is created with `ENTER` and runs this same
 machine, so a subtask can be decomposed again. `DECOMPOSE` can repeat to add
