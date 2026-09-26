@@ -1,0 +1,399 @@
+<title>Task Lifecycle</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #eef1f5;
+    --surface: #ffffff;
+    --ink: #172033;
+    --muted: #5a6478;
+    --line: #d5dbe5;
+    --line-strong: #a9b3c4;
+    --accent: #2f55c9;
+    --accent-soft: #e2e9fb;
+    --done: #2b7a57;
+    --done-soft: #ddefe6;
+    --focus: #2f55c9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #10141c;
+      --surface: #181e2a;
+      --ink: #e4e8f0;
+      --muted: #9aa4b6;
+      --line: #2a3242;
+      --line-strong: #46516a;
+      --accent: #86a3f5;
+      --accent-soft: #1f2a48;
+      --done: #72c49c;
+      --done-soft: #16301f;
+      --focus: #86a3f5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #10141c;
+    --surface: #181e2a;
+    --ink: #e4e8f0;
+    --muted: #9aa4b6;
+    --line: #2a3242;
+    --line-strong: #46516a;
+    --accent: #86a3f5;
+    --accent-soft: #1f2a48;
+    --done: #72c49c;
+    --done-soft: #16301f;
+    --focus: #86a3f5;
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font: 15px/1.55 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap {
+    max-width: 960px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 40px 64px;
+    display: grid;
+    gap: 36px;
+  }
+  h1, h2 {
+    font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+    line-height: 1.15;
+  }
+  h1 { font-size: 34px; font-weight: 700; }
+  h2 { font-size: 20px; font-weight: 600; }
+  p { margin: 0; max-width: 65ch; }
+  .lede { color: var(--muted); font-size: 16px; margin-top: 8px; }
+  .eyebrow {
+    font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .88em; }
+
+  section { display: grid; gap: 14px; }
+
+  /* Diagram */
+  figure { margin: 0; display: grid; gap: 10px; }
+  .diagram-scroll {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .diagram-scroll svg { display: block; width: 100%; min-width: 640px; height: auto; color: var(--ink); }
+  figcaption { color: var(--muted); font-size: 13.5px; max-width: 70ch; }
+  .node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
+  .node text { fill: currentColor; font: 600 14px "Instrument Sans", system-ui, sans-serif; }
+  .node .sub { fill: var(--muted); font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; }
+  .node.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+  .node.is-current.is-final rect { fill: var(--done-soft); stroke: var(--done); }
+  .edge line { stroke: var(--line-strong); stroke-width: 1.5; transition: stroke .2s; }
+  .edge text { fill: currentColor; font: 500 11.5px "JetBrains Mono", ui-monospace, monospace; }
+  .edge .actor { fill: var(--muted); font: 400 10.5px "Instrument Sans", system-ui, sans-serif; }
+  .edge.is-last line { stroke: var(--accent); stroke-width: 2.25; }
+  .start-dot { fill: currentColor; }
+  .arrowhead { fill: var(--line-strong); }
+  .arrowhead-hot { fill: var(--accent); }
+
+  /* Simulator */
+  .sim {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 720px) { .sim { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+  }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type="text"] {
+    flex: 1 1 200px;
+    min-width: 0;
+    font: inherit;
+    color: var(--ink);
+    background: var(--ground);
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 8px 10px;
+  }
+  button {
+    font: 600 13.5px "Instrument Sans", system-ui, sans-serif;
+    color: var(--surface);
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  button.ghost { color: var(--accent); background: transparent; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .tasks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .task {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .task.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .task-title { font-weight: 500; overflow-wrap: anywhere; }
+  .task.is-complete .task-title { color: var(--muted); text-decoration: line-through; }
+  .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip {
+    justify-self: start;
+    font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace;
+    padding: 4px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    color: var(--muted);
+  }
+  .chip[data-state="in_progress"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .chip[data-state="complete"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
+  .final-note { font-size: 12.5px; color: var(--muted); }
+
+  .log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 320px; overflow-y: auto; }
+  .log li { font: 12px/1.45 "JetBrains Mono", ui-monospace, monospace; color: var(--muted); overflow-wrap: anywhere; }
+  .log b { color: var(--ink); font-weight: 500; }
+  .empty { color: var(--muted); font-size: 13.5px; }
+
+  /* Transition table */
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  tr:last-child td { border-bottom: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .node rect, .edge line { transition: none; }
+  }
+</style>
+
+<main class="wrap">
+  <header>
+    <div class="eyebrow">State machine · v0</div>
+    <h1>Task Lifecycle</h1>
+    <p class="lede">The smallest useful model of a task: a person enters it, it is saved, someone later reads it and starts work, and they mark it complete. Every transition is made by a human; there is no automation yet.</p>
+  </header>
+
+  <section aria-labelledby="diagram-h">
+    <h2 id="diagram-h">States and transitions</h2>
+    <figure>
+      <div class="diagram-scroll">
+        <svg id="diagram" viewBox="0 0 820 150" role="img" aria-label="A task starts when a human enters it and it becomes Saved. A human reads and starts it, moving it to In progress. A human marks it complete, moving it to Complete, which is final.">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
+            </marker>
+            <marker id="arrow-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path class="arrowhead-hot" d="M0,0 L10,5 L0,10 z"></path>
+            </marker>
+          </defs>
+
+          <circle class="start-dot" cx="40" cy="75" r="8"></circle>
+
+          <g class="edge" data-event="ENTER">
+            <line x1="50" y1="75" x2="148" y2="75" marker-end="url(#arrow)"></line>
+            <text x="99" y="62" text-anchor="middle">enter task</text>
+            <text class="actor" x="99" y="95" text-anchor="middle">human</text>
+          </g>
+          <g class="edge" data-event="START">
+            <line x1="300" y1="75" x2="398" y2="75" marker-end="url(#arrow)"></line>
+            <text x="349" y="62" text-anchor="middle">read &amp; start</text>
+            <text class="actor" x="349" y="95" text-anchor="middle">human</text>
+          </g>
+          <g class="edge" data-event="COMPLETE">
+            <line x1="550" y1="75" x2="648" y2="75" marker-end="url(#arrow)"></line>
+            <text x="599" y="62" text-anchor="middle">mark complete</text>
+            <text class="actor" x="599" y="95" text-anchor="middle">human</text>
+          </g>
+
+          <g class="node" data-state="saved">
+            <rect x="150" y="47" width="150" height="56" rx="8"></rect>
+            <text x="225" y="72" text-anchor="middle">Saved</text>
+            <text class="sub" x="225" y="90" text-anchor="middle">saved</text>
+          </g>
+          <g class="node" data-state="in_progress">
+            <rect x="400" y="47" width="150" height="56" rx="8"></rect>
+            <text x="475" y="72" text-anchor="middle">In progress</text>
+            <text class="sub" x="475" y="90" text-anchor="middle">in_progress</text>
+          </g>
+          <g class="node is-final" data-state="complete">
+            <rect x="650" y="47" width="150" height="56" rx="8"></rect>
+            <rect x="654" y="51" width="142" height="48" rx="6" fill="none"></rect>
+            <text x="725" y="72" text-anchor="middle">Complete</text>
+            <text class="sub" x="725" y="90" text-anchor="middle">complete · final</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>One path, no branches. The dot on the left is "the task doesn't exist yet"; the double border marks the final state. Select a task below to see where it sits; the arrow it last took turns blue.</figcaption>
+    </figure>
+  </section>
+
+  <section aria-labelledby="sim-h">
+    <h2 id="sim-h">Try it</h2>
+    <p class="lede" style="margin-top:0">The two tasks below are examples. Only the transitions the machine allows from a task's current state are offered.</p>
+    <div class="sim">
+      <div class="panel">
+        <form id="new-task">
+          <label class="eyebrow" for="task-title" style="flex-basis:100%">Enter a task</label>
+          <input id="task-title" type="text" placeholder="e.g. Renew the domain" autocomplete="off" required>
+          <button type="submit">Save task</button>
+        </form>
+        <ul class="tasks" id="tasks"></ul>
+      </div>
+      <div class="panel">
+        <div class="eyebrow">Event log</div>
+        <ul class="log" id="log"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="table-h">
+    <h2 id="table-h">Transition table</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Event</th><th>From</th><th>To</th><th>Who</th></tr></thead>
+        <tbody id="table"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script src="machine.js"></script>
+<script>
+(function () {
+  const M = window.TaskMachine;
+  const svg = document.getElementById('diagram');
+  const tasksEl = document.getElementById('tasks');
+  const logEl = document.getElementById('log');
+  const form = document.getElementById('new-task');
+  const input = document.getElementById('task-title');
+
+  let nextId = 1;
+  const tasks = [];
+  const log = [];
+  let selectedId = null;
+
+  const stateName = s => (s ? M.states[s].label : '(none)');
+  const time = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+
+  function fire(task, event, title) {
+    const from = task ? task.state : null;
+    const to = M.transition(from, event);
+    if (!task) {
+      task = {id: nextId++, title, state: to, lastEvent: event};
+      tasks.push(task);
+    } else {
+      task.state = to;
+      task.lastEvent = event;
+    }
+    log.unshift({t: time(), id: task.id, title: task.title, event, from, to});
+    selectedId = task.id;
+    render();
+  }
+
+  function render() {
+    tasksEl.replaceChildren(...tasks.map(task => {
+      const li = document.createElement('li');
+      li.className = 'task' + (task.id === selectedId ? ' is-selected' : '') + (task.state === 'complete' ? ' is-complete' : '');
+      li.tabIndex = 0;
+      li.setAttribute('aria-label', `${task.title}, ${stateName(task.state)}`);
+      li.addEventListener('click', () => { selectedId = task.id; render(); });
+      li.addEventListener('keydown', e => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.target === li) { e.preventDefault(); selectedId = task.id; render(); }
+      });
+
+      const title = document.createElement('div');
+      title.className = 'task-title';
+      title.textContent = task.title;
+
+      const actions = document.createElement('div');
+      actions.className = 'task-actions';
+      const moves = M.available(task.state);
+      moves.forEach(t => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = t.label[0].toUpperCase() + t.label.slice(1);
+        b.addEventListener('click', e => { e.stopPropagation(); fire(task, t.event); });
+        actions.append(b);
+      });
+      if (!moves.length) {
+        const n = document.createElement('span');
+        n.className = 'final-note';
+        n.textContent = 'Final, no moves';
+        actions.append(n);
+      }
+
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.dataset.state = task.state;
+      chip.textContent = task.state;
+
+      li.append(title, actions, chip);
+      return li;
+    }));
+
+    if (!log.length) {
+      logEl.innerHTML = '<li class="empty">No events yet.</li>';
+    } else {
+      logEl.replaceChildren(...log.map(e => {
+        const li = document.createElement('li');
+        li.innerHTML = `${e.t} · #${e.id} <b></b> ${e.from ?? '∅'} → ${e.to}`;
+        li.querySelector('b').textContent = e.event;
+        li.title = e.title;
+        return li;
+      }));
+    }
+
+    const sel = tasks.find(t => t.id === selectedId);
+    svg.querySelectorAll('.node').forEach(n => n.classList.toggle('is-current', !!sel && n.dataset.state === sel.state));
+    svg.querySelectorAll('.edge').forEach(g => {
+      const hot = !!sel && g.dataset.event === sel.lastEvent;
+      g.classList.toggle('is-last', hot);
+      g.querySelector('line').setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)');
+    });
+  }
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const title = input.value.trim();
+    if (!title) return;
+    fire(null, 'ENTER', title);
+    input.value = '';
+  });
+
+  document.getElementById('table').replaceChildren(...M.transitions.map(t => {
+    const tr = document.createElement('tr');
+    [t.event, t.from ?? '∅ (new)', t.to, t.actor].forEach((v, i) => {
+      const td = document.createElement('td');
+      td.textContent = v;
+      if (i < 3) td.className = 'mono';
+      tr.append(td);
+    });
+    return tr;
+  }));
+
+  // Example tasks so the page opens in a working state.
+  fire(null, 'ENTER', 'Example: Book the team offsite');
+  fire(null, 'ENTER', 'Example: Draft the Q4 roadmap');
+  fire(tasks[1], 'START');
+})();
+</script>
