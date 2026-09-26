@@ -46,8 +46,27 @@ test('cannot address a comment that does not exist', () => {
   assert.throws(() => run('COMMENT_ADDRESSED'), /unresolved comment/);
 });
 
+test('only an accepted PR can merge', () => {
+  assert.throws(() => run('MERGED'), /accepted/);
+  assert.throws(() => run('ACCEPTED', 'CI_FAILED', 'MERGED'), /accepted/);
+  assert.throws(() => run('ACCEPTED', 'COMMENT_ADDED', 'MERGED'), /accepted/);
+  assert.equal(status(run('ACCEPTED', 'MERGED')), 'merged');
+});
+
 test('merged is final', () => {
   const pr = run('ACCEPTED', 'MERGED');
   assert.equal(status(pr), 'merged');
   assert.equal(check(pr, 'COMMENT_ADDED').ok, false);
+});
+
+test('a PR can be closed from any open status, and closed is final', () => {
+  for (const events of [[], ['CI_FAILED'], ['COMMENT_ADDED'], ['ACCEPTED']]) {
+    const pr = run(...events, 'CLOSED');
+    assert.equal(status(pr), 'closed');
+    assert.equal(check(pr, 'MERGED').ok, false);
+  }
+});
+
+test('a merged PR cannot be closed', () => {
+  assert.throws(() => run('ACCEPTED', 'MERGED', 'CLOSED'), /merged PR/);
 });

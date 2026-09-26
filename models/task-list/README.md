@@ -1,51 +1,55 @@
 # Task list state machine
 
-v5: a human enters a task and it is **todo**. A human reads it and starts it
-(**in_progress**). Creating a PR moves it to **in_review**, and merging that PR
-moves it to **done**.
+v6: a human enters a task and it is **todo**. A human reads it and starts it
+(**in_progress**). Creating a PR moves it to **in_review**, and more PRs can be
+linked while it's there. When every linked PR is merged and every subtask is
+done, the task moves to **done** automatically, and that can finish its parent
+in turn. Closed PRs are ignored.
 
 At any point before done, a human can **decompose** a task into subtasks.
 Decompose is an action against the task, not a status change: the task becomes
-a parent and keeps whatever status it had. Being a parent is not a status
-either. "Has incomplete subtasks" is derived from the subtasks' own statuses,
-and a task can't move to done while it holds.
+a parent and keeps whatever status it had.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> todo: ENTER (human enters task)
+    [*] --> todo: ENTER (human)
     todo --> in_progress: START (human reads & starts)
-    in_progress --> in_review: PR_CREATED (PR event)
-    in_review --> done: PR_MERGED (PR event, only if no incomplete subtasks)
-    todo --> todo: DECOMPOSE (action, status unchanged)
-    in_progress --> in_progress: DECOMPOSE (action, status unchanged)
-    in_review --> in_review: DECOMPOSE (action, status unchanged)
+    in_progress --> in_review: PR_CREATED (first PR)
+    in_review --> in_review: PR_CREATED (another PR) / PR_CLOSED (others still open)
+    in_review --> done: AUTO_DONE (all PRs merged, no incomplete subtasks)
+    in_review --> in_progress: PR_CLOSED (last open PR, another merged)
+    in_review --> todo: PR_CLOSED (it was the only PR)
+    in_progress --> done: COMPLETE (human, no open PRs or subtasks)
     done --> [*]
 ```
 
-| Event        | From                               | To            | Only if                  | Actor    |
-|--------------|------------------------------------|---------------|--------------------------|----------|
-| `ENTER`      | ∅ (new task)                       | `todo`        |                          | human    |
-| `START`      | `todo`                             | `in_progress` |                          | human    |
-| `PR_CREATED` | `in_progress`                      | `in_review`   |                          | PR event |
-| `PR_MERGED`  | `in_review`                        | `done`        | no incomplete subtasks   | PR event |
-| `DECOMPOSE`  | `todo`, `in_progress`, `in_review` | unchanged     | at least one new subtask | human    |
+`DECOMPOSE` is allowed in `todo`, `in_progress` and `in_review` and never
+changes status.
 
-Any other event/status pair is rejected. Nothing is allowed on a done task, and
-work can't skip review.
+**Done means every linked PR merged and every subtask done** (`readyForDone`).
+Closed PRs count for neither. Two paths lead there:
+
+- `AUTO_DONE`: nobody fires it. After a PR merges or a subtask finishes, the
+  caller asks `settle(state, ctx)`, which returns `AUTO_DONE` when the task is
+  in review and ready. A task finishing then settles its parent.
+- `COMPLETE`: a human marks a task done from `in_progress`. This is for tasks
+  that never get a PR, such as a parent that only groups subtasks.
+
+**Closing a PR** (`PR_CLOSED`, with the closed PR included in `prStatuses`):
+if other PRs are still open, nothing changes. If none are open and one has
+merged, the task goes back to `in_progress`. If it was the only PR, the task
+goes back to `todo`.
 
 Subtasks are ordinary tasks. Each is created with `ENTER` and runs this same
-machine, so a subtask can be decomposed again. `DECOMPOSE` can repeat to add
-more subtasks. A task's guard checks only its direct subtasks. That is enough,
-because a subtask can't be done until its own subtasks are.
+machine, so a subtask can be decomposed again.
 
 Guards read a context the caller passes to `transition(state, event, ctx)`:
-`newSubtasks` (how many subtasks the event creates) and `childStates` (the
-current statuses of the task's direct subtasks). `hasIncompleteChildren(ctx)`
-exposes the derived condition.
+`newSubtasks`, `childStates` (direct subtasks' statuses) and `prStatuses`
+(linked PRs' statuses from `pr-machine.js`).
 
 ## The PR, while a task is in review
 
-A task in `in_review` has an open PR, and the PR runs its own machine
+A task in `in_review` has at least one open PR, and each PR runs its own machine
 (`pr-machine.js`), seen from the author's side. The PR stores three facts, and
 its status is derived from them. The first match wins:
 
@@ -55,7 +59,8 @@ its status is derived from them. The first match wins:
 | `has_feedback`    | there are unresolved review comments   |
 | `accepted`        | a reviewer marked it accepted          |
 | `awaiting_review` | otherwise (this is where a new PR starts) |
-| `merged`          | final; the task moves to `done`        |
+| `merged`          | final; counts toward the task's done   |
+| `closed`          | final; the task ignores it             |
 
 | Event               | Changes             | Who      |
 |---------------------|---------------------|----------|
@@ -64,11 +69,13 @@ its status is derived from them. The first match wins:
 | `COMMENT_ADDED`     | openComments + 1    | reviewer |
 | `COMMENT_ADDRESSED` | openComments − 1    | author   |
 | `ACCEPTED`          | accepted = true     | reviewer |
-| `MERGED`            | merged = true       | author   |
+| `MERGED`            | merged = true (only when `accepted`) | author |
+| `CLOSED`            | closed = true       | author   |
 
 Because the status is derived, "CI fixed and feedback addressed" returns the PR
 to `awaiting_review` by itself, or to `accepted` if it was accepted earlier. CI
-and feedback outrank accepted. Nothing is allowed on a merged PR.
+and feedback outrank accepted. Only an accepted PR can merge. Nothing is
+allowed on a merged or closed PR.
 
 ## Files
 

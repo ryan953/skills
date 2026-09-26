@@ -105,7 +105,7 @@
     border-radius: 10px;
     padding: 12px;
   }
-  .diagram-scroll svg { display: block; width: 100%; min-width: 860px; height: auto; color: var(--ink); }
+  .diagram-scroll svg { display: block; width: 100%; min-width: 900px; height: auto; color: var(--ink); }
   figcaption { color: var(--muted); font-size: 13.5px; max-width: 72ch; }
   .node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
   .node text { fill: currentColor; font: 600 14px "Instrument Sans", system-ui, sans-serif; }
@@ -132,6 +132,7 @@
   .pr-row.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
   .pr-row.is-current[data-status="ci_failed"] rect { fill: var(--bad-soft); stroke: var(--bad); }
   .pr-row.is-current[data-status="has_feedback"] rect { fill: var(--split-soft); stroke: var(--split); }
+  .pr-row.is-current[data-status="closed"] rect { fill: var(--ground); stroke: var(--muted); }
   .pr-row.is-current[data-status="accepted"] rect,
   .pr-row.is-current[data-status="merged"] rect { fill: var(--done-soft); stroke: var(--done); }
   .fact rect { fill: var(--ground); stroke: var(--line); stroke-width: 1; }
@@ -213,6 +214,10 @@
   .chip.pr[data-pr="has_feedback"] { color: var(--split); border-color: var(--split); background: var(--split-soft); }
   .chip.pr[data-pr="accepted"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
   .pr-actions { grid-column: 1 / -1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-top: 8px; border-top: 1px dashed var(--line); }
+  .pr-actions { cursor: pointer; }
+  .pr-actions.is-picked .chip.pr { box-shadow: 0 0 0 2px var(--accent); }
+  .chip.pr[data-pr="merged"] { color: var(--done); border-color: var(--done); }
+  .chip.pr[data-pr="closed"] { text-decoration: line-through; }
   .pr-actions button { font-size: 12px; padding: 5px 9px; }
   .chip[data-state="done"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
   .note { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -237,16 +242,16 @@
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v5 · PRs</div>
+    <div class="eyebrow">State machine · v6 · linked PRs</div>
     <h1>Task Lifecycle</h1>
-    <p class="lede">A person enters a task and it is todo. Someone reads it and starts it. Creating a PR moves the task into review, and merging that PR moves it to done. At any point before done, someone can decompose the task into subtasks. The task becomes a parent and keeps its status, and a parent can't move to done while any of its subtasks are incomplete.</p>
+    <p class="lede">A person enters a task and it is todo. Someone reads it and starts it. Creating a PR moves it into review, and a task can have several PRs. When every linked PR is merged and every subtask is done, the task becomes done by itself. Closed PRs don't count. At any point before done, someone can decompose the task into subtasks: it becomes a parent and keeps its status.</p>
   </header>
 
   <section aria-labelledby="diagram-h">
     <h2 id="diagram-h">States and transitions</h2>
     <figure>
       <div class="diagram-scroll">
-        <svg id="diagram" viewBox="0 0 1100 234" role="img" aria-label="A human enters a task and it becomes Todo. A human reads and starts it, moving it to In progress. Creating a PR moves it to In review. Merging the PR moves it to Done, but only when it has no incomplete subtasks. Done is final. In Todo, In progress or In review a human can decompose the task, which leaves its status unchanged and creates subtasks; each subtask enters as a new task running the same machine.">
+        <svg id="diagram" viewBox="0 -52 1100 318" role="img" aria-label="A human enters a task and it becomes Todo, then reads and starts it, moving it to In progress. Creating a PR moves it to In review, and more PRs can be linked while in review. When every linked PR is merged and every subtask is done, the task moves to Done automatically. A task with no PRs can be marked done by hand from In progress under the same condition. Closing the last open PR sends the task back to In progress if another PR merged, or to Todo if it was the only PR. In Todo, In progress or In review a human can decompose the task without changing its status; each subtask enters as a new task.">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
@@ -258,47 +263,64 @@
 
           <circle class="start-dot" cx="40" cy="75" r="8"></circle>
 
-          <g class="edge" data-edge="new:ENTER">
+          <g class="edge" data-edge="new:ENTER:todo">
             <line class="wire" x1="50" y1="75" x2="148" y2="75" marker-end="url(#arrow)"></line>
             <text x="100" y="62" text-anchor="middle">enter task</text>
             <text class="actor" x="100" y="95" text-anchor="middle">human</text>
           </g>
-          <g class="edge" data-edge="todo:START">
+          <g class="edge" data-edge="todo:START:in_progress">
             <line class="wire" x1="290" y1="75" x2="408" y2="75" marker-end="url(#arrow)"></line>
             <text x="350" y="62" text-anchor="middle">read &amp; start</text>
             <text class="actor" x="350" y="95" text-anchor="middle">human</text>
           </g>
-          <g class="edge" data-edge="in_progress:PR_CREATED">
+          <g class="edge" data-edge="in_progress:PR_CREATED:in_review">
             <line class="wire" x1="550" y1="75" x2="668" y2="75" marker-end="url(#arrow)"></line>
             <text x="610" y="62" text-anchor="middle">PR created</text>
             <text class="actor" x="610" y="95" text-anchor="middle">via PR</text>
           </g>
-          <g class="edge" data-edge="in_review:PR_MERGED">
+          <g class="edge" data-edge="in_review:AUTO_DONE:done">
             <line class="wire" x1="810" y1="75" x2="928" y2="75" marker-end="url(#arrow)"></line>
-            <text x="870" y="62" text-anchor="middle">PR merged</text>
-            <text class="actor" x="870" y="95" text-anchor="middle">via PR</text>
-            <text class="guard" x="870" y="124" text-anchor="middle">only if no incomplete subtasks</text>
+            <text x="870" y="62" text-anchor="middle">all PRs merged</text>
+            <text class="actor" x="870" y="95" text-anchor="middle">automatic</text>
+            <text class="guard" x="870" y="124" text-anchor="middle">and no incomplete subtasks</text>
           </g>
-          <g class="edge" data-edge="todo:DECOMPOSE">
-            <path class="wire" d="M195,103 C195,160 235,160 235,106" marker-end="url(#arrow)"></path>
-            <text x="247" y="150">decompose</text>
-            <text class="actor" x="247" y="164">human · stays todo</text>
+          <g class="edge" data-edge="in_progress:COMPLETE:done">
+            <polyline class="wire" points="480,47 480,-28 1000,-28 1000,45" marker-end="url(#arrow)"></polyline>
+            <text x="600" y="-36" text-anchor="middle">mark done</text>
+            <text class="actor" x="600" y="-12" text-anchor="middle">human · task has no open PRs or subtasks</text>
           </g>
-          <g class="edge" data-edge="in_progress:DECOMPOSE">
-            <path class="wire" d="M455,103 C455,160 495,160 495,106" marker-end="url(#arrow)"></path>
-            <text x="507" y="150">decompose</text>
-            <text class="actor" x="507" y="164">human · stays in progress</text>
+          <g class="edge" data-edge="in_review:PR_CREATED:in_review in_review:PR_CLOSED:in_review">
+            <path class="wire" d="M715,47 C715,6 755,6 755,44" marker-end="url(#arrow)"></path>
+            <text x="767" y="14">another PR created</text>
+            <text class="actor" x="767" y="28">or one closed · others open</text>
           </g>
-          <g class="edge" data-edge="in_review:DECOMPOSE">
-            <path class="wire" d="M715,103 C715,160 755,160 755,106" marker-end="url(#arrow)"></path>
-            <text x="767" y="150">decompose</text>
-            <text class="actor" x="767" y="164">human · stays in review</text>
+          <g class="edge" data-edge="todo:DECOMPOSE:todo">
+            <path class="wire" d="M195,103 C195,150 235,150 235,106" marker-end="url(#arrow)"></path>
+            <text x="215" y="166" text-anchor="middle">decompose</text>
+            <text class="actor" x="215" y="180" text-anchor="middle">human · stays todo</text>
+          </g>
+          <g class="edge" data-edge="in_progress:DECOMPOSE:in_progress">
+            <path class="wire" d="M455,103 C455,150 495,150 495,106" marker-end="url(#arrow)"></path>
+            <text x="475" y="166" text-anchor="middle">decompose</text>
+            <text class="actor" x="475" y="180" text-anchor="middle">human · stays in progress</text>
+          </g>
+          <g class="edge" data-edge="in_review:DECOMPOSE:in_review">
+            <path class="wire" d="M715,103 C715,150 755,150 755,106" marker-end="url(#arrow)"></path>
+            <text x="735" y="166" text-anchor="middle">decompose</text>
+            <text class="actor" x="735" y="180" text-anchor="middle">human · stays in review</text>
+          </g>
+          <g class="edge" data-edge="in_review:PR_CLOSED:in_progress">
+            <polyline class="wire" points="795,103 795,205 540,205 540,106" marker-end="url(#arrow)"></polyline>
+            <text x="667" y="221" text-anchor="middle">last open PR closed · another merged</text>
+          </g>
+          <g class="edge" data-edge="in_review:PR_CLOSED:todo">
+            <polyline class="wire" points="805,103 805,240 285,240 285,106" marker-end="url(#arrow)"></polyline>
+            <text x="545" y="256" text-anchor="middle">only PR closed · via PR</text>
           </g>
           <g class="edge spawn" data-edge="spawn">
-            <line class="wire" x1="165" y1="103" x2="165" y2="208"></line>
-            <line class="wire" x1="425" y1="103" x2="425" y2="208"></line>
-            <polyline class="wire" points="685,103 685,208 40,208 40,86" marker-end="url(#arrow)"></polyline>
-            <text x="48" y="226">each new subtask enters here as its own task</text>
+            <polyline class="wire" points="165,103 165,140 40,140 40,86" marker-end="url(#arrow)"></polyline>
+            <text x="48" y="158">new subtasks</text>
+            <text x="48" y="171">enter here</text>
           </g>
 
           <g class="node" data-state="todo">
@@ -314,7 +336,7 @@
           <g class="node" data-state="in_review">
             <rect x="670" y="47" width="140" height="56" rx="8"></rect>
             <text x="740" y="72" text-anchor="middle">In review</text>
-            <text class="sub" x="740" y="90" text-anchor="middle">in_review · PR open</text>
+            <text class="sub" x="740" y="90" text-anchor="middle">in_review · PRs open</text>
           </g>
           <g class="node" data-state="done">
             <rect x="930" y="47" width="140" height="56" rx="8"></rect>
@@ -324,16 +346,17 @@
           </g>
         </svg>
       </div>
-      <figcaption>Four statuses in a row. People move a task into progress. After that, PR events drive it: created puts it in review, merged puts it in done. Decompose loops back onto every status except Done, because it leaves the task's own status alone. The dashed lines show each new subtask entering at the entry dot as a task of its own. "Has incomplete subtasks" is worked out from the subtasks, and it holds the PR merged arrow shut. Select a task below: its status turns amber while its subtasks are open, and the arrow it last took turns blue.</figcaption>
+      <figcaption>Humans move a task to in progress. After that, PRs drive it. The first PR created puts it in review, and more can be linked there. When the last linked PR merges and every subtask is done, the task becomes done by itself, and that can finish its parent in turn. Closed PRs are ignored. Closing the last open PR steps the task back: to in progress if another PR already merged, or to todo if it was the only one. The arc over the top is for tasks that never get a PR, like a parent that only groups subtasks. Decompose never changes status. Select a task below: its status turns amber while its subtasks are open, and the arrow it last took turns blue.</figcaption>
     </figure>
   </section>
 
   <section aria-labelledby="pr-h">
     <h2 id="pr-h">Inside In review: the PR</h2>
-    <p class="lede" style="margin-top:0">While a task is in review, its PR runs a machine of its own, seen from the author's side. The PR keeps three facts, and its status is read from them in priority order. That is why fixing CI and addressing every comment lands the PR back on awaiting review, or on accepted if a reviewer already accepted it.</p>
+    <p class="lede" style="margin-top:0">While a task is in review, each of its PRs runs a machine of its own, seen from the author's side. The PR keeps three facts, and its status is read from them in priority order. That is why fixing CI and addressing every comment lands the PR back on awaiting review, or on accepted if a reviewer already accepted it.</p>
     <figure>
+      <p class="note" id="pr-shown">select a task with a PR</p>
       <div class="diagram-scroll">
-        <svg id="pr-diagram" viewBox="0 0 860 290" role="img" aria-label="The PR keeps three facts: the CI result, the number of unresolved comments, and whether it was marked accepted. Its status is the first match of: CI failed, has feedback when there are unresolved comments, accepted when marked accepted, otherwise awaiting review. Merging the PR from any of these moves the task to done.">
+        <svg id="pr-diagram" viewBox="0 0 860 296" role="img" aria-label="The PR keeps three facts: the CI result, the number of unresolved comments, and whether it was marked accepted. Its status is the first match of: CI failed, has feedback, accepted, otherwise awaiting review. Only an accepted PR can merge. A PR can be closed from any status, and the task ignores closed PRs.">
           <defs>
             <marker id="pr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
@@ -388,19 +411,33 @@
             <text class="cond" x="596" y="255" text-anchor="end">otherwise</text>
           </g>
           <g class="edge">
-            <line class="wire" x1="610" y1="150" x2="688" y2="150" marker-end="url(#pr-arrow)"></line>
-            <text x="649" y="140" text-anchor="middle">merge PR</text>
-            <text class="actor" x="649" y="166" text-anchor="middle">author</text>
+            <line class="wire" x1="610" y1="185" x2="688" y2="185" marker-end="url(#pr-arrow)"></line>
+            <text x="649" y="177" text-anchor="middle">merge PR</text>
+            <text class="actor" x="649" y="199" text-anchor="middle">author</text>
           </g>
           <g class="pr-row" data-status="merged">
-            <rect x="690" y="122" width="150" height="56" rx="8"></rect>
-            <rect x="694" y="126" width="142" height="48" rx="6" fill="none"></rect>
-            <text x="765" y="147" text-anchor="middle">Merged</text>
-            <text class="sub" x="765" y="165" text-anchor="middle">task → done</text>
+            <rect x="690" y="157" width="150" height="56" rx="8"></rect>
+            <rect x="694" y="161" width="142" height="48" rx="6" fill="none"></rect>
+            <text x="765" y="182" text-anchor="middle">Merged</text>
+            <text class="sub" x="765" y="200" text-anchor="middle">counts toward done</text>
+          </g>
+          <g class="edge">
+            <polyline class="wire" points="620,30 620,258 688,258" marker-end="url(#pr-arrow)"></polyline>
+            <line class="wire" x1="610" y1="55" x2="620" y2="55"></line>
+            <line class="wire" x1="610" y1="120" x2="620" y2="120"></line>
+            <line class="wire" x1="610" y1="250" x2="620" y2="250"></line>
+            <text x="654" y="250" text-anchor="middle">close PR</text>
+            <text class="actor" x="654" y="274" text-anchor="middle">any status</text>
+          </g>
+          <g class="pr-row" data-status="closed">
+            <rect x="690" y="230" width="150" height="56" rx="8"></rect>
+            <rect x="694" y="234" width="142" height="48" rx="6" fill="none"></rect>
+            <text x="765" y="255" text-anchor="middle">Closed</text>
+            <text class="sub" x="765" y="273" text-anchor="middle">ignored by the task</text>
           </g>
         </svg>
       </div>
-      <figcaption>Left, the facts that events change. Middle, the status those facts produce: checked top to bottom, and the first row that matches is the status. CI and feedback sit above accepted, so they win over it, and accepted takes the place of awaiting review. A new PR starts with CI pending, no comments and not accepted, which is awaiting review. Merging is allowed from any of the four statuses and moves the task to done, as long as it has no incomplete subtasks. Select a task in review below to see its facts and its status here.</figcaption>
+      <figcaption>Left, the facts that events change. Middle, the status those facts produce: checked top to bottom, and the first row that matches is the status. CI and feedback sit above accepted, so they win over it, and accepted takes the place of awaiting review. A new PR starts with CI pending, no comments and not accepted, which is awaiting review. Only an accepted PR can merge. A task can have several PRs, and it waits for all of them. Select a task in review below to see one of its PRs here; click a PR line to switch.</figcaption>
     </figure>
   </section>
 
@@ -440,29 +477,38 @@
 (function () {
   const M = window.TaskMachine;
   const P = window.PrMachine;
-  const prSvg = document.getElementById('pr-diagram');
   const svg = document.getElementById('diagram');
+  const prSvg = document.getElementById('pr-diagram');
   const tasksEl = document.getElementById('tasks');
   const logEl = document.getElementById('log');
   const form = document.getElementById('new-task');
   const input = document.getElementById('task-title');
 
   let nextId = 1;
+  let nextPr = 101;
   const byId = {};
+  const prById = {};
   const roots = [];
   const log = [];
   let selectedId = null;
+  let selectedPr = null;
   let editing = null; // {id, event} while the subtask editor is open
 
   const time = () => new Date().toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
-  const ctxFor = (task, newSubtasks = 0) => ({newSubtasks, childStates: task.children.map(id => byId[id].state)});
+  const prStatus = id => P.status(prById[id].facts);
+  const ctxFor = (task, newSubtasks = 0) => ({
+    newSubtasks,
+    childStates: task.children.map(id => byId[id].state),
+    prStatuses: task.prs.map(prStatus),
+  });
+  const note = (task, event, from, to, text = '') => log.unshift({t: time(), id: `#${task.id}`, title: task.title, event, from, to, note: text});
 
   function enter(title, parent) {
     const to = M.transition(null, 'ENTER');
-    const task = {id: nextId++, title, state: to, parent: parent ? parent.id : null, children: [], lastEdge: parent ? 'spawn' : 'new:ENTER'};
+    const task = {id: nextId++, title, state: to, parent: parent ? parent.id : null, children: [], prs: [], lastEdge: parent ? 'spawn' : 'new:ENTER:todo'};
     byId[task.id] = task;
     (parent ? parent.children : roots).push(task.id);
-    log.unshift({t: time(), id: task.id, title, event: 'ENTER', from: null, to, note: parent ? `subtask of #${parent.id}` : ''});
+    note(task, 'ENTER', null, to, parent ? `subtask of #${parent.id}` : '');
     return task;
   }
 
@@ -470,40 +516,46 @@
     const from = task.state;
     const to = M.transition(from, event, ctxFor(task, subtaskTitles.length));
     task.state = to;
-    task.lastEdge = `${from}:${event}`;
-    log.unshift({t: time(), id: task.id, title: task.title, event, from, to, note: subtaskTitles.length ? `+${subtaskTitles.length} subtask${subtaskTitles.length > 1 ? 's' : ''}` : ''});
+    task.lastEdge = `${from}:${event}:${to}`;
+    note(task, event, from, to, event === 'AUTO_DONE' ? 'automatic' : subtaskTitles.length ? `+${subtaskTitles.length} subtask${subtaskTitles.length > 1 ? 's' : ''}` : '');
     subtaskTitles.forEach(t => enter(t, task));
-    if (event === 'PR_CREATED') task.pr = P.create();
+    if (event === 'PR_CREATED') {
+      const pr = {id: nextPr++, taskId: task.id, facts: P.create()};
+      prById[pr.id] = pr;
+      task.prs.push(pr.id);
+      selectedPr = pr.id;
+    }
+    // A task finishing can let its parent finish too.
+    if (to === 'done' && task.parent) settle(byId[task.parent]);
+    return task;
   }
 
-  // PR events change the PR's facts. Merging also moves the task to done.
-  function prFire(task, event) {
-    const before = P.status(task.pr);
-    task.pr = P.apply(task.pr, event);
-    log.unshift({t: time(), id: task.id, title: task.title, event: `PR ${event}`, from: before, to: P.status(task.pr), note: ''});
-    if (event === 'MERGED') fire(task, 'PR_MERGED');
+  // Apply whatever automatic transition is now true (AUTO_DONE), then walk up.
+  function settle(task) {
+    const event = M.settle(task.state, ctxFor(task));
+    if (event) fire(task, event);
   }
 
-  function prActions(task) {
-    const bar = document.createElement('div');
-    bar.className = 'pr-actions';
-    bar.addEventListener('click', e => e.stopPropagation());
-    const label = document.createElement('span');
-    label.className = 'eyebrow';
-    label.textContent = 'PR';
-    bar.append(label);
-    Object.entries(P.events).forEach(([event, e]) => {
-      let res = P.check(task.pr, event);
-      if (res.ok && event === 'MERGED') {
-        const t = M.check(task.state, 'PR_MERGED', ctxFor(task));
-        if (!t.ok) res = {ok: false, reason: `Waits until ${t.transition.guardLabel}`};
-      }
-      bar.append(button(e.label, () => { prFire(task, event); select(task.id); }, {ghost: event !== 'MERGED', disabled: !res.ok, title: res.ok ? '' : res.reason}));
-    });
-    return bar;
+  function prFire(prId, event) {
+    const pr = prById[prId];
+    const task = byId[pr.taskId];
+    const before = P.status(pr.facts);
+    pr.facts = P.apply(pr.facts, event);
+    log.unshift({t: time(), id: `PR ${pr.id}`, title: task.title, event, from: before, to: P.status(pr.facts), note: `task #${task.id}`});
+    selectedPr = pr.id;
+    if (event === 'MERGED') settle(task);
+    if (event === 'CLOSED') fire(task, 'PR_CLOSED');
   }
 
-  function select(id) { selectedId = id; render(); }
+  function select(id, prId) {
+    selectedId = id;
+    const task = byId[id];
+    if (prId) selectedPr = prId;
+    else if (!task.prs.includes(selectedPr)) {
+      selectedPr = task.prs.find(p => !['merged', 'closed'].includes(prStatus(p))) ?? task.prs[task.prs.length - 1] ?? null;
+    }
+    render();
+  }
 
   function button(text, onClick, opts = {}) {
     const b = document.createElement('button');
@@ -546,6 +598,26 @@
     return f;
   }
 
+  function prLine(task, prId) {
+    const pr = prById[prId];
+    const status = P.status(pr.facts);
+    const line = document.createElement('div');
+    line.className = 'pr-actions' + (prId === selectedPr && task.id === selectedId ? ' is-picked' : '');
+    line.addEventListener('click', e => { e.stopPropagation(); select(task.id, prId); });
+    const chip = document.createElement('span');
+    chip.className = 'chip pr';
+    chip.dataset.pr = status;
+    chip.textContent = `PR ${pr.id} · ${status}`;
+    line.append(chip);
+    if (!P.statuses[status].final) {
+      Object.entries(P.events).forEach(([event, e]) => {
+        const res = P.check(pr.facts, event);
+        line.append(button(e.label, () => { prFire(prId, event); select(task.id, prId); }, {ghost: event !== 'MERGED', disabled: !res.ok, title: res.ok ? '' : res.reason}));
+      });
+    }
+    return line;
+  }
+
   function renderTask(task) {
     const li = document.createElement('li');
     const row = document.createElement('div');
@@ -563,18 +635,20 @@
 
     const actions = document.createElement('div');
     actions.className = 'task-actions';
-    const moves = M.available(task.state);
-    moves.forEach(t => {
+    const seen = new Set();
+    M.available(task.state).forEach(t => {
+      // Automatic changes and PR closing are not buttons on the task.
+      if (t.actor === 'auto' || t.event === 'PR_CLOSED' || seen.has(t.event)) return;
+      seen.add(t.event);
       const text = t.button ?? t.label;
-      if (t.event === 'PR_MERGED') return; // merged from the PR's own controls
       if (t.event === 'DECOMPOSE') {
         actions.append(button(task.children.length ? 'Decompose further' : text, () => { editing = {id: task.id, event: t.event}; selectedId = task.id; render(); }, {ghost: true}));
       } else {
         const res = M.check(task.state, t.event, ctxFor(task));
-        actions.append(button(text, () => { fire(task, t.event); select(task.id); }, {disabled: !res.ok, title: res.ok ? '' : `Waits until ${t.guardLabel}`}));
+        actions.append(button(text, () => { fire(task, t.event); select(task.id); }, {ghost: t.event === 'COMPLETE', disabled: !res.ok, title: res.ok ? '' : `Waits until ${t.guardLabel}`}));
       }
     });
-    if (!moves.length) {
+    if (task.state === 'done') {
       const n = document.createElement('span');
       n.className = 'note';
       n.textContent = 'Final, no moves';
@@ -588,29 +662,31 @@
     chip.dataset.state = task.state;
     chip.textContent = task.state;
     meta.append(chip);
-    if (task.pr && task.state === 'in_review') {
-      const pr = document.createElement('span');
-      pr.className = 'chip pr';
-      pr.dataset.pr = P.status(task.pr);
-      pr.textContent = `PR · ${P.status(task.pr)}`;
-      meta.append(pr);
+    const ctx = ctxFor(task);
+    if (task.children.length && M.hasIncompleteChildren(ctx)) {
+      const open = ctx.childStates.filter(s => s !== 'done').length;
+      const w = document.createElement('span');
+      w.className = 'chip waiting';
+      w.textContent = `parent · ${open} open`;
+      meta.append(w);
     }
-    if (task.children.length) {
-      const open = task.children.filter(id => byId[id].state !== 'done').length;
-      if (M.hasIncompleteChildren(ctxFor(task))) {
-        const w = document.createElement('span');
-        w.className = 'chip waiting';
-        w.textContent = `parent · ${open} open`;
-        meta.append(w);
-      }
+    const bits = [];
+    if (task.children.length) bits.push(`${ctx.childStates.filter(s => s === 'done').length} of ${task.children.length} subtasks done`);
+    if (task.prs.length) {
+      const counted = ctx.prStatuses.filter(s => s !== 'closed');
+      const closed = ctx.prStatuses.length - counted.length;
+      if (counted.length) bits.push(`${counted.filter(s => s === 'merged').length} of ${counted.length} PR${counted.length > 1 ? 's' : ''} merged`);
+      if (closed) bits.push(`${closed} closed, ignored`);
+    }
+    if (bits.length) {
       const n = document.createElement('span');
       n.className = 'note';
-      n.textContent = `${task.children.length - open} of ${task.children.length} subtasks done`;
+      n.textContent = bits.join(' · ');
       meta.append(n);
     }
 
     row.append(title, actions, meta);
-    if (task.pr && task.state === 'in_review') row.append(prActions(task));
+    task.prs.forEach(prId => row.append(prLine(task, prId)));
     if (editing && editing.id === task.id) row.append(subtaskEditor(task));
     li.append(row);
 
@@ -626,25 +702,22 @@
   function render() {
     tasksEl.replaceChildren(...roots.map(id => renderTask(byId[id])));
 
-    if (!log.length) {
-      logEl.innerHTML = '<li class="empty">No events yet.</li>';
-    } else {
-      logEl.replaceChildren(...log.map(e => {
-        const li = document.createElement('li');
-        li.innerHTML = `${e.t} · #${e.id} <b></b> ${e.from ?? '∅'} → ${e.to}${e.note ? ' · ' + e.note : ''}`;
-        li.querySelector('b').textContent = e.event;
-        li.title = e.title;
-        return li;
-      }));
-    }
+    logEl.replaceChildren(...log.map(e => {
+      const li = document.createElement('li');
+      li.innerHTML = `${e.t} · ${e.id} <b></b> ${e.from ?? '∅'} → ${e.to}${e.note ? ' · ' + e.note : ''}`;
+      li.querySelector('b').textContent = e.event;
+      li.title = e.title;
+      return li;
+    }));
 
     const sel = byId[selectedId];
-    const pr = sel && sel.pr;
-    const prStatus = pr ? P.status(pr) : null;
-    prSvg.querySelectorAll('.pr-row').forEach(r => r.classList.toggle('is-current', r.dataset.status === prStatus));
-    document.getElementById('fact-ci').textContent = pr ? pr.ci : '—';
-    document.getElementById('fact-comments').textContent = pr ? String(pr.openComments) : '—';
-    document.getElementById('fact-accepted').textContent = pr ? (pr.accepted ? 'yes' : 'no') : '—';
+    const pr = sel && selectedPr && sel.prs.includes(selectedPr) ? prById[selectedPr] : null;
+    const status = pr ? P.status(pr.facts) : null;
+    prSvg.querySelectorAll('.pr-row').forEach(r => r.classList.toggle('is-current', r.dataset.status === status));
+    document.getElementById('pr-shown').textContent = pr ? `showing PR ${pr.id} · task #${sel.id}` : 'select a task with a PR';
+    document.getElementById('fact-ci').textContent = pr ? pr.facts.ci : '—';
+    document.getElementById('fact-comments').textContent = pr ? String(pr.facts.openComments) : '—';
+    document.getElementById('fact-accepted').textContent = pr ? (pr.facts.accepted ? 'yes' : 'no') : '—';
 
     const waiting = !!sel && M.hasIncompleteChildren(ctxFor(sel));
     svg.querySelectorAll('.node').forEach(n => {
@@ -653,7 +726,7 @@
       n.classList.toggle('is-waiting', current && waiting);
     });
     svg.querySelectorAll('.edge').forEach(g => {
-      const hot = !!sel && g.dataset.edge === sel.lastEdge;
+      const hot = !!sel && g.dataset.edge.split(' ').includes(sel.lastEdge);
       g.classList.toggle('is-last', hot);
       g.querySelectorAll('.wire[marker-end]').forEach(w => w.setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)'));
     });
@@ -668,9 +741,10 @@
     select(task.id);
   });
 
+  const who = a => ({pr: 'PR event', auto: 'automatic'})[a] ?? a;
   const rows = [
-    ...M.transitions.map(t => [t.event, t.from ?? '∅ (new)', t.to, t.guardLabel ?? '—', t.actor === 'pr' ? 'PR event' : t.actor]),
-    ...M.actions.map(a => [a.event, a.states.join(', '), 'unchanged', a.guardLabel ?? '—', a.actor]),
+    ...M.transitions.map(t => [t.event, t.from ?? '∅ (new)', t.to, t.guardLabel ?? '—', who(t.actor)]),
+    ...M.actions.map(a => [a.event, a.states.join(', '), 'unchanged', a.guardLabel ?? '—', who(a.actor)]),
   ];
   document.getElementById('table').replaceChildren(...rows.map(cells => {
     const tr = document.createElement('tr');
@@ -684,33 +758,28 @@
   }));
 
   // Example tasks so the page opens in a working state.
+  const lastPr = task => task.prs[task.prs.length - 1];
   const offsite = enter('Example: Plan the team offsite', null);
   fire(offsite, 'START');
   fire(offsite, 'DECOMPOSE', ['Pick dates', 'Book a venue', 'Send invites']);
   const [dates, venue] = offsite.children.map(id => byId[id]);
   fire(dates, 'START');
   fire(dates, 'PR_CREATED');
-  prFire(dates, 'CI_PASSED');
-  prFire(dates, 'ACCEPTED');
-  prFire(dates, 'MERGED');
+  ['CI_PASSED', 'ACCEPTED', 'MERGED'].forEach(e => prFire(lastPr(dates), e));
   fire(venue, 'START');
   fire(venue, 'PR_CREATED');
-  prFire(venue, 'COMMENT_ADDED');
-  prFire(venue, 'CI_FAILED');
-  const roadmap = enter('Example: Draft the Q4 roadmap', null);
-  fire(roadmap, 'DECOMPOSE', ['Collect team goals', 'Write the draft']);
-  const domain = enter('Example: Renew the domain', null);
-  fire(domain, 'START');
-  fire(domain, 'PR_CREATED');
-  prFire(domain, 'CI_PASSED');
-  prFire(domain, 'MERGED');
+  const venueFirst = lastPr(venue);
+  ['COMMENT_ADDED', 'CI_FAILED'].forEach(e => prFire(venueFirst, e));
+  fire(venue, 'PR_CREATED');
+  ['CI_PASSED', 'ACCEPTED', 'MERGED'].forEach(e => prFire(lastPr(venue), e));
   const login = enter('Example: Fix the login redirect', null);
   fire(login, 'START');
   fire(login, 'PR_CREATED');
-  prFire(login, 'CI_PASSED');
-  prFire(login, 'COMMENT_ADDED');
-  prFire(login, 'COMMENT_ADDRESSED');
-  prFire(login, 'ACCEPTED');
-  select(venue.id);
+  ['CI_PASSED', 'COMMENT_ADDED', 'COMMENT_ADDRESSED', 'ACCEPTED'].forEach(e => prFire(lastPr(login), e));
+  const pricing = enter('Example: Update the pricing page', null);
+  fire(pricing, 'START');
+  fire(pricing, 'PR_CREATED');
+  prFire(lastPr(pricing), 'CLOSED');
+  select(venue.id, venueFirst);
 })();
 </script>

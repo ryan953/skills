@@ -11,6 +11,7 @@
     accepted: {label: 'Accepted', when: 'marked accepted'},
     awaiting_review: {label: 'Awaiting review', when: 'otherwise'},
     merged: {label: 'Merged', final: true},
+    closed: {label: 'Closed', final: true},
   };
 
   // First match wins. CI and feedback outrank accepted, so an accepted PR
@@ -18,11 +19,12 @@
   const priority = ['ci_failed', 'has_feedback', 'accepted', 'awaiting_review'];
 
   function create() {
-    return {ci: 'pending', openComments: 0, accepted: false, merged: false};
+    return {ci: 'pending', openComments: 0, accepted: false, merged: false, closed: false};
   }
 
   function status(pr) {
     if (pr.merged) return 'merged';
+    if (pr.closed) return 'closed';
     if (pr.ci === 'failed') return 'ci_failed';
     if (pr.openComments > 0) return 'has_feedback';
     if (pr.accepted) return 'accepted';
@@ -47,13 +49,21 @@
       guardLabel: 'the PR not already accepted',
       apply: pr => ({...pr, accepted: true}),
     },
-    MERGED: {label: 'Merge PR', actor: 'author', apply: pr => ({...pr, merged: true})},
+    MERGED: {
+      label: 'Merge PR',
+      actor: 'author',
+      guard: pr => status(pr) === 'accepted',
+      guardLabel: 'the PR to be accepted, with CI not failing and no unresolved comments',
+      apply: pr => ({...pr, merged: true}),
+    },
+    // Closed without merging. The task ignores closed PRs.
+    CLOSED: {label: 'Close PR', actor: 'author', apply: pr => ({...pr, closed: true})},
   };
 
   function check(pr, event) {
     const e = events[event];
     if (!e) return {ok: false, reason: `Unknown PR event ${event}`};
-    if (pr.merged) return {ok: false, reason: `Event ${event} is not allowed on a merged PR`};
+    if (pr.merged || pr.closed) return {ok: false, reason: `Event ${event} is not allowed on a ${status(pr)} PR`};
     if (e.guard && !e.guard(pr)) return {ok: false, reason: `Event ${event} needs ${e.guardLabel}`};
     return {ok: true};
   }
