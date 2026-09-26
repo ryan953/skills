@@ -1,0 +1,9 @@
+{
+  "name": "tasklist",
+  "version": "0.1.0",
+  "description": "Track tasks and their PRs through one state machine: enter, start, decompose, open PRs, fix, review, accept, merge, close, and let tasks finish themselves when their PRs merge.",
+  "author": {
+    "name": "ryan953"
+  },
+  "keywords": ["tasks", "pull-requests", "state-machine", "sqlite"]
+}
