@@ -242,7 +242,7 @@
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v6 · linked PRs</div>
+    <div class="eyebrow">State machine · v6.1 · linked PRs</div>
     <h1>Task Lifecycle</h1>
     <p class="lede">A person enters a task and it is todo. Someone reads it and starts it. Creating a PR moves it into review, and a task can have several PRs. When every linked PR is merged and every subtask is done, the task becomes done by itself. Closed PRs don't count. At any point before done, someone can decompose the task into subtasks: it becomes a parent and keeps its status.</p>
   </header>
@@ -251,7 +251,7 @@
     <h2 id="diagram-h">States and transitions</h2>
     <figure>
       <div class="diagram-scroll">
-        <svg id="diagram" viewBox="0 -52 1100 318" role="img" aria-label="A human enters a task and it becomes Todo, then reads and starts it, moving it to In progress. Creating a PR moves it to In review, and more PRs can be linked while in review. When every linked PR is merged and every subtask is done, the task moves to Done automatically. A task with no PRs can be marked done by hand from In progress under the same condition. Closing the last open PR sends the task back to In progress if another PR merged, or to Todo if it was the only PR. In Todo, In progress or In review a human can decompose the task without changing its status; each subtask enters as a new task.">
+        <svg id="diagram" viewBox="0 -52 1100 328" role="img" aria-label="A human enters a task and it becomes Todo, then reads and starts it, moving it to In progress. Creating a PR moves it to In review, and more PRs can be linked while in review. When every linked PR is merged and every subtask is done, the task moves to Done automatically. A task with no PRs can be marked done by hand from In progress under the same condition. Closing the last open PR sends the task back to In progress if another PR merged, or to Todo if it was the only PR. In Todo, In progress or In review a human can decompose the task without changing its status; the new subtasks always start in Todo.">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
@@ -294,33 +294,34 @@
             <text x="767" y="14">another PR created</text>
             <text class="actor" x="767" y="28">or one closed · others open</text>
           </g>
-          <g class="edge" data-edge="todo:DECOMPOSE:todo">
-            <path class="wire" d="M195,103 C195,150 235,150 235,106" marker-end="url(#arrow)"></path>
-            <text x="215" y="166" text-anchor="middle">decompose</text>
-            <text class="actor" x="215" y="180" text-anchor="middle">human · stays todo</text>
+          <g class="edge" data-edge="todo:DECOMPOSE:todo spawn:todo">
+            <path class="wire" d="M175,103 C175,145 215,145 215,106" marker-end="url(#arrow)"></path>
+            <text x="195" y="160" text-anchor="middle">decompose</text>
           </g>
           <g class="edge" data-edge="in_progress:DECOMPOSE:in_progress">
-            <path class="wire" d="M455,103 C455,150 495,150 495,106" marker-end="url(#arrow)"></path>
-            <text x="475" y="166" text-anchor="middle">decompose</text>
-            <text class="actor" x="475" y="180" text-anchor="middle">human · stays in progress</text>
+            <path class="wire" d="M450,103 C450,145 490,145 490,106" marker-end="url(#arrow)"></path>
+            <text x="470" y="160" text-anchor="middle">decompose</text>
           </g>
           <g class="edge" data-edge="in_review:DECOMPOSE:in_review">
-            <path class="wire" d="M715,103 C715,150 755,150 755,106" marker-end="url(#arrow)"></path>
-            <text x="735" y="166" text-anchor="middle">decompose</text>
-            <text class="actor" x="735" y="180" text-anchor="middle">human · stays in review</text>
+            <path class="wire" d="M715,103 C715,145 755,145 755,106" marker-end="url(#arrow)"></path>
+            <text x="735" y="160" text-anchor="middle">decompose</text>
+          </g>
+
+          <g class="edge spawn" data-edge="spawn:in_progress">
+            <polyline class="wire" points="425,103 425,180 275,180 275,106" marker-end="url(#arrow)"></polyline>
+            <text x="350" y="196" text-anchor="middle">new subtasks</text>
           </g>
           <g class="edge" data-edge="in_review:PR_CLOSED:in_progress">
-            <polyline class="wire" points="795,103 795,205 540,205 540,106" marker-end="url(#arrow)"></polyline>
-            <text x="667" y="221" text-anchor="middle">last open PR closed · another merged</text>
+            <polyline class="wire" points="685,103 685,180 535,180 535,106" marker-end="url(#arrow)"></polyline>
+            <text x="610" y="196" text-anchor="middle">last open PR closed · another merged</text>
+          </g>
+          <g class="edge spawn" data-edge="spawn:in_review">
+            <polyline class="wire" points="780,103 780,215 260,215 260,106" marker-end="url(#arrow)"></polyline>
+            <text x="520" y="231" text-anchor="middle">new subtasks</text>
           </g>
           <g class="edge" data-edge="in_review:PR_CLOSED:todo">
-            <polyline class="wire" points="805,103 805,240 285,240 285,106" marker-end="url(#arrow)"></polyline>
-            <text x="545" y="256" text-anchor="middle">only PR closed · via PR</text>
-          </g>
-          <g class="edge spawn" data-edge="spawn">
-            <polyline class="wire" points="165,103 165,140 40,140 40,86" marker-end="url(#arrow)"></polyline>
-            <text x="48" y="158">new subtasks</text>
-            <text x="48" y="171">enter here</text>
+            <polyline class="wire" points="795,103 795,250 245,250 245,106" marker-end="url(#arrow)"></polyline>
+            <text x="520" y="266" text-anchor="middle">only PR closed · via PR</text>
           </g>
 
           <g class="node" data-state="todo">
@@ -346,7 +347,7 @@
           </g>
         </svg>
       </div>
-      <figcaption>Humans move a task to in progress. After that, PRs drive it. The first PR created puts it in review, and more can be linked there. When the last linked PR merges and every subtask is done, the task becomes done by itself, and that can finish its parent in turn. Closed PRs are ignored. Closing the last open PR steps the task back: to in progress if another PR already merged, or to todo if it was the only one. The arc over the top is for tasks that never get a PR, like a parent that only groups subtasks. Decompose never changes status. Select a task below: its status turns amber while its subtasks are open, and the arrow it last took turns blue.</figcaption>
+      <figcaption>Humans move a task to in progress. After that, PRs drive it. The first PR created puts it in review, and more can be linked there. When the last linked PR merges and every subtask is done, the task becomes done by itself, and that can finish its parent in turn. Closed PRs are ignored. Closing the last open PR steps the task back: to in progress if another PR already merged, or to todo if it was the only one. The arc over the top is for tasks that never get a PR, like a parent that only groups subtasks. Decompose loops back onto the parent's own status, because the parent doesn't move. The dashed lines are the new subtasks: whatever status the parent is in, its subtasks start in todo. Select a task below: its status turns amber while its subtasks are open, and the arrow it last took turns blue.</figcaption>
     </figure>
   </section>
 
@@ -505,7 +506,7 @@
 
   function enter(title, parent) {
     const to = M.transition(null, 'ENTER');
-    const task = {id: nextId++, title, state: to, parent: parent ? parent.id : null, children: [], prs: [], lastEdge: parent ? 'spawn' : 'new:ENTER:todo'};
+    const task = {id: nextId++, title, state: to, parent: parent ? parent.id : null, children: [], prs: [], lastEdge: parent ? `spawn:${parent.state}` : 'new:ENTER:todo'};
     byId[task.id] = task;
     (parent ? parent.children : roots).push(task.id);
     note(task, 'ENTER', null, to, parent ? `subtask of #${parent.id}` : '');

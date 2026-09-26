@@ -40,7 +40,8 @@ if other PRs are still open, nothing changes. If none are open and one has
 merged, the task goes back to `in_progress`. If it was the only PR, the task
 goes back to `todo`.
 
-Subtasks are ordinary tasks. Each is created with `ENTER` and runs this same
+Subtasks are ordinary tasks. Each is created with `ENTER`, so new subtasks
+always start in `todo`, whatever status the parent is in. They run this same
 machine, so a subtask can be decomposed again.
 
 Guards read a context the caller passes to `transition(state, event, ctx)`:
