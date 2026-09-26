@@ -65,15 +65,18 @@ its status is derived from them. The first match wins:
 
 | Event               | Changes             | Who      |
 |---------------------|---------------------|----------|
-| `CI_PASSED`         | ci = passed         | CI       |
-| `CI_FAILED`         | ci = failed         | CI       |
+| `NEW_COMMITS`       | ci = pending (new CI run); fixes `ci_failed` | author |
+| `CI_PASSED`         | ci = passed, only while pending | CI |
+| `CI_FAILED`         | ci = failed, only while pending | CI |
 | `COMMENT_ADDED`     | openComments + 1    | reviewer |
-| `COMMENT_ADDRESSED` | openComments − 1    | author   |
+| `COMMENT_REPLIED`   | openComments − 1; fixes `has_feedback` | author |
 | `ACCEPTED`          | accepted = true     | reviewer |
 | `MERGED`            | merged = true (only when `accepted`) | author |
 | `CLOSED`            | closed = true       | author   |
 
-Because the status is derived, "CI fixed and feedback addressed" returns the PR
+The author resolves `ci_failed` by pushing new commits, which start a new CI
+run, and resolves `has_feedback` by replying to each comment. Because the
+status is derived, "new commits pushed and every comment replied to" returns the PR
 to `awaiting_review` by itself, or to `accepted` if it was accepted earlier. CI
 and feedback outrank accepted. Only an accepted PR can merge. Nothing is
 allowed on a merged or closed PR.

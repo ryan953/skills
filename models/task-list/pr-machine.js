@@ -31,13 +31,35 @@
     return 'awaiting_review';
   }
 
+  // `resolves` names the status an author action is the fix for. CI results only
+  // arrive while a run is pending, so a failed run is fixed by pushing new commits
+  // (which start a new run), and feedback is fixed by replying to each comment.
   const events = {
-    CI_PASSED: {label: 'CI passes', actor: 'ci', apply: pr => ({...pr, ci: 'passed'})},
-    CI_FAILED: {label: 'CI fails', actor: 'ci', apply: pr => ({...pr, ci: 'failed'})},
-    COMMENT_ADDED: {label: 'Reviewer comments', actor: 'reviewer', apply: pr => ({...pr, openComments: pr.openComments + 1})},
-    COMMENT_ADDRESSED: {
-      label: 'Address a comment',
+    NEW_COMMITS: {
+      label: 'Push new commits',
       actor: 'author',
+      resolves: 'ci_failed',
+      apply: pr => ({...pr, ci: 'pending'}),
+    },
+    CI_PASSED: {
+      label: 'CI passes',
+      actor: 'ci',
+      guard: pr => pr.ci === 'pending',
+      guardLabel: 'a CI run in progress',
+      apply: pr => ({...pr, ci: 'passed'}),
+    },
+    CI_FAILED: {
+      label: 'CI fails',
+      actor: 'ci',
+      guard: pr => pr.ci === 'pending',
+      guardLabel: 'a CI run in progress',
+      apply: pr => ({...pr, ci: 'failed'}),
+    },
+    COMMENT_ADDED: {label: 'Reviewer comments', actor: 'reviewer', apply: pr => ({...pr, openComments: pr.openComments + 1})},
+    COMMENT_REPLIED: {
+      label: 'Reply to a comment',
+      actor: 'author',
+      resolves: 'has_feedback',
       guard: pr => pr.openComments > 0,
       guardLabel: 'an unresolved comment',
       apply: pr => ({...pr, openComments: pr.openComments - 1}),

@@ -106,6 +106,7 @@
   .lg { display: inline-flex; align-items: center; gap: 6px; }
   .lg::before { content: ""; width: 18px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line-strong); background: var(--surface); }
   .lg-create::before { border-style: dashed; border-color: var(--accent); }
+  .lg-resolve::before { background: var(--done-soft); border-color: var(--done); }
   .lg-stay::before { background: var(--ground); border-color: var(--line); }
   .lg-auto::before { background: var(--ground); border-style: dotted; border-color: var(--ink); }
   .map-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
@@ -154,6 +155,8 @@
   }
   .card:hover, .card:focus-visible { border-color: var(--accent); }
   .card.kind-create { border-style: dashed; border-color: var(--accent); }
+  .card.kind-resolve { border-color: var(--done); background: var(--done-soft); }
+  .card.kind-resolve .card-title { color: var(--done); }
   .card.kind-stay { background: var(--ground); border-color: var(--line); }
   .card.kind-auto { background: var(--ground); border-style: dotted; border-color: var(--ink); }
   .card-title { font-weight: 600; font-size: 12.5px; }
@@ -266,7 +269,7 @@
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v7 · map</div>
+    <div class="eyebrow">State machine · v7.1 · map</div>
     <h1>Task Lifecycle</h1>
     <p class="lede">A person enters a task and it is todo. Someone reads it and starts it. Creating a PR moves it into review, and a task can have several PRs. When every linked PR is merged and every subtask is done, the task becomes done by itself. Closed PRs don't count. At any point before done, someone can decompose the task into subtasks: it becomes a parent and keeps its status.</p>
   </header>
@@ -277,6 +280,7 @@
     <div class="legend" aria-hidden="true">
       <span class="lg lg-move">moves to another status</span>
       <span class="lg lg-create">creates a task or PR</span>
+      <span class="lg lg-resolve">the author's fix for this status</span>
       <span class="lg lg-stay">status unchanged</span>
       <span class="lg lg-auto">automatic, nobody clicks it</span>
     </div>
@@ -301,7 +305,7 @@
           </svg>
         </div>
       </div>
-      <figcaption>The cards are generated from <code>machine.js</code> and <code>pr-machine.js</code>, so the map can't drift from the rules. PR cards were found by trying every event on every combination of CI result, comments and acceptance. That is why fixing CI in CI failed can land on three different columns: the PR takes the first status that still matches. The chips under each column heading are the example tasks and PRs from the simulator below; click one to select it.</figcaption>
+      <figcaption>The cards are generated from <code>machine.js</code> and <code>pr-machine.js</code>, so the map can't drift from the rules. PR cards were found by trying every event on every combination of CI result, comments and acceptance. That is why pushing new commits from CI failed can land on three different columns: the PR takes the first status that still matches. The green cards are the author's fixes. New commits clear a CI failure by starting a new run, whose result then arrives as CI passes or CI fails. Replying clears comments one at a time. The chips under each column heading are the example tasks and PRs from the simulator below; click one to select it.</figcaption>
     </figure>
   </section>
 
@@ -657,9 +661,10 @@
         const e = P.events[event];
         const leaves = targets.filter(t => t !== s);
         if (!leaves.length) { stays.push(e.label); return; }
-        cards.push(card({
-          kind: 'move',
-          title: e.label,
+        const fix = e.resolves === s;
+        cards[fix ? 'unshift' : 'push'](card({
+          kind: fix ? 'resolve' : 'move',
+          title: fix ? `Fix: ${e.label.toLowerCase()}` : e.label,
           whoText: who(e.actor) + (targets.includes(s) ? ` · may stay ${P.statuses[s].label}` : ''),
           to: leaves.map(t => `pr:${t}`),
         }));
@@ -675,13 +680,15 @@
       }
       const descs = {
         awaiting_review: 'Nothing failing, nothing to answer, not yet accepted.',
-        ci_failed: 'The latest CI run failed. Outranks everything else.',
-        has_feedback: 'At least one review comment is unresolved.',
+        ci_failed: 'The latest CI run failed. Outranks everything else. The author fixes it by pushing new commits, which start a new CI run.',
+        has_feedback: 'At least one review comment is unresolved. The author fixes it by replying to each comment.',
         accepted: 'A reviewer accepted it, CI isn\'t failing, no open comments.',
         merged: 'Counts toward the task being done.',
         closed: 'Closed without merging.',
       };
-      return column(`pr:${s}`, P.statuses[s].label, descs[s], cards, s === 'awaiting_review' ? 'new PRs start here' : null);
+      const fixes = Object.values(P.events).filter(e => e.resolves === s).map(e => e.label.toLowerCase());
+      const extra = s === 'awaiting_review' ? 'new PRs start here' : fixes.length ? `resolved by: ${fixes.join(', ')}` : null;
+      return column(`pr:${s}`, P.statuses[s].label, descs[s], cards, extra);
     }));
   }
 
@@ -795,7 +802,7 @@
   const login = enter('Example: Fix the login redirect', null);
   fire(login, 'START');
   fire(login, 'PR_CREATED');
-  ['CI_PASSED', 'COMMENT_ADDED', 'COMMENT_ADDRESSED', 'ACCEPTED'].forEach(e => prFire(lastPr(login), e));
+  ['CI_PASSED', 'COMMENT_ADDED', 'COMMENT_REPLIED', 'ACCEPTED'].forEach(e => prFire(lastPr(login), e));
   const pricing = enter('Example: Update the pricing page', null);
   fire(pricing, 'START');
   fire(pricing, 'PR_CREATED');
