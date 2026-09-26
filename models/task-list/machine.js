@@ -2,17 +2,17 @@
 // Loads as a plain <script> (sets window.TaskMachine) or via require() in Node.
 (function (root) {
   const states = {
-    saved: {
-      label: 'Saved',
+    todo: {
+      label: 'Todo',
       description: 'A human entered the task and it was stored. Nobody has started it yet.',
     },
     in_progress: {
       label: 'In progress',
       description: 'A human read the task and is working on it.',
     },
-    complete: {
-      label: 'Complete',
-      description: 'The work is done. No further transitions.',
+    done: {
+      label: 'Done',
+      description: 'The work is finished. No further transitions or actions.',
       final: true,
     },
   };
@@ -21,44 +21,58 @@
   //   newSubtasks  - how many subtasks this event creates
   //   childStates  - current states of the task's direct subtasks
   //
-  // "Has incomplete subtasks" is not a state. It is derived from childStates,
-  // and it is what holds a saved task back from being started.
+  // Being a parent is not a status. "Has incomplete subtasks" is derived from
+  // childStates, and it is what holds a task back from being marked done.
   function hasIncompleteChildren(ctx = {}) {
-    return (ctx.childStates ?? []).some(s => s !== 'complete');
+    return (ctx.childStates ?? []).some(s => s !== 'done');
   }
 
-  // `from: null` means the task does not exist yet; ENTER is how it comes into being.
-  // DECOMPOSE is an action, not a state change: the task stays saved and gains subtasks.
-  // Each subtask is an ordinary task, created with ENTER, running this same machine.
+  // Status changes. `from: null` means the task does not exist yet; ENTER creates it.
   const transitions = [
-    {event: 'ENTER', from: null, to: 'saved', actor: 'human', label: 'enter task'},
+    {event: 'ENTER', from: null, to: 'todo', actor: 'human', label: 'enter task'},
+    {event: 'START', from: 'todo', to: 'in_progress', actor: 'human', label: 'read & start'},
+    {
+      event: 'COMPLETE',
+      from: 'in_progress',
+      to: 'done',
+      actor: 'human',
+      label: 'mark done',
+      guard: ctx => !hasIncompleteChildren(ctx),
+      guardLabel: 'no incomplete subtasks',
+    },
+  ];
+
+  // Actions taken against a task that leave its status unchanged.
+  // DECOMPOSE gives the task subtasks, making it a parent. Each subtask is an
+  // ordinary task, created with ENTER, running this same machine.
+  const actions = [
     {
       event: 'DECOMPOSE',
-      from: 'saved',
-      to: 'saved',
+      states: ['todo', 'in_progress'],
       actor: 'human',
       label: 'decompose',
       guard: ctx => (ctx.newSubtasks ?? 0) > 0,
       guardLabel: 'at least one new subtask',
     },
-    {
-      event: 'START',
-      from: 'saved',
-      to: 'in_progress',
-      actor: 'human',
-      label: 'read & start',
-      guard: ctx => !hasIncompleteChildren(ctx),
-      guardLabel: 'no incomplete subtasks',
-    },
-    {event: 'COMPLETE', from: 'in_progress', to: 'complete', actor: 'human', label: 'mark complete'},
   ];
 
+  function find(state, event) {
+    const t = transitions.find(t => t.from === state && t.event === event);
+    if (t) return t;
+    const a = actions.find(a => a.event === event && a.states.includes(state));
+    return a ? {...a, from: state, to: state} : null;
+  }
+
+  // Everything a human can do to a task in this status: status changes and actions.
   function available(state) {
-    return transitions.filter(t => t.from === state);
+    return [
+      ...transitions.filter(t => t.from === state),
+      ...actions.filter(a => a.states.includes(state)).map(a => ({...a, from: state, to: state})),
+    ];
   }
 
   function check(state, event, ctx = {}) {
-    const match = transitions.find(t => t.from === state && t.event === event);
+    const match = find(state, event);
     if (!match) {
       return {ok: false, reason: `Event ${event} is not allowed from state ${state ?? '(none)'}`};
     }
@@ -76,7 +90,7 @@
     return result.transition.to;
   }
 
-  const TaskMachine = {states, transitions, available, check, transition, hasIncompleteChildren};
+  const TaskMachine = {states, transitions, actions, available, check, transition, hasIncompleteChildren};
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = TaskMachine;

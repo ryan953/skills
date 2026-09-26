@@ -100,7 +100,7 @@
   .node .sub { fill: var(--muted); font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; }
   .node.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
   .node.is-current.is-waiting rect { fill: var(--split-soft); stroke: var(--split); }
-  .node.is-current[data-state="complete"] rect { fill: var(--done-soft); stroke: var(--done); }
+  .node.is-current[data-state="done"] rect { fill: var(--done-soft); stroke: var(--done); }
   .edge .wire { fill: none; stroke: var(--line-strong); stroke-width: 1.5; transition: stroke .2s; }
   .edge.spawn .wire { stroke-dasharray: 5 4; }
   .edge text { fill: currentColor; font: 500 11.5px "JetBrains Mono", ui-monospace, monospace; }
@@ -167,10 +167,11 @@
   }
   .task-row.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .task-title { font-weight: 500; overflow-wrap: anywhere; }
-  .task-row.is-complete .task-title { color: var(--muted); text-decoration: line-through; }
+  .task-row.is-done .task-title { color: var(--muted); text-decoration: line-through; }
   .task-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .chip {
+    white-space: nowrap;
     font: 500 11px/1 "JetBrains Mono", ui-monospace, monospace;
     padding: 4px 7px;
     border-radius: 999px;
@@ -179,7 +180,7 @@
   }
   .chip[data-state="in_progress"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
   .chip.waiting { color: var(--split); border-color: var(--split); background: var(--split-soft); }
-  .chip[data-state="complete"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
+  .chip[data-state="done"] { color: var(--done); border-color: var(--done); background: var(--done-soft); }
   .note { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .editor { grid-column: 1 / -1; cursor: default; }
 
@@ -202,16 +203,16 @@
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v2 · decompose as an action</div>
+    <div class="eyebrow">State machine · v3 · parents</div>
     <h1>Task Lifecycle</h1>
-    <p class="lede">A person enters a task and it is saved. Before starting it, someone can decompose it into subtasks. That is an action on the task, not a new state: the task stays saved, and it cannot be started while any of its subtasks are incomplete. Every transition is made by a human.</p>
+    <p class="lede">A person enters a task and it is todo. Someone reads it and starts it, then marks it done. At any point before done, someone can decompose the task into subtasks. The task becomes a parent, and its status stays where it was. A parent can't be marked done while any of its subtasks are incomplete. Every change is made by a human.</p>
   </header>
 
   <section aria-labelledby="diagram-h">
     <h2 id="diagram-h">States and transitions</h2>
     <figure>
       <div class="diagram-scroll">
-        <svg id="diagram" viewBox="0 0 870 225" role="img" aria-label="A human enters a task and it becomes Saved. While saved, a human can decompose it, which keeps it Saved and creates subtasks; each subtask enters as a new task running the same machine. A human reads and starts a saved task only when it has no incomplete subtasks, moving it to In progress, then marks it complete. Complete is final.">
+        <svg id="diagram" viewBox="0 0 870 234" role="img" aria-label="A human enters a task and it becomes Todo. A human reads and starts it, moving it to In progress, then marks it done, but only when it has no incomplete subtasks. Done is final. In Todo or In progress a human can decompose the task, which leaves its status unchanged and creates subtasks; each subtask enters as a new task running the same machine.">
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
               <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
@@ -228,46 +229,52 @@
             <text x="99" y="62" text-anchor="middle">enter task</text>
             <text class="actor" x="99" y="95" text-anchor="middle">human</text>
           </g>
-          <g class="edge" data-edge="saved:START">
+          <g class="edge" data-edge="todo:START">
             <line class="wire" x1="300" y1="75" x2="418" y2="75" marker-end="url(#arrow)"></line>
             <text x="359" y="62" text-anchor="middle">read &amp; start</text>
             <text class="actor" x="359" y="95" text-anchor="middle">human</text>
-            <text class="guard" x="359" y="124" text-anchor="middle">only if no incomplete subtasks</text>
           </g>
           <g class="edge" data-edge="in_progress:COMPLETE">
             <line class="wire" x1="570" y1="75" x2="688" y2="75" marker-end="url(#arrow)"></line>
-            <text x="629" y="62" text-anchor="middle">mark complete</text>
+            <text x="629" y="62" text-anchor="middle">mark done</text>
             <text class="actor" x="629" y="95" text-anchor="middle">human</text>
+            <text class="guard" x="629" y="124" text-anchor="middle">only if no incomplete subtasks</text>
           </g>
-          <g class="edge" data-edge="saved:DECOMPOSE">
+          <g class="edge" data-edge="todo:DECOMPOSE">
             <path class="wire" d="M200,103 C200,160 240,160 240,106" marker-end="url(#arrow)"></path>
             <text x="252" y="150">decompose</text>
-            <text class="actor" x="252" y="164">human · task stays saved</text>
+            <text class="actor" x="252" y="164">human · stays todo</text>
+          </g>
+          <g class="edge" data-edge="in_progress:DECOMPOSE">
+            <path class="wire" d="M470,103 C470,160 510,160 510,106" marker-end="url(#arrow)"></path>
+            <text x="522" y="150">decompose</text>
+            <text class="actor" x="522" y="164">human · stays in progress</text>
           </g>
           <g class="edge spawn" data-edge="spawn">
-            <polyline class="wire" points="165,103 165,208 40,208 40,86" marker-end="url(#arrow)"></polyline>
-            <text x="175" y="212">each new subtask enters here as its own task</text>
+            <line class="wire" x1="165" y1="103" x2="165" y2="208"></line>
+            <polyline class="wire" points="435,103 435,208 40,208 40,86" marker-end="url(#arrow)"></polyline>
+            <text x="48" y="226">each new subtask enters here as its own task</text>
           </g>
 
-          <g class="node" data-state="saved">
+          <g class="node" data-state="todo">
             <rect x="150" y="47" width="150" height="56" rx="8"></rect>
-            <text x="225" y="72" text-anchor="middle">Saved</text>
-            <text class="sub" x="225" y="90" text-anchor="middle">saved</text>
+            <text x="225" y="72" text-anchor="middle">Todo</text>
+            <text class="sub" x="225" y="90" text-anchor="middle">todo</text>
           </g>
           <g class="node" data-state="in_progress">
             <rect x="420" y="47" width="150" height="56" rx="8"></rect>
             <text x="495" y="72" text-anchor="middle">In progress</text>
             <text class="sub" x="495" y="90" text-anchor="middle">in_progress</text>
           </g>
-          <g class="node" data-state="complete">
+          <g class="node" data-state="done">
             <rect x="690" y="47" width="150" height="56" rx="8"></rect>
             <rect x="694" y="51" width="142" height="48" rx="6" fill="none"></rect>
-            <text x="765" y="72" text-anchor="middle">Complete</text>
-            <text class="sub" x="765" y="90" text-anchor="middle">complete · final</text>
+            <text x="765" y="72" text-anchor="middle">Done</text>
+            <text class="sub" x="765" y="90" text-anchor="middle">done · final</text>
           </g>
         </svg>
       </div>
-      <figcaption>Three states, one path. Decompose loops back onto Saved, and the dashed line shows each new subtask entering at the entry dot as a task of its own, so subtasks can be decomposed too. "Has incomplete subtasks" is not a box on this diagram. It is worked out from the subtasks, and it is the condition that holds the read &amp; start arrow shut. Select a task below: Saved turns amber while its subtasks are open, and the arrow the task last took turns blue.</figcaption>
+      <figcaption>Three statuses in a row. Decompose loops back onto Todo and onto In progress, because it changes nothing about the task's own status, and Done has no loop. The dashed lines show each new subtask entering at the entry dot as a task of its own, so subtasks can be decomposed too. Being a parent is not a box on this diagram. "Has incomplete subtasks" is worked out from the subtasks, and it holds the mark done arrow shut. Select a task below: its status turns amber while its subtasks are open, and the arrow it last took turns blue.</figcaption>
     </figure>
   </section>
 
@@ -385,7 +392,7 @@
   function renderTask(task) {
     const li = document.createElement('li');
     const row = document.createElement('div');
-    row.className = 'task-row' + (task.id === selectedId ? ' is-selected' : '') + (task.state === 'complete' ? ' is-complete' : '');
+    row.className = 'task-row' + (task.id === selectedId ? ' is-selected' : '') + (task.state === 'done' ? ' is-done' : '');
     row.tabIndex = 0;
     row.setAttribute('aria-label', `${task.title}, ${M.states[task.state].label}`);
     row.addEventListener('click', () => select(task.id));
@@ -424,16 +431,16 @@
     chip.textContent = task.state;
     meta.append(chip);
     if (task.children.length) {
-      const open = task.children.filter(id => byId[id].state !== 'complete').length;
+      const open = task.children.filter(id => byId[id].state !== 'done').length;
       if (M.hasIncompleteChildren(ctxFor(task))) {
         const w = document.createElement('span');
         w.className = 'chip waiting';
-        w.textContent = `${open} incomplete subtask${open > 1 ? 's' : ''}`;
+        w.textContent = `parent · ${open} open`;
         meta.append(w);
       }
       const n = document.createElement('span');
       n.className = 'note';
-      n.textContent = `${task.children.length - open} of ${task.children.length} subtasks complete`;
+      n.textContent = `${task.children.length - open} of ${task.children.length} subtasks done`;
       meta.append(n);
     }
 
@@ -475,7 +482,7 @@
     svg.querySelectorAll('.edge').forEach(g => {
       const hot = !!sel && g.dataset.edge === sel.lastEdge;
       g.classList.toggle('is-last', hot);
-      g.querySelector('.wire').setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)');
+      g.querySelectorAll('.wire[marker-end]').forEach(w => w.setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)'));
     });
   }
 
@@ -488,9 +495,13 @@
     select(task.id);
   });
 
-  document.getElementById('table').replaceChildren(...M.transitions.map(t => {
+  const rows = [
+    ...M.transitions.map(t => [t.event, t.from ?? '∅ (new)', t.to, t.guardLabel ?? '—', t.actor]),
+    ...M.actions.map(a => [a.event, a.states.join(', '), 'unchanged', a.guardLabel ?? '—', a.actor]),
+  ];
+  document.getElementById('table').replaceChildren(...rows.map(cells => {
     const tr = document.createElement('tr');
-    [t.event, t.from ?? '∅ (new)', t.to, t.guardLabel ?? '—', t.actor].forEach((v, i) => {
+    cells.forEach((v, i) => {
       const td = document.createElement('td');
       td.textContent = v;
       if (i < 3) td.className = 'mono';
@@ -501,13 +512,17 @@
 
   // Example tasks so the page opens in a working state.
   const offsite = enter('Example: Plan the team offsite', null);
+  fire(offsite, 'START');
   fire(offsite, 'DECOMPOSE', ['Pick dates', 'Book a venue', 'Send invites']);
   const [dates, venue] = offsite.children.map(id => byId[id]);
   fire(dates, 'START');
   fire(dates, 'COMPLETE');
   fire(venue, 'START');
   const roadmap = enter('Example: Draft the Q4 roadmap', null);
-  fire(roadmap, 'START');
+  fire(roadmap, 'DECOMPOSE', ['Collect team goals', 'Write the draft']);
+  const domain = enter('Example: Renew the domain', null);
+  fire(domain, 'START');
+  fire(domain, 'COMPLETE');
   select(offsite.id);
 })();
 </script>
