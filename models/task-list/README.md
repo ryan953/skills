@@ -1,6 +1,6 @@
 # Task list state machine
 
-v4: a human enters a task and it is **todo**. A human reads it and starts it
+v5: a human enters a task and it is **todo**. A human reads it and starts it
 (**in_progress**). Creating a PR moves it to **in_review**, and merging that PR
 moves it to **done**.
 
@@ -43,11 +43,39 @@ Guards read a context the caller passes to `transition(state, event, ctx)`:
 current statuses of the task's direct subtasks). `hasIncompleteChildren(ctx)`
 exposes the derived condition.
 
+## The PR, while a task is in review
+
+A task in `in_review` has an open PR, and the PR runs its own machine
+(`pr-machine.js`), seen from the author's side. The PR stores three facts, and
+its status is derived from them. The first match wins:
+
+| Status            | When                                   |
+|-------------------|----------------------------------------|
+| `ci_failed`       | the latest CI run failed               |
+| `has_feedback`    | there are unresolved review comments   |
+| `accepted`        | a reviewer marked it accepted          |
+| `awaiting_review` | otherwise (this is where a new PR starts) |
+| `merged`          | final; the task moves to `done`        |
+
+| Event               | Changes             | Who      |
+|---------------------|---------------------|----------|
+| `CI_PASSED`         | ci = passed         | CI       |
+| `CI_FAILED`         | ci = failed         | CI       |
+| `COMMENT_ADDED`     | openComments + 1    | reviewer |
+| `COMMENT_ADDRESSED` | openComments − 1    | author   |
+| `ACCEPTED`          | accepted = true     | reviewer |
+| `MERGED`            | merged = true       | author   |
+
+Because the status is derived, "CI fixed and feedback addressed" returns the PR
+to `awaiting_review` by itself, or to `accepted` if it was accepted earlier. CI
+and feedback outrank accepted. Nothing is allowed on a merged PR.
+
 ## Files
 
 - `machine.js`: the definition. `transitions` are status changes and `actions`
   (DECOMPOSE) leave status unchanged. It also has the guards, `transition()`,
   `check()`, `available()` and `hasIncompleteChildren()`. The diagram page and
   tests both read it, so it is the source of truth.
-- `index.html`: diagram plus a simulator with nested subtasks. Open it next to `machine.js`.
-- `machine.test.js`: run with `node --test machine.test.js`.
+- `pr-machine.js`: the PR facts, events and `status()` priority.
+- `index.html`: both diagrams plus a simulator with nested subtasks. Open it next to `machine.js`.
+- `machine.test.js`, `pr-machine.test.js`: run with `node --test`.

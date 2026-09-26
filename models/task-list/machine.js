@@ -12,7 +12,7 @@
     },
     in_review: {
       label: 'In review',
-      description: 'A PR for the task was created and is waiting to be merged.',
+      description: 'A PR for the task is open. The PR runs its own machine (pr-machine.js) until it merges.',
     },
     done: {
       label: 'Done',
