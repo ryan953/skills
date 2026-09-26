@@ -74,7 +74,34 @@
     return events[event].apply(pr);
   }
 
-  const PrMachine = {statuses, priority, events, create, status, check, apply};
+  // For each open status, every event that can happen there and the statuses it can
+  // lead to. Found by trying every event on every combination of facts, so it stays
+  // true to status() and the guards. Used to draw the map.
+  function outcomes() {
+    const result = {};
+    for (const ci of ['pending', 'passed', 'failed']) {
+      for (const openComments of [0, 1, 2]) {
+        for (const accepted of [false, true]) {
+          const pr = {...create(), ci, openComments, accepted};
+          const from = status(pr);
+          result[from] ??= {};
+          for (const event of Object.keys(events)) {
+            if (!check(pr, event).ok) continue;
+            const to = status(apply(pr, event));
+            const seen = (result[from][event] ??= []);
+            if (!seen.includes(to)) seen.push(to);
+          }
+        }
+      }
+    }
+    const order = [...priority, 'merged', 'closed'];
+    for (const byEvent of Object.values(result)) {
+      for (const list of Object.values(byEvent)) list.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    }
+    return result;
+  }
+
+  const PrMachine = {statuses, priority, events, create, status, check, apply, outcomes};
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = PrMachine;

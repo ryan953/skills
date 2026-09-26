@@ -70,3 +70,20 @@ test('a PR can be closed from any open status, and closed is final', () => {
 test('a merged PR cannot be closed', () => {
   assert.throws(() => run('ACCEPTED', 'MERGED', 'CLOSED'), /merged PR/);
 });
+
+test('outcomes: merging is only possible from accepted', () => {
+  const o = require('./pr-machine.js').outcomes();
+  assert.deepEqual(o.accepted.MERGED, ['merged']);
+  for (const s of ['awaiting_review', 'ci_failed', 'has_feedback']) assert.equal(o[s].MERGED, undefined);
+});
+
+test('outcomes: fixing CI can land on any lower status', () => {
+  const o = require('./pr-machine.js').outcomes();
+  assert.deepEqual(o.ci_failed.CI_PASSED, ['has_feedback', 'accepted', 'awaiting_review']);
+});
+
+test('outcomes: a new comment on an accepted PR means has_feedback', () => {
+  const o = require('./pr-machine.js').outcomes();
+  assert.deepEqual(o.accepted.COMMENT_ADDED, ['has_feedback']);
+  assert.deepEqual(o.ci_failed.COMMENT_ADDED, ['ci_failed']);
+});

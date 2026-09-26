@@ -84,6 +84,8 @@ allowed on a merged or closed PR.
   (DECOMPOSE) leave status unchanged. It also has the guards, `transition()`,
   `check()`, `available()` and `hasIncompleteChildren()`. The diagram page and
   tests both read it, so it is the source of truth.
-- `pr-machine.js`: the PR facts, events and `status()` priority.
-- `index.html`: both diagrams plus a simulator with nested subtasks. Open it next to `machine.js`.
+- `pr-machine.js`: the PR facts, events and `status()` priority. `outcomes()`
+  lists, per status, each event and the statuses it can lead to; the map uses it.
+- `index.html`: a lifecycle map (one band per loop, one column per status, with
+  the actions available in each) generated from both machines, plus a simulator with nested subtasks. Open it next to `machine.js`.
 - `machine.test.js`, `pr-machine.test.js`: run with `node --test`.

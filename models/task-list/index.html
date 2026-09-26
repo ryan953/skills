@@ -69,7 +69,7 @@
     font: 15px/1.55 "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   }
   .wrap {
-    max-width: 980px;
+    max-width: 1180px;
     margin: 0 auto;
     padding-inline: 20px;
     padding-block: 40px 64px;
@@ -98,48 +98,73 @@
 
   /* Diagram */
   figure { margin: 0; display: grid; gap: 10px; }
-  .diagram-scroll {
-    overflow-x: auto;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px;
-  }
-  .diagram-scroll svg { display: block; width: 100%; min-width: 900px; height: auto; color: var(--ink); }
   figcaption { color: var(--muted); font-size: 13.5px; max-width: 72ch; }
-  .node rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
-  .node text { fill: currentColor; font: 600 14px "Instrument Sans", system-ui, sans-serif; }
-  .node .sub { fill: var(--muted); font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; }
-  .node.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
-  .node.is-current.is-waiting rect { fill: var(--split-soft); stroke: var(--split); }
-  .node.is-current[data-state="in_review"] rect { fill: var(--review-soft); stroke: var(--review); }
-  .node.is-current[data-state="done"] rect { fill: var(--done-soft); stroke: var(--done); }
-  .edge .wire { fill: none; stroke: var(--line-strong); stroke-width: 1.5; transition: stroke .2s; }
-  .edge.spawn .wire { stroke-dasharray: 5 4; }
-  .edge text { fill: currentColor; font: 500 11.5px "JetBrains Mono", ui-monospace, monospace; }
-  .edge .actor { fill: var(--muted); font: 400 10.5px "Instrument Sans", system-ui, sans-serif; }
-  .edge .guard { fill: var(--split); font: 500 10.5px "Instrument Sans", system-ui, sans-serif; }
-  .edge.spawn text { fill: var(--muted); font: 400 11px "Instrument Sans", system-ui, sans-serif; }
-  .edge.is-last .wire { stroke: var(--accent); stroke-width: 2.25; }
-  .start-dot { fill: currentColor; }
-  .arrowhead { fill: var(--line-strong); }
-  .arrowhead-hot { fill: var(--accent); }
 
-  .pr-row rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; transition: fill .2s, stroke .2s; }
-  .pr-row text { fill: currentColor; font: 600 13.5px "Instrument Sans", system-ui, sans-serif; }
-  .pr-row .sub, .fact .sub { fill: var(--muted); font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; }
-  .pr-row .cond { fill: var(--muted); font: 400 11px "Instrument Sans", system-ui, sans-serif; }
-  .pr-row.is-current rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
-  .pr-row.is-current[data-status="ci_failed"] rect { fill: var(--bad-soft); stroke: var(--bad); }
-  .pr-row.is-current[data-status="has_feedback"] rect { fill: var(--split-soft); stroke: var(--split); }
-  .pr-row.is-current[data-status="closed"] rect { fill: var(--ground); stroke: var(--muted); }
-  .pr-row.is-current[data-status="accepted"] rect,
-  .pr-row.is-current[data-status="merged"] rect { fill: var(--done-soft); stroke: var(--done); }
-  .fact rect { fill: var(--ground); stroke: var(--line); stroke-width: 1; }
-  .fact text { fill: currentColor; font: 600 13px "Instrument Sans", system-ui, sans-serif; }
-  .fact .val { fill: var(--accent); font: 500 11.5px "JetBrains Mono", ui-monospace, monospace; }
-  .fact .ev { fill: var(--muted); font: 400 10.5px "Instrument Sans", system-ui, sans-serif; }
-  .wins { fill: var(--muted); font: 500 10.5px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+
+  /* Lifecycle map */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12.5px; color: var(--muted); }
+  .lg { display: inline-flex; align-items: center; gap: 6px; }
+  .lg::before { content: ""; width: 18px; height: 12px; border-radius: 3px; border: 1.5px solid var(--line-strong); background: var(--surface); }
+  .lg-create::before { border-style: dashed; border-color: var(--accent); }
+  .lg-stay::before { background: var(--ground); border-color: var(--line); }
+  .lg-auto::before { background: var(--ground); border-style: dotted; border-color: var(--ink); }
+  .map-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  .map { position: relative; min-width: 1060px; padding: 16px; display: grid; gap: 22px; }
+  .band { display: grid; gap: 8px; }
+  .band-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .band-name { font: 600 16px "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif; }
+  .cols { display: grid; gap: 10px; align-items: stretch; }
+  #cols-task { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  #cols-pr { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .col {
+    --tone: var(--line-strong);
+    display: flex; flex-direction: column; gap: 8px;
+    background: var(--ground);
+    border: 1px solid var(--line);
+    border-top: 4px solid var(--tone);
+    border-radius: 8px;
+    padding: 10px;
+    min-height: 280px;
+    transition: box-shadow .2s, border-color .2s;
+  }
+  .col.is-current { border-color: var(--tone); box-shadow: 0 0 0 1px var(--tone) inset; }
+  .col.is-target { box-shadow: 0 0 0 2px var(--tone); }
+  .col-head { display: grid; gap: 3px; }
+  .col-name { font-weight: 600; font-size: 15px; }
+  .col-key { font: 400 10.5px "JetBrains Mono", ui-monospace, monospace; color: var(--muted); }
+  .col-desc { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .entry { font: 500 10.5px "JetBrains Mono", ui-monospace, monospace; color: var(--accent); }
+  .tokens { display: flex; flex-wrap: wrap; gap: 4px; min-height: 4px; }
+  .token {
+    font: 500 10.5px/1.2 "JetBrains Mono", ui-monospace, monospace;
+    padding: 3px 6px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--tone); color: var(--ink); background: var(--surface);
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .token.is-selected { background: var(--tone); color: var(--surface); }
+  .cards { display: grid; gap: 6px; }
+  .card {
+    background: var(--surface);
+    border: 1.5px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 7px 8px;
+    display: grid; gap: 2px;
+    font-size: 12px; line-height: 1.35;
+    cursor: default;
+  }
+  .card:hover, .card:focus-visible { border-color: var(--accent); }
+  .card.kind-create { border-style: dashed; border-color: var(--accent); }
+  .card.kind-stay { background: var(--ground); border-color: var(--line); }
+  .card.kind-auto { background: var(--ground); border-style: dotted; border-color: var(--ink); }
+  .card-title { font-weight: 600; font-size: 12.5px; }
+  .card-who { color: var(--muted); font-size: 11px; }
+  .card-guard { color: var(--split); font-size: 11px; }
+  .card-to { font: 500 11px "JetBrains Mono", ui-monospace, monospace; color: var(--accent); overflow-wrap: anywhere; }
+  .card-new { font: 500 11px "JetBrains Mono", ui-monospace, monospace; color: var(--accent); }
+  .final-col { font-size: 12px; color: var(--muted); }
+  .links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .links path { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .links path.create { stroke-dasharray: 6 4; }
 
   /* Simulator */
   .sim {
@@ -236,209 +261,47 @@
   tr:last-child td { border-bottom: 0; }
 
   @media (prefers-reduced-motion: reduce) {
-    .node rect, .edge .wire { transition: none; }
   }
 </style>
 
 <main class="wrap">
   <header>
-    <div class="eyebrow">State machine · v6.1 · linked PRs</div>
+    <div class="eyebrow">State machine · v7 · map</div>
     <h1>Task Lifecycle</h1>
     <p class="lede">A person enters a task and it is todo. Someone reads it and starts it. Creating a PR moves it into review, and a task can have several PRs. When every linked PR is merged and every subtask is done, the task becomes done by itself. Closed PRs don't count. At any point before done, someone can decompose the task into subtasks: it becomes a parent and keeps its status.</p>
   </header>
 
-  <section aria-labelledby="diagram-h">
-    <h2 id="diagram-h">States and transitions</h2>
+  <section aria-labelledby="map-h">
+    <h2 id="map-h">Lifecycle map</h2>
+    <p class="lede" style="margin-top:0">Two loops, one band each. Every column is a status, and inside it are the things that can happen to something in that status. A card either moves it to another column, leaves it where it is, or creates something new: a subtask, which starts in Todo, or a PR, which starts in Awaiting review. Hover or focus a card to draw where it leads.</p>
+    <div class="legend" aria-hidden="true">
+      <span class="lg lg-move">moves to another status</span>
+      <span class="lg lg-create">creates a task or PR</span>
+      <span class="lg lg-stay">status unchanged</span>
+      <span class="lg lg-auto">automatic, nobody clicks it</span>
+    </div>
     <figure>
-      <div class="diagram-scroll">
-        <svg id="diagram" viewBox="0 -52 1100 328" role="img" aria-label="A human enters a task and it becomes Todo, then reads and starts it, moving it to In progress. Creating a PR moves it to In review, and more PRs can be linked while in review. When every linked PR is merged and every subtask is done, the task moves to Done automatically. A task with no PRs can be marked done by hand from In progress under the same condition. Closing the last open PR sends the task back to In progress if another PR merged, or to Todo if it was the only PR. In Todo, In progress or In review a human can decompose the task without changing its status; the new subtasks always start in Todo.">
-          <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-              <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
-            </marker>
-            <marker id="arrow-hot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-              <path class="arrowhead-hot" d="M0,0 L10,5 L0,10 z"></path>
-            </marker>
-          </defs>
-
-          <circle class="start-dot" cx="40" cy="75" r="8"></circle>
-
-          <g class="edge" data-edge="new:ENTER:todo">
-            <line class="wire" x1="50" y1="75" x2="148" y2="75" marker-end="url(#arrow)"></line>
-            <text x="100" y="62" text-anchor="middle">enter task</text>
-            <text class="actor" x="100" y="95" text-anchor="middle">human</text>
-          </g>
-          <g class="edge" data-edge="todo:START:in_progress">
-            <line class="wire" x1="290" y1="75" x2="408" y2="75" marker-end="url(#arrow)"></line>
-            <text x="350" y="62" text-anchor="middle">read &amp; start</text>
-            <text class="actor" x="350" y="95" text-anchor="middle">human</text>
-          </g>
-          <g class="edge" data-edge="in_progress:PR_CREATED:in_review">
-            <line class="wire" x1="550" y1="75" x2="668" y2="75" marker-end="url(#arrow)"></line>
-            <text x="610" y="62" text-anchor="middle">PR created</text>
-            <text class="actor" x="610" y="95" text-anchor="middle">via PR</text>
-          </g>
-          <g class="edge" data-edge="in_review:AUTO_DONE:done">
-            <line class="wire" x1="810" y1="75" x2="928" y2="75" marker-end="url(#arrow)"></line>
-            <text x="870" y="62" text-anchor="middle">all PRs merged</text>
-            <text class="actor" x="870" y="95" text-anchor="middle">automatic</text>
-            <text class="guard" x="870" y="124" text-anchor="middle">and no incomplete subtasks</text>
-          </g>
-          <g class="edge" data-edge="in_progress:COMPLETE:done">
-            <polyline class="wire" points="480,47 480,-28 1000,-28 1000,45" marker-end="url(#arrow)"></polyline>
-            <text x="600" y="-36" text-anchor="middle">mark done</text>
-            <text class="actor" x="600" y="-12" text-anchor="middle">human · task has no open PRs or subtasks</text>
-          </g>
-          <g class="edge" data-edge="in_review:PR_CREATED:in_review in_review:PR_CLOSED:in_review">
-            <path class="wire" d="M715,47 C715,6 755,6 755,44" marker-end="url(#arrow)"></path>
-            <text x="767" y="14">another PR created</text>
-            <text class="actor" x="767" y="28">or one closed · others open</text>
-          </g>
-          <g class="edge" data-edge="todo:DECOMPOSE:todo spawn:todo">
-            <path class="wire" d="M175,103 C175,145 215,145 215,106" marker-end="url(#arrow)"></path>
-            <text x="195" y="160" text-anchor="middle">decompose</text>
-          </g>
-          <g class="edge" data-edge="in_progress:DECOMPOSE:in_progress">
-            <path class="wire" d="M450,103 C450,145 490,145 490,106" marker-end="url(#arrow)"></path>
-            <text x="470" y="160" text-anchor="middle">decompose</text>
-          </g>
-          <g class="edge" data-edge="in_review:DECOMPOSE:in_review">
-            <path class="wire" d="M715,103 C715,145 755,145 755,106" marker-end="url(#arrow)"></path>
-            <text x="735" y="160" text-anchor="middle">decompose</text>
-          </g>
-
-          <g class="edge spawn" data-edge="spawn:in_progress">
-            <polyline class="wire" points="425,103 425,180 275,180 275,106" marker-end="url(#arrow)"></polyline>
-            <text x="350" y="196" text-anchor="middle">new subtasks</text>
-          </g>
-          <g class="edge" data-edge="in_review:PR_CLOSED:in_progress">
-            <polyline class="wire" points="685,103 685,180 535,180 535,106" marker-end="url(#arrow)"></polyline>
-            <text x="610" y="196" text-anchor="middle">last open PR closed · another merged</text>
-          </g>
-          <g class="edge spawn" data-edge="spawn:in_review">
-            <polyline class="wire" points="780,103 780,215 260,215 260,106" marker-end="url(#arrow)"></polyline>
-            <text x="520" y="231" text-anchor="middle">new subtasks</text>
-          </g>
-          <g class="edge" data-edge="in_review:PR_CLOSED:todo">
-            <polyline class="wire" points="795,103 795,250 245,250 245,106" marker-end="url(#arrow)"></polyline>
-            <text x="520" y="266" text-anchor="middle">only PR closed · via PR</text>
-          </g>
-
-          <g class="node" data-state="todo">
-            <rect x="150" y="47" width="140" height="56" rx="8"></rect>
-            <text x="220" y="72" text-anchor="middle">Todo</text>
-            <text class="sub" x="220" y="90" text-anchor="middle">todo</text>
-          </g>
-          <g class="node" data-state="in_progress">
-            <rect x="410" y="47" width="140" height="56" rx="8"></rect>
-            <text x="480" y="72" text-anchor="middle">In progress</text>
-            <text class="sub" x="480" y="90" text-anchor="middle">in_progress</text>
-          </g>
-          <g class="node" data-state="in_review">
-            <rect x="670" y="47" width="140" height="56" rx="8"></rect>
-            <text x="740" y="72" text-anchor="middle">In review</text>
-            <text class="sub" x="740" y="90" text-anchor="middle">in_review · PRs open</text>
-          </g>
-          <g class="node" data-state="done">
-            <rect x="930" y="47" width="140" height="56" rx="8"></rect>
-            <rect x="934" y="51" width="132" height="48" rx="6" fill="none"></rect>
-            <text x="1000" y="72" text-anchor="middle">Done</text>
-            <text class="sub" x="1000" y="90" text-anchor="middle">done · final</text>
-          </g>
-        </svg>
+      <div class="map-scroll">
+        <div class="map" id="map">
+          <div class="band" id="band-task">
+            <div class="band-head"><span class="band-name">Task</span><span class="note">each task, including subtasks</span></div>
+            <div class="cols" id="cols-task"></div>
+          </div>
+          <div class="band" id="band-pr">
+            <div class="band-head"><span class="band-name">PR</span><span class="note">each linked PR, author's view · status is the first match of CI failed, has feedback, accepted, awaiting review</span></div>
+            <div class="cols" id="cols-pr"></div>
+          </div>
+          <svg class="links" id="links" aria-hidden="true">
+            <defs>
+              <marker id="link-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="context-stroke"></path>
+              </marker>
+            </defs>
+            <g id="links-g"></g>
+          </svg>
+        </div>
       </div>
-      <figcaption>Humans move a task to in progress. After that, PRs drive it. The first PR created puts it in review, and more can be linked there. When the last linked PR merges and every subtask is done, the task becomes done by itself, and that can finish its parent in turn. Closed PRs are ignored. Closing the last open PR steps the task back: to in progress if another PR already merged, or to todo if it was the only one. The arc over the top is for tasks that never get a PR, like a parent that only groups subtasks. Decompose loops back onto the parent's own status, because the parent doesn't move. The dashed lines are the new subtasks: whatever status the parent is in, its subtasks start in todo. Select a task below: its status turns amber while its subtasks are open, and the arrow it last took turns blue.</figcaption>
-    </figure>
-  </section>
-
-  <section aria-labelledby="pr-h">
-    <h2 id="pr-h">Inside In review: the PR</h2>
-    <p class="lede" style="margin-top:0">While a task is in review, each of its PRs runs a machine of its own, seen from the author's side. The PR keeps three facts, and its status is read from them in priority order. That is why fixing CI and addressing every comment lands the PR back on awaiting review, or on accepted if a reviewer already accepted it.</p>
-    <figure>
-      <p class="note" id="pr-shown">select a task with a PR</p>
-      <div class="diagram-scroll">
-        <svg id="pr-diagram" viewBox="0 0 860 296" role="img" aria-label="The PR keeps three facts: the CI result, the number of unresolved comments, and whether it was marked accepted. Its status is the first match of: CI failed, has feedback, accepted, otherwise awaiting review. Only an accepted PR can merge. A PR can be closed from any status, and the task ignores closed PRs.">
-          <defs>
-            <marker id="pr-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-              <path class="arrowhead" d="M0,0 L10,5 L0,10 z"></path>
-            </marker>
-          </defs>
-          <text class="wins" x="470" y="18" text-anchor="middle">status · first match wins</text>
-          <g class="fact">
-            <rect x="20" y="26" width="230" height="64" rx="7"></rect>
-            <text x="34" y="50">CI result</text>
-            <text class="val" id="fact-ci" x="236" y="50" text-anchor="end">—</text>
-            <text class="ev" x="34" y="72">CI passes · CI fails</text>
-          </g>
-          <g class="fact">
-            <rect x="20" y="116" width="230" height="64" rx="7"></rect>
-            <text x="34" y="140">Unresolved comments</text>
-            <text class="val" id="fact-comments" x="236" y="140" text-anchor="end">—</text>
-            <text class="ev" x="34" y="162">comment added · comment addressed</text>
-          </g>
-          <g class="fact">
-            <rect x="20" y="206" width="230" height="64" rx="7"></rect>
-            <text x="34" y="230">Accepted</text>
-            <text class="val" id="fact-accepted" x="236" y="230" text-anchor="end">—</text>
-            <text class="ev" x="34" y="252">reviewer marks accepted</text>
-          </g>
-          <g class="edge">
-            <line class="wire" x1="250" y1="58" x2="328" y2="55" marker-end="url(#pr-arrow)"></line>
-            <line class="wire" x1="250" y1="148" x2="328" y2="120" marker-end="url(#pr-arrow)"></line>
-            <line class="wire" x1="250" y1="238" x2="328" y2="185" marker-end="url(#pr-arrow)"></line>
-          </g>
-          <g class="pr-row" data-status="ci_failed">
-            <rect x="330" y="30" width="280" height="50" rx="7"></rect>
-            <text x="346" y="52">CI failed</text>
-            <text class="sub" x="346" y="68">ci_failed</text>
-            <text class="cond" x="596" y="60" text-anchor="end">if CI failed</text>
-          </g>
-          <g class="pr-row" data-status="has_feedback">
-            <rect x="330" y="95" width="280" height="50" rx="7"></rect>
-            <text x="346" y="117">Has feedback</text>
-            <text class="sub" x="346" y="133">has_feedback</text>
-            <text class="cond" x="596" y="125" text-anchor="end">else if any unresolved</text>
-          </g>
-          <g class="pr-row" data-status="accepted">
-            <rect x="330" y="160" width="280" height="50" rx="7"></rect>
-            <text x="346" y="182">Accepted</text>
-            <text class="sub" x="346" y="198">accepted</text>
-            <text class="cond" x="596" y="190" text-anchor="end">else if accepted</text>
-          </g>
-          <g class="pr-row" data-status="awaiting_review">
-            <rect x="330" y="225" width="280" height="50" rx="7"></rect>
-            <text x="346" y="247">Awaiting review</text>
-            <text class="sub" x="346" y="263">awaiting_review</text>
-            <text class="cond" x="596" y="255" text-anchor="end">otherwise</text>
-          </g>
-          <g class="edge">
-            <line class="wire" x1="610" y1="185" x2="688" y2="185" marker-end="url(#pr-arrow)"></line>
-            <text x="649" y="177" text-anchor="middle">merge PR</text>
-            <text class="actor" x="649" y="199" text-anchor="middle">author</text>
-          </g>
-          <g class="pr-row" data-status="merged">
-            <rect x="690" y="157" width="150" height="56" rx="8"></rect>
-            <rect x="694" y="161" width="142" height="48" rx="6" fill="none"></rect>
-            <text x="765" y="182" text-anchor="middle">Merged</text>
-            <text class="sub" x="765" y="200" text-anchor="middle">counts toward done</text>
-          </g>
-          <g class="edge">
-            <polyline class="wire" points="620,30 620,258 688,258" marker-end="url(#pr-arrow)"></polyline>
-            <line class="wire" x1="610" y1="55" x2="620" y2="55"></line>
-            <line class="wire" x1="610" y1="120" x2="620" y2="120"></line>
-            <line class="wire" x1="610" y1="250" x2="620" y2="250"></line>
-            <text x="654" y="250" text-anchor="middle">close PR</text>
-            <text class="actor" x="654" y="274" text-anchor="middle">any status</text>
-          </g>
-          <g class="pr-row" data-status="closed">
-            <rect x="690" y="230" width="150" height="56" rx="8"></rect>
-            <rect x="694" y="234" width="142" height="48" rx="6" fill="none"></rect>
-            <text x="765" y="255" text-anchor="middle">Closed</text>
-            <text class="sub" x="765" y="273" text-anchor="middle">ignored by the task</text>
-          </g>
-        </svg>
-      </div>
-      <figcaption>Left, the facts that events change. Middle, the status those facts produce: checked top to bottom, and the first row that matches is the status. CI and feedback sit above accepted, so they win over it, and accepted takes the place of awaiting review. A new PR starts with CI pending, no comments and not accepted, which is awaiting review. Only an accepted PR can merge. A task can have several PRs, and it waits for all of them. Select a task in review below to see one of its PRs here; click a PR line to switch.</figcaption>
+      <figcaption>The cards are generated from <code>machine.js</code> and <code>pr-machine.js</code>, so the map can't drift from the rules. PR cards were found by trying every event on every combination of CI result, comments and acceptance. That is why fixing CI in CI failed can land on three different columns: the PR takes the first status that still matches. The chips under each column heading are the example tasks and PRs from the simulator below; click one to select it.</figcaption>
     </figure>
   </section>
 
@@ -478,8 +341,6 @@
 (function () {
   const M = window.TaskMachine;
   const P = window.PrMachine;
-  const svg = document.getElementById('diagram');
-  const prSvg = document.getElementById('pr-diagram');
   const tasksEl = document.getElementById('tasks');
   const logEl = document.getElementById('log');
   const form = document.getElementById('new-task');
@@ -711,27 +572,186 @@
       return li;
     }));
 
-    const sel = byId[selectedId];
-    const pr = sel && selectedPr && sel.prs.includes(selectedPr) ? prById[selectedPr] : null;
-    const status = pr ? P.status(pr.facts) : null;
-    prSvg.querySelectorAll('.pr-row').forEach(r => r.classList.toggle('is-current', r.dataset.status === status));
-    document.getElementById('pr-shown').textContent = pr ? `showing PR ${pr.id} · task #${sel.id}` : 'select a task with a PR';
-    document.getElementById('fact-ci').textContent = pr ? pr.facts.ci : '—';
-    document.getElementById('fact-comments').textContent = pr ? String(pr.facts.openComments) : '—';
-    document.getElementById('fact-accepted').textContent = pr ? (pr.facts.accepted ? 'yes' : 'no') : '—';
+    renderMap();
+  }
 
-    const waiting = !!sel && M.hasIncompleteChildren(ctxFor(sel));
-    svg.querySelectorAll('.node').forEach(n => {
-      const current = !!sel && n.dataset.state === sel.state;
-      n.classList.toggle('is-current', current);
-      n.classList.toggle('is-waiting', current && waiting);
-    });
-    svg.querySelectorAll('.edge').forEach(g => {
-      const hot = !!sel && g.dataset.edge.split(' ').includes(sel.lastEdge);
-      g.classList.toggle('is-last', hot);
-      g.querySelectorAll('.wire[marker-end]').forEach(w => w.setAttribute('marker-end', hot ? 'url(#arrow-hot)' : 'url(#arrow)'));
+  // ---- Lifecycle map: built from the two machines, refreshed on every render ----
+  const mapEl = document.getElementById('map');
+  const linksG = document.getElementById('links-g');
+  const tone = {
+    'task:todo': '--line-strong', 'task:in_progress': '--accent', 'task:in_review': '--review', 'task:done': '--done',
+    'pr:awaiting_review': '--line-strong', 'pr:ci_failed': '--bad', 'pr:has_feedback': '--split',
+    'pr:accepted': '--done', 'pr:merged': '--done', 'pr:closed': '--muted',
+  };
+  const who = a => ({pr: 'PR event', auto: 'automatic', ci: 'CI'})[a] ?? a;
+  const colName = key => {
+    const [band, s] = key.split(':');
+    return band === 'task' ? M.states[s].label : P.statuses[s].label;
+  };
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+
+  function card({kind, title, whoText, guard, to = [], creates, stayText}) {
+    const c = el('div', `card kind-${kind}`);
+    c.tabIndex = 0;
+    c.dataset.to = to.join(' ');
+    if (creates) c.dataset.creates = creates;
+    c.append(el('div', 'card-title', title));
+    if (whoText) c.append(el('div', 'card-who', whoText));
+    if (guard) c.append(el('div', 'card-guard', `only if ${guard}`));
+    if (to.length) c.append(el('div', 'card-to', `→ ${to.length > 2 ? 'first match: ' : ''}${to.map(colName).join(to.length > 2 ? ', ' : ' or ')}`));
+    if (stayText) c.append(el('div', 'card-to', stayText));
+    if (creates) c.append(el('div', 'card-new', creates === 'task:todo' ? '+ new subtasks → Todo' : '+ new PR → Awaiting review'));
+    ['mouseenter', 'focus'].forEach(ev => c.addEventListener(ev, () => drawLinks(c)));
+    ['mouseleave', 'blur'].forEach(ev => c.addEventListener(ev, clearLinks));
+    return c;
+  }
+
+  function column(key, name, desc, cards, extra) {
+    const col = el('div', 'col');
+    col.dataset.col = key;
+    col.style.setProperty('--tone', `var(${tone[key]})`);
+    const head = el('div', 'col-head');
+    head.append(el('div', 'col-name', name), el('div', 'col-key', key.split(':')[1]));
+    if (desc) head.append(el('div', 'col-desc', desc));
+    if (extra) head.append(el('div', 'entry', extra));
+    const tokens = el('div', 'tokens');
+    tokens.dataset.tokens = key;
+    const list = el('div', 'cards');
+    list.append(...cards);
+    col.append(head, tokens, list);
+    return col;
+  }
+
+  function buildMap() {
+    // Task band: one column per status, cards straight from M.available().
+    document.getElementById('cols-task').replaceChildren(...Object.entries(M.states).map(([s, def]) => {
+      const cards = M.available(s).map(t => {
+        const creates = t.creates === 'task' ? 'task:todo' : t.creates === 'pr' ? 'pr:awaiting_review' : null;
+        const moves = t.to !== s;
+        return card({
+          kind: t.actor === 'auto' ? 'auto' : creates ? 'create' : moves ? 'move' : 'stay',
+          title: t.button ?? t.label[0].toUpperCase() + t.label.slice(1),
+          whoText: who(t.actor),
+          guard: t.guardLabel,
+          to: moves ? [`task:${t.to}`] : [],
+          stayText: moves ? null : `stays ${def.label}`,
+          creates,
+        });
+      });
+      if (!cards.length) cards.push(el('div', 'final-col', 'Final. Nothing can happen to a done task.'));
+      return column(`task:${s}`, def.label, def.description, cards, s === 'todo' ? 'new tasks and subtasks start here' : null);
+    }));
+
+    // PR band: status columns from P.outcomes(), plus the two final ones.
+    const outcomes = P.outcomes();
+    const order = ['awaiting_review', 'ci_failed', 'has_feedback', 'accepted', 'merged', 'closed'];
+    document.getElementById('cols-pr').replaceChildren(...order.map(s => {
+      const cards = [];
+      const stays = [];
+      Object.entries(outcomes[s] ?? {}).forEach(([event, targets]) => {
+        const e = P.events[event];
+        const leaves = targets.filter(t => t !== s);
+        if (!leaves.length) { stays.push(e.label); return; }
+        cards.push(card({
+          kind: 'move',
+          title: e.label,
+          whoText: who(e.actor) + (targets.includes(s) ? ` · may stay ${P.statuses[s].label}` : ''),
+          to: leaves.map(t => `pr:${t}`),
+        }));
+      });
+      if (stays.length) cards.push(card({kind: 'stay', title: 'Status unchanged', stayText: stays.join(' · ')}));
+      if (s === 'merged') {
+        cards.push(el('div', 'final-col', 'Final.'));
+        cards.push(card({kind: 'auto', title: 'Task checks for done', whoText: 'automatic, on the task', guard: M.transitions.find(t => t.event === 'AUTO_DONE').guardLabel, to: ['task:done']}));
+      }
+      if (s === 'closed') {
+        cards.push(el('div', 'final-col', 'Final. Ignored by the task.'));
+        cards.push(card({kind: 'auto', title: 'Task steps back', whoText: 'PR event, on the task', guard: 'no open PRs are left', to: ['task:in_progress', 'task:todo']}));
+      }
+      const descs = {
+        awaiting_review: 'Nothing failing, nothing to answer, not yet accepted.',
+        ci_failed: 'The latest CI run failed. Outranks everything else.',
+        has_feedback: 'At least one review comment is unresolved.',
+        accepted: 'A reviewer accepted it, CI isn\'t failing, no open comments.',
+        merged: 'Counts toward the task being done.',
+        closed: 'Closed without merging.',
+      };
+      return column(`pr:${s}`, P.statuses[s].label, descs[s], cards, s === 'awaiting_review' ? 'new PRs start here' : null);
+    }));
+  }
+
+  function clearLinks() {
+    linksG.replaceChildren();
+    mapEl.querySelectorAll('.col.is-target').forEach(c => c.classList.remove('is-target'));
+  }
+
+  function drawLinks(cardEl) {
+    clearLinks();
+    const base = mapEl.getBoundingClientRect();
+    const r = cardEl.getBoundingClientRect();
+    const targets = [
+      ...cardEl.dataset.to.split(' ').filter(Boolean).map(k => ({k, create: false})),
+      ...(cardEl.dataset.creates ? [{k: cardEl.dataset.creates, create: true}] : []),
+    ];
+    targets.forEach(({k, create}) => {
+      const col = mapEl.querySelector(`.col[data-col="${k}"]`);
+      col.classList.add('is-target');
+      const head = col.querySelector('.col-head').getBoundingClientRect();
+      const sameBand = col.closest('.band') === cardEl.closest('.band');
+      let x1, y1, x2, y2, c1, c2;
+      if (sameBand) {
+        const right = head.left > r.right;
+        x1 = (right ? r.right : r.left) - base.left;
+        y1 = r.top + r.height / 2 - base.top;
+        const top = col.getBoundingClientRect().top;
+        x2 = (right ? head.left + 24 : head.right - 24) - base.left;
+        y2 = top - 3 - base.top;
+        const dx = (right ? 1 : -1) * Math.max(30, Math.abs(x2 - x1) / 4);
+        c1 = [x1 + dx, y1];
+        c2 = [x2, y2 - 40];
+      } else {
+        const down = head.top > r.bottom;
+        x1 = r.left + r.width / 2 - base.left;
+        y1 = (down ? r.bottom : r.top) - base.top;
+        x2 = head.left + head.width / 2 - base.left;
+        y2 = (down ? head.top - 4 : head.bottom + 4) - base.top;
+        c1 = [x1, y1 + (down ? 60 : -60)];
+        c2 = [x2, y2 + (down ? -60 : 60)];
+      }
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', `M${x1},${y1} C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${x2},${y2}`);
+      path.setAttribute('marker-end', 'url(#link-arrow)');
+      if (create) path.setAttribute('class', 'create');
+      linksG.append(path);
     });
   }
+
+  function renderMap() {
+    const sel = byId[selectedId];
+    const pr = sel && selectedPr && sel.prs.includes(selectedPr) ? prById[selectedPr] : null;
+    const current = new Set([sel && `task:${sel.state}`, pr && `pr:${P.status(pr.facts)}`]);
+    mapEl.querySelectorAll('.col').forEach(c => c.classList.toggle('is-current', current.has(c.dataset.col)));
+    mapEl.querySelectorAll('.tokens').forEach(box => {
+      const [band, s] = box.dataset.tokens.split(':');
+      const items = band === 'task'
+        ? Object.values(byId).filter(t => t.state === s).map(t => ({text: `#${t.id} ${t.title.replace(/^Example: /, '')}`, on: t.id === selectedId, pick: () => select(t.id)}))
+        : Object.values(prById).filter(p => P.status(p.facts) === s).map(p => ({text: `PR ${p.id} · #${p.taskId}`, on: pr && p.id === pr.id, pick: () => select(p.taskId, p.id)}));
+      box.replaceChildren(...items.map(i => {
+        const b = el('button', 'token' + (i.on ? ' is-selected' : ''), i.text);
+        b.type = 'button';
+        b.title = i.text;
+        b.addEventListener('click', i.pick);
+        return b;
+      }));
+    });
+  }
+
+  buildMap();
 
   form.addEventListener('submit', e => {
     e.preventDefault();
@@ -742,7 +762,6 @@
     select(task.id);
   });
 
-  const who = a => ({pr: 'PR event', auto: 'automatic'})[a] ?? a;
   const rows = [
     ...M.transitions.map(t => [t.event, t.from ?? '∅ (new)', t.to, t.guardLabel ?? '—', who(t.actor)]),
     ...M.actions.map(a => [a.event, a.states.join(', '), 'unchanged', a.guardLabel ?? '—', who(a.actor)]),

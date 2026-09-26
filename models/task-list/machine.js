@@ -52,7 +52,7 @@
   const transitions = [
     {event: 'ENTER', from: null, to: 'todo', actor: 'human', label: 'enter task', button: 'Save task'},
     {event: 'START', from: 'todo', to: 'in_progress', actor: 'human', label: 'read & start', button: 'Read & start'},
-    {event: 'PR_CREATED', from: 'in_progress', to: 'in_review', actor: 'pr', label: 'PR created', button: 'Create PR'},
+    {event: 'PR_CREATED', from: 'in_progress', to: 'in_review', actor: 'pr', label: 'PR created', button: 'Create PR', creates: 'pr'},
     {
       event: 'AUTO_DONE',
       from: 'in_review',
@@ -96,6 +96,8 @@
   ];
 
   // Actions taken against a task that leave its status unchanged.
+  // `creates` names the new entity an event makes: 'task' (starts in todo) or 'pr'
+  // (starts in the PR machine's first status).
   // DECOMPOSE gives the task subtasks, making it a parent. Each subtask is an
   // ordinary task, created with ENTER, running this same machine.
   const actions = [
@@ -105,6 +107,7 @@
       actor: 'human',
       label: 'decompose',
       button: 'Decompose',
+      creates: 'task',
       guard: ctx => (ctx.newSubtasks ?? 0) > 0,
       guardLabel: 'at least one new subtask',
     },
@@ -115,6 +118,7 @@
       actor: 'pr',
       label: 'another PR created',
       button: 'Create another PR',
+      creates: 'pr',
     },
     {
       event: 'PR_CLOSED',
