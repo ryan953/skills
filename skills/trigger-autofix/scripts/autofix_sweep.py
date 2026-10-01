@@ -47,8 +47,9 @@ TERMINAL_STATUSES = {"completed", "error", "cancelled", "need_more_information"}
 
 
 class SentryClient:
-    def __init__(self, token: str, host: str = DEFAULT_HOST) -> None:
+    def __init__(self, token: str, org: str, host: str = DEFAULT_HOST) -> None:
         self.token = token
+        self.org = org
         self.host = host.rstrip("/")
 
     def _request(self, method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
@@ -106,11 +107,13 @@ class SentryClient:
             raise RuntimeError(f"resolve_issue_id failed for {short_id} ({status}): {payload}")
         return payload[0]["id"]
 
+    def _autofix_path(self, issue_id: str) -> str:
+        # The org slug lets sentry.io route the request to the issue's cell; the
+        # legacy /api/0/issues/{id}/ form 404s there.
+        return f"/api/0/organizations/{self.org}/issues/{issue_id}/autofix/"
+
     def get_autofix_state(self, issue_id: str) -> dict | None:
-        status, payload = self._request("GET", f"/api/0/issues/{issue_id}/autofix/")
-        if status == 404:
-            # No autofix run exists yet for this issue; not an error.
-            return None
+        status, payload = self._request("GET", self._autofix_path(issue_id))
         if status != 200:
             raise RuntimeError(f"get_autofix_state failed ({status}): {payload}")
         return payload.get("autofix")
@@ -118,7 +121,7 @@ class SentryClient:
     def trigger_autofix(self, issue_id: str, stopping_point: str) -> tuple[int, dict]:
         return self._request(
             "POST",
-            f"/api/0/issues/{issue_id}/autofix/",
+            self._autofix_path(issue_id),
             {"stopping_point": stopping_point, "referrer": "autofix_issue_sweep"},
         )
 
@@ -220,7 +223,7 @@ def main() -> int:
         print("ERROR: provide --query or --issues.", file=sys.stderr)
         return 2
 
-    client = SentryClient(args.token, args.host)
+    client = SentryClient(args.token, args.org, args.host)
 
     if args.issues:
         # Autofix endpoints key on the numeric group id, so resolve short ids first.

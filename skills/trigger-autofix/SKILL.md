@@ -106,10 +106,15 @@ consolidation before merge. Group the results table by file to make this obvious
 ## API reference (what the script calls)
 
 - List issues: `GET /api/0/organizations/{org}/issues/?query=&project=&statsPeriod=&sort=&limit=`
-- Trigger autofix: `POST /api/0/issues/{short_id}/autofix/` with
+- Trigger autofix: `POST /api/0/organizations/{org}/issues/{issue_id}/autofix/` with
   `{"stopping_point": "open_pr"}` — `stopping_point` forces the run to start at
   root_cause and proceed automatically to that point.
-- Read state: `GET /api/0/issues/{short_id}/autofix/` → `autofix.status`,
-  `autofix.repo_pr_states` (PR urls), `autofix.blocks`.
+- Read state: `GET /api/0/organizations/{org}/issues/{issue_id}/autofix/` →
+  `autofix.status`, `autofix.repo_pr_states` (PR urls), `autofix.blocks`.
+  `{"autofix": null}` means no run has started.
+
+Use the org-scoped paths. The legacy `/api/0/issues/{id}/autofix/` form returns 404
+on sentry.io for both GET and POST, because without the org slug the request can't
+be routed to the issue's cell.
 
 See `src/sentry/seer/endpoints/group_ai_autofix.py` for the endpoint definition.
