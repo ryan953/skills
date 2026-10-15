@@ -50,7 +50,8 @@ eq "sentry bot in sentry, my fixup"     yes "$(fixup_approval_ok 'sentry[bot]' g
 eq "dependabot in getsentry, my fixup"  yes "$(fixup_approval_ok 'dependabot[bot]' getsentry/relay 1)"
 eq "human author, my fixup"             no  "$(fixup_approval_ok scttcper getsentry/sentry 1)"
 eq "bot outside getsentry, my fixup"    no  "$(fixup_approval_ok 'renovate[bot]' ryan953/skills 1)"
-eq "unlisted bot, my fixup"             no  "$(fixup_approval_ok 'sentry-junior[bot]' getsentry/sentry 1)"
+eq "sentry-junior in sentry, my fixup"  yes "$(fixup_approval_ok 'sentry-junior[bot]' getsentry/sentry 1)"
+eq "unlisted bot, my fixup"             no  "$(fixup_approval_ok 'codecov[bot]' getsentry/sentry 1)"
 eq "bare login is not the App"          no  "$(fixup_approval_ok sentry getsentry/sentry 1)"
 
 echo "next_step <state> <class> <approved> <auto_on>"

@@ -59,7 +59,7 @@ classify_author() {
 # Approving a PR that carries my own commits is only allowed for a known bot in a
 # getsentry repo. The check lives here rather than in the question text, because
 # the question is written by the agent and can't vouch for who authored the PR.
-FIXUP_BOTS="sentry[bot] dependabot[bot] renovate[bot] github-actions[bot]"
+FIXUP_BOTS="sentry[bot] sentry-junior[bot] dependabot[bot] renovate[bot] github-actions[bot]"
 fixup_approval_ok() {
     local author="$1" repo="$2" mine="$3" b
     [ "$mine" -eq 0 ] && { printf 'yes'; return; }
