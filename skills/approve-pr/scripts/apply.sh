@@ -67,6 +67,8 @@ did() { if [ "$DRY" = yes ]; then printf 'would'; else printf 'yes'; fi; }
 FACTS="$("$HERE/pr-facts.sh" ${FACT_ARGS[0]+"${FACT_ARGS[@]}"})" || exit 1
 eval "$FACTS"
 [ "$NEXT" = stop ] && die "$STOP_REASON"
+[ "$(fixup_approval_ok "$AUTHOR" "$REPO" "$MY_COMMITS")" = yes ] \
+    || die "PR has $MY_COMMITS commit(s) from you, and $AUTHOR in $REPO is not an allowlisted bot PR in getsentry; review and approve it by hand."
 case "$HEAD_SHA" in
     "$EXPECTED_HEAD"*) ;;
     *) die "PR head moved from ${EXPECTED_HEAD} to ${HEAD_SHA:0:8} since the question was asked; run /approve-pr again." ;;

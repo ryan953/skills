@@ -54,6 +54,22 @@ classify_author() {
     printf 'other'
 }
 
+# fixup_approval_ok <author> <repo> <my_commits> -> yes | no
+#
+# Approving a PR that carries my own commits is only allowed for a known bot in a
+# getsentry repo. The check lives here rather than in the question text, because
+# the question is written by the agent and can't vouch for who authored the PR.
+FIXUP_BOTS="sentry[bot] dependabot[bot] renovate[bot] github-actions[bot]"
+fixup_approval_ok() {
+    local author="$1" repo="$2" mine="$3" b
+    [ "$mine" -eq 0 ] && { printf 'yes'; return; }
+    case "$repo" in getsentry/*) ;; *) printf 'no'; return ;; esac
+    for b in $FIXUP_BOTS; do
+        [ "$author" = "$b" ] && { printf 'yes'; return; }
+    done
+    printf 'no'
+}
+
 # next_step <pr_state> <class> <my_approval> <auto_merge_on> -> stop | done | ask | apply
 #
 # An existing approval only drops the comment question: a bot PR still needs its

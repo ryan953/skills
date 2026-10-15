@@ -52,11 +52,15 @@ BODY
   heredoc. `Approve with LGTM` posts `LGTM`. If my "Other" text declines the
   approval instead of giving a comment, stop without running `apply.sh`.
 - `--merge`: `now` for Merge now, `auto` for Enable automerge, `none` for Not now
-  or when the merge was not asked. If my comment sets a condition or a hold
-  ("don't merge until…"), use `none` whatever I picked for the merge.
+  or when the merge was not asked. If my typed comment is anything other than a
+  plain approval (a condition, a hold, a reservation, or unclear), use `none`
+  whatever I picked for the merge.
 - `--expected-head`: the head shown in the question. If the PR moved since,
   `apply.sh` stops; show its error, do nothing else.
-- Keep the body as an inline heredoc in this same command, never a file or variable.
+- Run it as one command on its own: the body as an inline heredoc, never a file or
+  variable; no env-var prefix; nothing chained before or after it.
+- If `apply.sh` refuses because the PR has my commits and is not an allowlisted
+  bot PR in getsentry, show that and stop: that PR needs a review by hand.
 
 `apply.sh` re-reads the PR, approves only if I have not, marks a bot draft ready,
 adds the getsentry label in sentry, then merges. If it fails before printing
