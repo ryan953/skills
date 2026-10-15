@@ -49,12 +49,13 @@ BODY
 
 - The comment is exactly what I wrote: no fixes, additions, or signature. For
   `Approve, no comment`, or when `ASK_COMMENT=no`, leave out `--body-file` and the
-  heredoc. `Approve with LGTM` posts `LGTM`. If my "Other" text declines the
-  approval instead of giving a comment, stop without running `apply.sh`.
+  heredoc. `Approve with LGTM` posts exactly `LGTM`. If my "Other" text declines
+  the approval or makes it conditional ("approve if…", "approve once…"), it is not
+  an approval: stop without running `apply.sh`.
 - `--merge`: `now` for Merge now, `auto` for Enable automerge, `none` for Not now
-  or when the merge was not asked. If my typed comment is anything other than a
-  plain approval (a condition, a hold, a reservation, or unclear), use `none`
-  whatever I picked for the merge.
+  or when the merge was not asked. If my typed comment approves but holds the
+  merge or adds a reservation ("don't merge until…", "double-check X"), or is
+  unclear, use `none` whatever I picked for the merge.
 - `--expected-head`: the head shown in the question. If the PR moved since,
   `apply.sh` stops; show its error, do nothing else.
 - Run it as one command on its own: the body as an inline heredoc, never a file or
