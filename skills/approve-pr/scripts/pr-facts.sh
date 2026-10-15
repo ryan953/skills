@@ -133,7 +133,11 @@ emit PR_TITLE           "$(pr .title)"
 emit PR_URL             "$(pr .url)"
 emit PR_STATE           "$STATE"
 emit IS_DRAFT           "$(pr .isDraft)"
-emit AUTHOR             "$LOGIN"
+# GraphQL drops the `[bot]` suffix GitHub shows for App authors; put it back so
+# the PR line in the transcript says plainly that a bot wrote it.
+AUTHOR="$LOGIN"
+if [ "$(pr .author.__typename)" = Bot ] && [ "${LOGIN%\[bot\]}" = "$LOGIN" ]; then AUTHOR="${LOGIN}[bot]"; fi
+emit AUTHOR             "$AUTHOR"
 emit AUTHOR_CLASS       "$CLASS"
 emit MY_APPROVAL        "$MY_APPROVAL"
 emit MY_COMMITS         "$MY_COMMITS"

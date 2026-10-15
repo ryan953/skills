@@ -34,7 +34,7 @@ AskUserQuestion call holding every question that applies:
 
 | When | Header | Question | Options |
 |------|--------|----------|---------|
-| `ASK_COMMENT=yes` | `Comment` | "Comment to post with the approval?" — when `MY_COMMITS` > 0, instead: "Approve this bot PR, including your `<MY_COMMITS>` commit(s) on it? Comment to post:" | `No comment`, `LGTM` (I type my own through "Other") |
+| `ASK_COMMENT=yes` | `Comment` | "Comment to post with the approval?" — when `MY_COMMITS` > 0, instead: "Approve this bot PR, including your `<MY_COMMITS>` commit(s) on it? Comment to post:" | `Approve, no comment`, `Approve with LGTM` (I type my own comment through "Other") |
 | `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | `MERGE_OPTIONS` in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now" |
 
 If `ASK_COMMENT=no`, say "Already approved by you" above the question.
@@ -48,7 +48,9 @@ BODY
 ```
 
 - The comment is exactly what I wrote: no fixes, additions, or signature. For
-  `No comment`, or when `ASK_COMMENT=no`, leave out `--body-file` and the heredoc.
+  `Approve, no comment`, or when `ASK_COMMENT=no`, leave out `--body-file` and the
+  heredoc. `Approve with LGTM` posts `LGTM`. If my "Other" text declines the
+  approval instead of giving a comment, stop without running `apply.sh`.
 - `--merge`: `now` for Merge now, `auto` for Enable automerge, `none` for Not now
   or when the merge was not asked.
 
