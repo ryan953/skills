@@ -1,6 +1,6 @@
 ---
 name: approve-pr
-description: 'Approve a GitHub PR with gh, using a comment I write. For bot-authored PRs, also mark it ready, add the "Trigger: getsentry tests" label in getsentry/sentry, then ask whether to merge, enable automerge, or wait, showing CI state and unresolved review threads. Use when asked to "approve this PR", "approve #N", "approve <PR URL>", "LGTM this PR", "approve and merge", or "stamp this PR". Not for reviewing the code itself; use local-pr-review or deep-pr-review for that.'
+description: 'Approve a GitHub PR with my comment; for bot PRs, also add the getsentry tests label and offer merge or automerge. Use for "approve this PR", "approve #N", "LGTM this PR", or "approve and merge".'
 allowed-tools: Bash, AskUserQuestion
 ---
 
