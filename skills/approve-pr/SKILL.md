@@ -6,103 +6,84 @@ allowed-tools: Bash, AskUserQuestion
 
 # Approve PR
 
-Approve one PR. Ask for my comment first, and post it exactly as I wrote it.
-Bot PRs get extra follow-up steps; another human's PR is done after the approval.
+The scripts make every decision. Your job is to ask me the two questions, pass my
+comment through unchanged, and show what the scripts print. Do not re-derive
+their decisions or override them.
 
-## Step 1: Collect facts
+Run from inside the repo checkout, or pass `--repo owner/name`. `<pr>` is a number
+or URL; leave it out to use the current branch's PR. Each script prints eval-safe
+`KEY='value'` lines. If a script exits non-zero, show its error and stop.
 
-Run from inside the repo checkout, or pass `--repo`:
+## Step 1: Facts
 
 ```bash
-eval "$(scripts/pr-facts.sh [<pr-number-or-url>] [--repo owner/name])"
+eval "$(scripts/pr-facts.sh <pr> [--repo owner/name])"
 ```
 
-With no argument it uses the current branch's PR. The script is read-only. It sets:
+Show one line: `#<PR_NUMBER> <PR_TITLE> (<AUTHOR>, <AUTHOR_CLASS>)`. Then follow `NEXT`:
 
-| Key | Meaning |
-|-----|---------|
-| `REPO`, `PR_NUMBER`, `PR_TITLE`, `PR_URL`, `PR_STATE`, `IS_DRAFT` | the PR |
-| `AUTHOR`, `AUTHOR_CLASS` | `mine` \| `bot` \| `other` (another human) |
-| `MY_APPROVAL` | `yes` when my latest review is a standing approval |
-| `IS_SENTRY`, `TEST_LABEL`, `HAS_TEST_LABEL` | whether the getsentry label applies, and if it is already on |
-| `MERGE_STATE`, `MERGE_METHOD`, `AUTO_MERGE_ALLOWED`, `AUTO_MERGE_ON` | merge options |
-| `CI_STATE` | `green` \| `pending` \| `failing` \| `none` |
-| `CI_PASS`, `CI_FAIL`, `CI_PENDING`, `CI_SKIPPING`, `CI_FAILING` | check counts, and the names of failed checks |
-| `UNRESOLVED_THREADS`, `THREADS` | count, and one line per unresolved thread |
-
-If the script fails, show its error and stop. Do not guess the author class.
-
-Stop with a one-line reason when:
-
-- `PR_STATE` is not `OPEN`.
-- `AUTHOR_CLASS=mine`: GitHub does not let you approve your own PR.
-
-If `MY_APPROVAL=yes`, say "Already approved by you", skip steps 2 and 3, and
-continue at step 4. A second approval would only add a duplicate review, but a bot
-PR still needs its label and merge decision. For `AUTHOR_CLASS=other` that means
-there is nothing left to do.
+| `NEXT` | Do |
+|--------|----|
+| `stop` | Show `STOP_REASON` and stop. |
+| `done` | Show `STOP_REASON` and stop. |
+| `skip-comment` | Say "Already approved by you". Go to step 3 with no body. |
+| `ask-comment` | Go to step 2. |
 
 ## Step 2: Ask for the comment
 
-Show one line: `#<PR_NUMBER> <PR_TITLE> (<AUTHOR>, <AUTHOR_CLASS>)`. Then use
-AskUserQuestion with the options `No comment` and `LGTM`. I type my own comment
-through "Other".
+Use AskUserQuestion with the options `No comment` and `LGTM`. I type my own
+comment through "Other". Keep the text exactly as I wrote it: do not fix it,
+expand it, or add a signature.
 
-Post the text exactly as I wrote it. Do not fix it, expand it, or add a signature.
-
-## Step 3: Approve
+## Step 3: Approve, and the bot follow-through
 
 ```bash
-gh pr review "$PR_NUMBER" --repo "$REPO" --approve --body-file - <<'BODY'
+scripts/approve.sh <pr> [--repo owner/name] --body-file - <<'BODY'
 <my comment, verbatim>
 BODY
 ```
 
-For `No comment`, run `gh pr review "$PR_NUMBER" --repo "$REPO" --approve` with no body.
+For `No comment` or `skip-comment`, run it without `--body-file`. The script
+approves only when I have not approved yet, and for bot PRs it marks a draft
+ready and adds the getsentry label in sentry. It prints `APPROVED`, `READIED`,
+`LABEL_ADDED`, `NEXT`, and for bot PRs `RECOMMEND`, `MERGE_OPTIONS`, `SUMMARY`.
 
-If `AUTHOR_CLASS=other`, report the approval and stop.
+| `NEXT` | Do |
+|--------|----|
+| `done` | Go to Output. |
+| `automerge-on` | Show `SUMMARY`, say automerge is already on, go to Output. |
+| `ask-merge` | Go to step 4. |
 
-## Step 4: Bot PRs only
+## Step 4: Ask about the merge
 
-1. If `IS_DRAFT=true`, run `gh pr ready "$PR_NUMBER" --repo "$REPO"`. A draft
-   cannot merge, and the approval is what vouches for it.
-2. If `IS_SENTRY=yes` and `HAS_TEST_LABEL=no`, add the label:
-   ```bash
-   gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "$TEST_LABEL"
-   ```
-   Use the label name exactly as `TEST_LABEL` gives it. This queues new getsentry
-   checks, so after it CI counts as `pending`, whatever `CI_STATE` said.
-3. Write a short status in chat:
-   - CI: `CI_STATE` with the pass / fail / pending / skipping counts, plus
-     `CI_FAILING` when it is not empty. Never count `skipping` as passed.
-   - Review threads: `UNRESOLVED_THREADS`, then the `THREADS` lines as given.
-     Write "No unresolved review threads" when the count is 0.
-4. If `AUTO_MERGE_ON=yes`, say automerge is already on and stop.
-5. In the same message, ask with AskUserQuestion. Put the recommended option
-   first, from this table:
+In one message, show `SUMMARY` exactly as printed, then use AskUserQuestion. The
+options are `MERGE_OPTIONS` in the given order; mark the first one
+"(Recommended)". Labels: `merge-now` → "Merge now", `automerge` → "Enable
+automerge", `not-now` → "Not now".
 
-   | Situation | Recommend |
-   |-----------|-----------|
-   | `UNRESOLVED_THREADS` > 0 or `CI_STATE=failing` | `Not now` |
-   | label added in step 4.2, or `CI_STATE=pending` | `Enable automerge` |
-   | `CI_STATE=green` and `MERGE_STATE=CLEAN` | `Merge now` |
+## Step 5: Merge
 
-   Show `Enable automerge` only when `AUTO_MERGE_ALLOWED=true`.
+| Choice | Run |
+|--------|-----|
+| merge-now | `scripts/merge.sh <pr> [--repo owner/name] --mode now` |
+| automerge | `scripts/merge.sh <pr> [--repo owner/name] --mode auto` |
+| not-now | nothing |
 
-6. Do what I choose:
-
-   | Choice | Command |
-   |--------|---------|
-   | Merge now | `gh pr merge "$PR_NUMBER" --repo "$REPO" --"$MERGE_METHOD"` |
-   | Enable automerge | `gh pr merge "$PR_NUMBER" --repo "$REPO" --"$MERGE_METHOD" --auto` |
-   | Not now | nothing |
-
-   If `Merge now` is refused because the PR is blocked or checks are not done,
-   show the gh error. Offer automerge only if `AUTO_MERGE_ALLOWED=true`.
-   Do not add `--admin`.
+`merge.sh` prints `RESULT` (`merged`, `auto-enabled`, `auto-already`, or
+`failed`). On `failed`, show `ERROR`. If `AUTO_AVAILABLE=true`, ask whether to
+enable automerge instead, and run `--mode auto` only if I say yes.
 
 ## Output
 
-End with one line per action that was done: approved (with or without a comment,
-or already approved),
-marked ready, label added, merged / automerge on / left open, and the `PR_URL`.
+End with one line per action from the script output: approval (`APPROVED`),
+ready (`READIED`), label (`LABEL_ADDED`), merge (`RESULT`, or "left open"), and
+`PR_URL`.
+
+## Scripts
+
+| Script | Changes GitHub | Notes |
+|--------|----------------|-------|
+| `scripts/pr-facts.sh` | no | author class, approval, CI, threads, `NEXT`, `RECOMMEND` |
+| `scripts/approve.sh` | yes | `--dry-run` prints the gh commands instead |
+| `scripts/merge.sh` | yes | `--dry-run` prints the gh command instead; never uses `--admin` |
+| `scripts/lib.test.sh` | no | tests for the decision functions in `scripts/lib.sh` |

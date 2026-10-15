@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# lib.sh — shared helpers and the pure decision functions for approve-pr.
+# Sourced, never run. The decision functions take facts as arguments and print a
+# decision, with no network calls, so lib.test.sh can cover every branch.
+
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+emit() { printf "%s=%s\n" "$1" "$(sq "${2-}")"; }
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+# classify_author <me> <login> <typename> <head_ref> -> mine | bot | other
+#
+# `__typename == Bot` only covers GitHub App identities. Some automation pushes
+# through ordinary user accounts, so the login list and the conventional branch
+# prefixes back it up. `mine` is checked first so my own `seer/...` branch isn't
+# misread as a bot's.
+classify_author() {
+    local me="$1" login="$2" typename="$3" head_ref="${4:-}"
+    if [ -n "$me" ] && [ "$login" = "$me" ]; then printf 'mine'; return; fi
+    if [ "$typename" = Bot ]; then printf 'bot'; return; fi
+    case "$login" in
+        *'[bot]'|seer-by-sentry|sentry-autofix|dependabot|renovate|github-actions)
+            printf 'bot'; return ;;
+    esac
+    case "$head_ref" in
+        seer/*|autofix/*|renovate/*|dependabot/*) printf 'bot'; return ;;
+    esac
+    printf 'other'
+}
+
+# next_step <pr_state> <class> <my_approval> -> stop | ask-comment | skip-comment | done
+#
+# An existing approval only skips the comment: a second approval would just add a
+# duplicate review, but a bot PR still needs its label and merge decision.
+next_step() {
+    local state="$1" class="$2" approved="$3"
+    if [ "$state" != OPEN ] || [ "$class" = mine ]; then printf 'stop'; return; fi
+    if [ "$approved" = yes ]; then
+        case "$class" in
+            bot) printf 'skip-comment' ;;
+            *)   printf 'done' ;;
+        esac
+        return
+    fi
+    printf 'ask-comment'
+}
+
+# stop_reason <pr_state> <class> <my_approval> -> one line, empty when nothing stops
+stop_reason() {
+    local state="$1" class="$2" approved="$3"
+    if [ "$state" != OPEN ]; then
+        printf 'PR is %s, not open.' "$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')"
+    elif [ "$class" = mine ]; then
+        printf 'This is your own PR; GitHub does not allow approving it.'
+    elif [ "$approved" = yes ] && [ "$class" != bot ]; then
+        printf 'Already approved by you; nothing else to do for a human-authored PR.'
+    fi
+}
+
+# ci_state <total> <fail> <cancel> <pending> -> none | failing | pending | green
+ci_state() {
+    local total="$1" fail="$2" cancel="$3" pending="$4"
+    if [ "$total" -eq 0 ]; then printf 'none'
+    elif [ "$fail" -gt 0 ] || [ "$cancel" -gt 0 ]; then printf 'failing'
+    elif [ "$pending" -gt 0 ]; then printf 'pending'
+    else printf 'green'
+    fi
+}
+
+# recommend <unresolved_threads> <ci_state> <merge_state> <auto_allowed>
+#   -> not-now | merge-now | automerge
+#
+# Unresolved threads or failing CI need a person to look first. Anything short of
+# a clean, finished run is handed to automerge, which waits for GitHub's own
+# requirements instead of guessing when they'll be met.
+recommend() {
+    local unresolved="$1" ci="$2" merge_state="$3" auto_allowed="$4"
+    if [ "$unresolved" -gt 0 ] || [ "$ci" = failing ]; then printf 'not-now'
+    elif { [ "$ci" = green ] || [ "$ci" = none ]; } && [ "$merge_state" = CLEAN ]; then printf 'merge-now'
+    elif [ "$auto_allowed" = true ]; then printf 'automerge'
+    else printf 'not-now'
+    fi
+}
+
+# merge_options <recommended> <auto_allowed> -> comma-separated, recommended first
+merge_options() {
+    local rec="$1" auto_allowed="$2" out="$1" o
+    for o in merge-now automerge not-now; do
+        [ "$o" = "$rec" ] && continue
+        [ "$o" = automerge ] && [ "$auto_allowed" != true ] && continue
+        out="$out,$o"
+    done
+    printf '%s' "$out"
+}
+
+# summary <ci_state> <pass> <fail> <pending> <skipping> <failing_names>
+#         <unresolved> <thread_lines> [label_added]
+#
+# `skipping` is reported apart from `pass`: path-filtered suites report it, and
+# folding it in would claim tests ran that didn't.
+summary() {
+    local ci="$1" pass="$2" fail="$3" pending="$4" skipping="$5" failing="$6"
+    local unresolved="$7" threads="$8" label_added="${9:-no}"
+    printf 'CI: %s (%s pass, %s fail, %s pending, %s skipping)' \
+        "$ci" "$pass" "$fail" "$pending" "$skipping"
+    [ -n "$failing" ] && printf '\nFailing: %s' "$failing"
+    [ "$label_added" = yes ] && printf '\ngetsentry checks were just queued by the label.'
+    if [ "$unresolved" -gt 0 ]; then
+        printf '\nUnresolved review threads: %s\n%s' "$unresolved" "$threads"
+    else
+        printf '\nNo unresolved review threads.'
+    fi
+}
