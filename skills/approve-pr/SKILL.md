@@ -34,7 +34,7 @@ AskUserQuestion call holding every question that applies:
 
 | When | Header | Question | Options |
 |------|--------|----------|---------|
-| `ASK_COMMENT=yes` | `Comment` | "Approve `<AUTHOR>`'s PR #`<PR_NUMBER>` at `<first 8 of HEAD_SHA>`?" — when `MY_COMMITS` > 0, add "It includes your commits: `<MY_COMMIT_LIST lines, joined with ; >`." Then "Comment to post:" | `Approve, no comment`, `Approve with LGTM` (I type my own comment through "Other") |
+| `ASK_COMMENT=yes` | `Comment` | "Approve `<AUTHOR>`'s PR #`<PR_NUMBER>` at `<first 8 of HEAD_SHA>`?" — when `MY_COMMITS` > 0, add "It includes your commits: `<MY_COMMIT_LIST lines, joined with ; >`." When `LABEL_WILL_QUEUE=yes`, add "Approving also adds the `Trigger: getsentry tests` label, which runs getsentry CI on this code." Then "Comment to post:" | `Approve, no comment`, `Approve with LGTM` (I type my own comment through "Other") |
 | `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | `MERGE_OPTIONS` in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now" |
 
 If `ASK_COMMENT=no`, say "Already approved by you" above the question.

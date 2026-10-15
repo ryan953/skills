@@ -54,6 +54,17 @@ eq "sentry-junior in sentry, my fixup"  yes "$(fixup_approval_ok 'sentry-junior[
 eq "unlisted bot, my fixup"             no  "$(fixup_approval_ok 'codecov[bot]' getsentry/sentry 1)"
 eq "bare login is not the App"          no  "$(fixup_approval_ok sentry getsentry/sentry 1)"
 
+echo "comment_ok <text>"
+eq "plain LGTM"                    yes "$(comment_ok 'LGTM')"
+eq "multi-line praise"             yes "$(comment_ok "$(printf 'Nice fix.\nThanks for the test.')")"
+eq "a path mid-line is fine"       yes "$(comment_ok 'Checked static/app/foo.tsx')"
+eq "a bare issue ref is fine"      yes "$(comment_ok 'Same root cause as #123')"
+eq "slash command"                 no  "$(comment_ok '/merge')"
+eq "slash command on later line"   no  "$(comment_ok "$(printf 'LGTM\n  /deploy prod')")"
+eq "@sentry mention"               no  "$(comment_ok 'LGTM @sentry review')"
+eq "closing keyword"               no  "$(comment_ok 'Fixes #123')"
+eq "cross-repo closing keyword"    no  "$(comment_ok 'closes getsentry/sentry#99')"
+
 echo "next_step <state> <class> <approved> <auto_on>"
 eq "closed PR stops"                stop   "$(next_step CLOSED bot no no)"
 eq "merged PR stops"                stop   "$(next_step MERGED other no no)"

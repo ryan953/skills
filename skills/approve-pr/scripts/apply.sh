@@ -84,6 +84,8 @@ else
         cat -- "$BODY_FILE" > "$TMP"
         # A body of only whitespace is the same as no comment.
         if grep -q '[^[:space:]]' "$TMP"; then BODY_ARGS=(--body-file "$TMP"); fi
+        [ "$(comment_ok "$(cat "$TMP")")" = yes ] \
+            || die "the comment has a bot command, @sentry mention, or issue-closing keyword; post it by hand."
     fi
     run gh pr review "$PR_NUMBER" --repo "$REPO" --approve ${BODY_ARGS[0]+"${BODY_ARGS[@]}"}
     APPROVED="$(did)"

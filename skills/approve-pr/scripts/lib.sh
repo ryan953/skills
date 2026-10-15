@@ -70,6 +70,20 @@ fixup_approval_ok() {
     printf 'no'
 }
 
+# comment_ok <text> -> yes | no
+#
+# The approval comment is posted verbatim, so it must not double as a command to
+# other automation: a slash command on its own line, an @sentry mention (Seer and
+# the other Sentry bots act on those), or a keyword that closes an issue on merge.
+comment_ok() {
+    if printf '%s\n' "${1-}" | grep -Eiq \
+        '^[[:space:]]*/[a-z]|@sentry|(^|[^a-z])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]:]+([a-z0-9_.-]+/[a-z0-9_.-]+)?#[0-9]+'; then
+        printf 'no'
+    else
+        printf 'yes'
+    fi
+}
+
 # next_step <pr_state> <class> <my_approval> <auto_merge_on> -> stop | done | ask | apply
 #
 # An existing approval only drops the comment question: a bot PR still needs its
