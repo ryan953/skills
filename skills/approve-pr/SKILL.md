@@ -34,7 +34,7 @@ AskUserQuestion call holding every question that applies:
 
 | When | Header | Question | Options |
 |------|--------|----------|---------|
-| `ASK_COMMENT=yes` | `Comment` | "Comment to post with the approval?" | `No comment`, `LGTM` (I type my own through "Other") |
+| `ASK_COMMENT=yes` | `Comment` | "Comment to post with the approval?" — when `MY_COMMITS` > 0, instead: "Approve this bot PR, including your `<MY_COMMITS>` commit(s) on it? Comment to post:" | `No comment`, `LGTM` (I type my own through "Other") |
 | `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | `MERGE_OPTIONS` in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now" |
 
 If `ASK_COMMENT=no`, say "Already approved by you" above the question.
