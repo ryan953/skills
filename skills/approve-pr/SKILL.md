@@ -35,7 +35,7 @@ AskUserQuestion call holding every question that applies:
 | When | Header | Question | Options |
 |------|--------|----------|---------|
 | `ASK_COMMENT=yes` | `Comment` | "Approve `<AUTHOR>`'s PR #`<PR_NUMBER>` at `<first 8 of HEAD_SHA>`?" — when `MY_COMMITS` > 0, add "It includes your commits: `<MY_COMMIT_LIST lines, joined with ; >`." When `LABEL_WILL_QUEUE=yes`, add "Approving also adds the `Trigger: getsentry tests` label, which runs getsentry CI on this code." Then "Comment to post:" | `Approve, no comment`, `Approve with LGTM` (I type my own comment through "Other") |
-| `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | `MERGE_OPTIONS` in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now" |
+| `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | Only the two `MERGE_OPTIONS`, in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now". Never add the merge option the script left out. |
 
 If `ASK_COMMENT=no`, say "Already approved by you" above the question.
 
@@ -65,9 +65,11 @@ BODY
 
 `apply.sh` re-reads the PR, approves only if I have not, marks a bot draft ready,
 adds the getsentry label in sentry, then merges. If it fails before printing
-`RESULT`, show the error and stop. If `RESULT=failed`, show `ERROR`; when
-`AUTO_AVAILABLE=true`, ask whether to enable automerge instead, and on yes run
-`apply.sh <PR_URL> --merge auto --expected-head <same sha>`.
+`RESULT`, show the error and stop. Where automerge is allowed, `now` and `auto`
+both merge at once if GitHub allows it and otherwise turn on automerge, so a
+pending check does not fail the merge. If `RESULT=failed`, show `ERROR` and stop:
+do not ask again or offer the other merge option. Only a moved head needs a new
+answer, through a new `/approve-pr` run.
 
 ## Output
 
