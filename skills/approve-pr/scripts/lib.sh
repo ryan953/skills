@@ -137,33 +137,40 @@ ci_state() {
     fi
 }
 
-# recommend <unresolved_threads> <ci_state> <merge_state> <auto_allowed> <label_will_queue>
+# merge_choice <ci_state> <merge_state> <auto_allowed> [label_will_queue]
+#   -> merge-now | automerge
+#
+# The one merge option the question offers. It is asked before approving, so this
+# predicts the state after the follow-through: a label about to be added queues
+# new checks, which makes a green run pending. Anything short of a clean, finished
+# run goes to automerge, which waits for GitHub's own requirements instead of
+# guessing when they'll be met.
+merge_choice() {
+    local ci="$1" merge_state="$2" auto_allowed="$3" label="${4:-no}"
+    if [ "$auto_allowed" != true ]; then printf 'merge-now'
+    elif [ "$label" = yes ]; then printf 'automerge'
+    elif { [ "$ci" = green ] || [ "$ci" = none ]; } && [ "$merge_state" = CLEAN ]; then printf 'merge-now'
+    else printf 'automerge'
+    fi
+}
+
+# recommend <unresolved_threads> <ci_state> <merge_state> <auto_allowed> [label_will_queue]
 #   -> not-now | merge-now | automerge
 #
-# The merge question is asked before approving, so this predicts the state after
-# the follow-through: a label about to be added queues new checks, which makes a
-# green run pending. Unresolved threads or failing CI need a person to look first.
-# Anything short of a clean, finished run goes to automerge, which waits for
-# GitHub's own requirements instead of guessing when they'll be met.
+# Unresolved threads or failing CI need a person to look first. Without automerge,
+# merge-now is still offered, but recommended only when it would go through.
 recommend() {
     local unresolved="$1" ci="$2" merge_state="$3" auto_allowed="$4" label="${5:-no}"
-    if [ "$label" = yes ] && [ "$ci" != failing ]; then ci=pending; fi
     if [ "$unresolved" -gt 0 ] || [ "$ci" = failing ]; then printf 'not-now'
-    elif { [ "$ci" = green ] || [ "$ci" = none ]; } && [ "$merge_state" = CLEAN ]; then printf 'merge-now'
-    elif [ "$auto_allowed" = true ]; then printf 'automerge'
+    elif [ "$auto_allowed" = true ] || [ "$(merge_choice "$ci" "$merge_state" true "$label")" = merge-now ]; then
+        merge_choice "$ci" "$merge_state" "$auto_allowed" "$label"
     else printf 'not-now'
     fi
 }
 
-# merge_options <recommended> <auto_allowed> -> comma-separated, recommended first
+# merge_options <recommended> <merge_choice> -> comma-separated, recommended first
 merge_options() {
-    local rec="$1" auto_allowed="$2" out="$1" o
-    for o in merge-now automerge not-now; do
-        [ "$o" = "$rec" ] && continue
-        [ "$o" = automerge ] && [ "$auto_allowed" != true ] && continue
-        out="$out,$o"
-    done
-    printf '%s' "$out"
+    if [ "$1" = not-now ]; then printf 'not-now,%s' "$2"; else printf '%s,not-now' "$2"; fi
 }
 
 # summary <ci_state> <pass> <fail> <pending> <skipping> <failing_names>

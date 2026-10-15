@@ -101,6 +101,15 @@ eq "a cancel counts as failing"     failing "$(ci_state 5 0 1 0)"
 eq "still running"                  pending "$(ci_state 5 0 0 2)"
 eq "all done"                       green   "$(ci_state 5 0 0 0)"
 
+echo "merge_choice <ci> <merge_state> <auto_allowed> [label]"
+eq "green and clean"                merge-now "$(merge_choice green CLEAN true)"
+eq "no CI and clean"                merge-now "$(merge_choice none CLEAN true)"
+eq "pending"                        automerge "$(merge_choice pending UNKNOWN true)"
+eq "blocked until approved"         automerge "$(merge_choice green BLOCKED true)"
+eq "failing still offers automerge" automerge "$(merge_choice failing CLEAN true)"
+eq "label will queue checks"        automerge "$(merge_choice green CLEAN true yes)"
+eq "automerge disallowed"           merge-now "$(merge_choice pending BLOCKED false)"
+
 echo "recommend <threads> <ci> <merge_state> <auto_allowed>"
 eq "unresolved threads"             not-now   "$(recommend 1 green CLEAN true)"
 eq "failing CI"                     not-now   "$(recommend 0 failing CLEAN true)"
@@ -111,12 +120,12 @@ eq "green but blocked"              automerge "$(recommend 0 green BLOCKED true)
 eq "pending, automerge disallowed"  not-now   "$(recommend 0 pending BLOCKED false)"
 eq "green+clean, label will queue"  automerge "$(recommend 0 green CLEAN true yes)"
 eq "failing stays failing w/ label" not-now   "$(recommend 0 failing CLEAN true yes)"
+eq "clean, automerge disallowed"    merge-now "$(recommend 0 green CLEAN false)"
 
-echo "merge_options <recommended> <auto_allowed>"
-eq "automerge first"     automerge,merge-now,not-now "$(merge_options automerge true)"
-eq "merge-now first"     merge-now,automerge,not-now "$(merge_options merge-now true)"
-eq "not-now first"       not-now,merge-now,automerge "$(merge_options not-now true)"
-eq "automerge disallowed" not-now,merge-now          "$(merge_options not-now false)"
+echo "merge_options <recommended> <merge_choice>"
+eq "automerge first"     automerge,not-now "$(merge_options automerge automerge)"
+eq "merge-now first"     merge-now,not-now "$(merge_options merge-now merge-now)"
+eq "not-now first"       not-now,automerge "$(merge_options not-now automerge)"
 
 echo "summary"
 eq "green, no threads" \

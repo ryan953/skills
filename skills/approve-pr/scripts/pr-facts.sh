@@ -130,6 +130,7 @@ THREADS="$(pr '.reviewThreads.nodes | map(select(.isResolved | not)) | .[]
     | "- \(.path):\(.line // "?") @\($c.author.login // "ghost")\(if .isOutdated then " (outdated)" else "" end): \($c.body | gsub("\\s+"; " ") | .[0:120]) \($c.url)"')"
 UNRESOLVED="$(pr '.reviewThreads.nodes | map(select(.isResolved | not)) | length')"
 
+MERGE_CHOICE="$(merge_choice "$CI_STATE" "$MERGE_STATE" "$AUTO_MERGE_ALLOWED" "$LABEL_WILL_QUEUE")"
 RECOMMEND="$(recommend "$UNRESOLVED" "$CI_STATE" "$MERGE_STATE" "$AUTO_MERGE_ALLOWED" "$LABEL_WILL_QUEUE")"
 
 emit REPO               "$REPO"
@@ -161,6 +162,6 @@ emit MERGE_METHOD       "$MERGE_METHOD"
 emit AUTO_MERGE_ALLOWED "$AUTO_MERGE_ALLOWED"
 emit AUTO_MERGE_ON      "$AUTO_MERGE_ON"
 emit RECOMMEND          "$RECOMMEND"
-emit MERGE_OPTIONS      "$(merge_options "$RECOMMEND" "$AUTO_MERGE_ALLOWED")"
+emit MERGE_OPTIONS      "$(merge_options "$RECOMMEND" "$MERGE_CHOICE")"
 emit SUMMARY            "$(summary "$CI_STATE" "$CI_PASS" "$CI_FAIL" "$CI_PENDING" "$CI_SKIPPING" \
                             "$CI_FAILING" "$UNRESOLVED" "$THREADS" "$LABEL_NOTE")"

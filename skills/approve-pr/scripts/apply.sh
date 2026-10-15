@@ -13,6 +13,8 @@
 # --body-file is the comment exactly as the user wrote it; `-` reads stdin. Leave
 # it out (or pass an empty body) to approve without a comment. An existing approval
 # from me is never repeated, so the body is ignored then. --merge defaults to none.
+# Where the repo allows automerge, `now` and `auto` both merge at once if GitHub
+# allows it and otherwise turn on automerge; RESULT says which happened.
 # Never passes --admin: a PR that GitHub blocks stays blocked.
 #
 # Output: eval-safe KEY='value' lines:
@@ -21,7 +23,6 @@
 #   LABEL_ADDED     yes | no | would
 #   RESULT          none | merged | auto-enabled | auto-already | would | failed
 #   ERROR           gh's error text when RESULT=failed
-#   AUTO_AVAILABLE  true | false — whether automerge is an option after a failure
 #   PR_URL
 # Exits 1 when RESULT=failed, after printing the keys.
 
@@ -108,33 +109,42 @@ emit APPROVED    "$APPROVED"
 emit READIED     "$READIED"
 emit LABEL_ADDED "$LABEL_ADDED"
 
-RESULT=none ERROR="" AUTO_AVAILABLE=false
+RESULT=none ERROR=""
 if [ "$MERGE" = auto ] && [ "$AUTO_MERGE_ON" = yes ]; then
     RESULT=auto-already
 elif [ "$MERGE" != none ]; then
     [ -n "$MERGE_METHOD" ] || die "$REPO allows no merge method."
     [ "$MERGE" = now ] || [ "$AUTO_MERGE_ALLOWED" = true ] || die "$REPO does not allow automerge."
     CMD=(gh pr merge "$PR_NUMBER" --repo "$REPO" "--$MERGE_METHOD" --match-head-commit "$HEAD_SHA")
-    [ "$MERGE" = auto ] && CMD+=(--auto)
+    # The approval and label above can queue checks or leave GitHub recomputing
+    # the merge state, so a plain merge fails on requirements that were met a
+    # moment ago. `--auto` lets gh decide from the state after them: it merges at
+    # once when nothing blocks, and otherwise waits for the requirements.
+    [ "$AUTO_MERGE_ALLOWED" = true ] && CMD+=(--auto)
     if [ "$DRY" = yes ]; then
         run "${CMD[@]}"
         RESULT=would
-    elif ERROR="$("${CMD[@]}" 2>&1 >/dev/null)"; then
-        # `--auto` merges at once when nothing is blocking, so read back which
-        # one happened instead of assuming.
-        RESULT="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,autoMergeRequest \
-            -q 'if .state == "MERGED" then "merged" elif .autoMergeRequest then "auto-enabled" else "merged" end')"
-        ERROR=""
     else
-        RESULT=failed
-        [ "$MERGE" = now ] && [ "$AUTO_MERGE_ALLOWED" = true ] && AUTO_AVAILABLE=true
+        OK=yes
+        ERROR="$("${CMD[@]}" 2>&1 >/dev/null)" || OK=no
+        # gh trusts a merge state that can lag, and GitHub refuses automerge for
+        # a PR that can already merge.
+        if [ "$OK" = no ] && [ "$AUTO_MERGE_ALLOWED" = true ] && printf '%s' "$ERROR" | grep -qi 'clean status'; then
+            unset 'CMD[${#CMD[@]}-1]'
+            OK=yes
+            ERROR="$("${CMD[@]}" 2>&1 >/dev/null)" || OK=no
+        fi
+        if [ "$OK" = yes ]; then
+            ERROR=""
+            RESULT="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state,autoMergeRequest \
+                -q 'if .state == "MERGED" then "merged" elif .autoMergeRequest then "auto-enabled" else "merged" end')"
+        else
+            RESULT=failed
+        fi
     fi
 fi
 
 emit RESULT "$RESULT"
-if [ "$RESULT" = failed ]; then
-    emit ERROR          "$ERROR"
-    emit AUTO_AVAILABLE "$AUTO_AVAILABLE"
-fi
+[ "$RESULT" = failed ] && emit ERROR "$ERROR"
 emit PR_URL "$PR_URL"
 [ "$RESULT" != failed ]
