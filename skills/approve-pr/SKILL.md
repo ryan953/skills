@@ -23,6 +23,7 @@ With no argument it uses the current branch's PR. The script is read-only. It se
 |-----|---------|
 | `REPO`, `PR_NUMBER`, `PR_TITLE`, `PR_URL`, `PR_STATE`, `IS_DRAFT` | the PR |
 | `AUTHOR`, `AUTHOR_CLASS` | `mine` \| `bot` \| `other` (another human) |
+| `MY_APPROVAL` | `yes` when my latest review is a standing approval |
 | `IS_SENTRY`, `TEST_LABEL`, `HAS_TEST_LABEL` | whether the getsentry label applies, and if it is already on |
 | `MERGE_STATE`, `MERGE_METHOD`, `AUTO_MERGE_ALLOWED`, `AUTO_MERGE_ON` | merge options |
 | `CI_STATE` | `green` \| `pending` \| `failing` \| `none` |
@@ -35,6 +36,11 @@ Stop with a one-line reason when:
 
 - `PR_STATE` is not `OPEN`.
 - `AUTHOR_CLASS=mine`: GitHub does not let you approve your own PR.
+
+If `MY_APPROVAL=yes`, say "Already approved by you", skip steps 2 and 3, and
+continue at step 4. A second approval would only add a duplicate review, but a bot
+PR still needs its label and merge decision. For `AUTHOR_CLASS=other` that means
+there is nothing left to do.
 
 ## Step 2: Ask for the comment
 
@@ -97,5 +103,6 @@ If `AUTHOR_CLASS=other`, report the approval and stop.
 
 ## Output
 
-End with one line per action that was done: approved (with or without a comment),
+End with one line per action that was done: approved (with or without a comment,
+or already approved),
 marked ready, label added, merged / automerge on / left open, and the `PR_URL`.

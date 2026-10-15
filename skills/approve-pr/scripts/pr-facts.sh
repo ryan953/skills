@@ -49,6 +49,7 @@ QUERY='query($owner: String!, $name: String!, $number: Int!) {
       author { __typename login }
       labels(first: 50) { nodes { name } }
       autoMergeRequest { mergeMethod }
+      latestOpinionatedReviews(first: 100) { nodes { author { login } state } }
       reviewThreads(first: 100) {
         nodes { isResolved isOutdated path line
           comments(first: 1) { nodes { author { login } body url } } }
@@ -82,6 +83,11 @@ else
            esac ;;
     esac
 fi
+
+# A dismissed approval reads as DISMISSED here, so it counts as not approved.
+MY_APPROVAL="$(printf '%s' "$DATA" | jq -r --arg me "$ME" \
+    '[.pullRequest.latestOpinionatedReviews.nodes[] | select(.author.login == $me and .state == "APPROVED")]
+     | if length > 0 then "yes" else "no" end')"
 
 # Only sentry has the getsentry dispatch workflow behind this label.
 TEST_LABEL="Trigger: getsentry tests"
@@ -128,6 +134,7 @@ emit IS_DRAFT           "$(pr .isDraft)"
 emit AUTHOR             "$LOGIN"
 emit AUTHOR_CLASS       "$CLASS"
 emit REVIEW_DECISION    "$(pr '.reviewDecision // ""')"
+emit MY_APPROVAL        "$MY_APPROVAL"
 emit IS_SENTRY          "$IS_SENTRY"
 emit TEST_LABEL         "$TEST_LABEL"
 emit HAS_TEST_LABEL     "$HAS_TEST_LABEL"
