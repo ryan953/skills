@@ -1,89 +1,72 @@
 ---
 name: approve-pr
 description: 'Approve a GitHub PR with my comment; for bot PRs, also add the getsentry tests label and offer merge or automerge. Use for "approve this PR", "approve #N", "LGTM this PR", or "approve and merge".'
+argument-hint: '[pr number | owner/name#N | URL]'
 allowed-tools: Bash, AskUserQuestion
 ---
 
 # Approve PR
 
-The scripts make every decision. Your job is to ask me the two questions, pass my
-comment through unchanged, and show what the scripts print. Do not re-derive
-their decisions or override them.
+Speed matters: ask everything in your first reply, then act in a single call. The
+facts below were collected when this skill loaded, so do not run anything before
+the questions. Do not re-derive or override the scripts' decisions.
 
-Run from inside the repo checkout, or pass `--repo owner/name`. `<pr>` is a number
-or URL; leave it out to use the current branch's PR. Each script prints eval-safe
-`KEY='value'` lines. If a script exits non-zero, show its error and stop.
+## Facts
 
-## Step 1: Facts
+!`"${CLAUDE_SKILL_DIR}/scripts/pr-facts.sh" $ARGUMENTS 2>&1`
 
-```bash
-eval "$(scripts/pr-facts.sh <pr> [--repo owner/name])"
-```
+If the facts show `error:`, ask me which PR in plain text, then run
+`scripts/pr-facts.sh <pr>` and continue with its output.
 
-Show one line: `#<PR_NUMBER> <PR_TITLE> (<AUTHOR>, <AUTHOR_CLASS>)`. Then follow `NEXT`:
+## Step 1: Route on `NEXT`
 
 | `NEXT` | Do |
 |--------|----|
-| `stop` | Show `STOP_REASON` and stop. |
-| `done` | Show `STOP_REASON` and stop. |
-| `skip-comment` | Say "Already approved by you". Go to step 3 with no body. |
-| `ask-comment` | Go to step 2. |
+| `stop` or `done` | Show `STOP_REASON` and stop. |
+| `apply` | Skip to step 3 with no flags (already approved, automerge on). |
+| `ask` | Step 2. |
 
-## Step 2: Ask for the comment
+## Step 2: Ask once
 
-Use AskUserQuestion with the options `No comment` and `LGTM`. I type my own
-comment through "Other". Keep the text exactly as I wrote it: do not fix it,
-expand it, or add a signature.
+In one reply, write `#<PR_NUMBER> <PR_TITLE> (<AUTHOR>, <AUTHOR_CLASS>)`, then
+`SUMMARY` exactly as printed when `ASK_MERGE=yes`, then make **one**
+AskUserQuestion call holding every question that applies:
 
-## Step 3: Approve, and the bot follow-through
+| When | Header | Question | Options |
+|------|--------|----------|---------|
+| `ASK_COMMENT=yes` | `Comment` | "Comment to post with the approval?" | `No comment`, `LGTM` (I type my own through "Other") |
+| `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | `MERGE_OPTIONS` in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now" |
+
+If `ASK_COMMENT=no`, say "Already approved by you" above the question.
+
+## Step 3: Apply in one call
 
 ```bash
-scripts/approve.sh <pr> [--repo owner/name] --body-file - <<'BODY'
+"${CLAUDE_SKILL_DIR}/scripts/apply.sh" <PR_URL> --merge <now|auto|none> --body-file - <<'BODY'
 <my comment, verbatim>
 BODY
 ```
 
-For `No comment` or `skip-comment`, run it without `--body-file`. The script
-approves only when I have not approved yet, and for bot PRs it marks a draft
-ready and adds the getsentry label in sentry. It prints `APPROVED`, `READIED`,
-`LABEL_ADDED`, `NEXT`, and for bot PRs `RECOMMEND`, `MERGE_OPTIONS`, `SUMMARY`.
+- The comment is exactly what I wrote: no fixes, additions, or signature. For
+  `No comment`, or when `ASK_COMMENT=no`, leave out `--body-file` and the heredoc.
+- `--merge`: `now` for Merge now, `auto` for Enable automerge, `none` for Not now
+  or when the merge was not asked.
 
-| `NEXT` | Do |
-|--------|----|
-| `done` | Go to Output. |
-| `automerge-on` | Show `SUMMARY`, say automerge is already on, go to Output. |
-| `ask-merge` | Go to step 4. |
-
-## Step 4: Ask about the merge
-
-In one message, show `SUMMARY` exactly as printed, then use AskUserQuestion. The
-options are `MERGE_OPTIONS` in the given order; mark the first one
-"(Recommended)". Labels: `merge-now` → "Merge now", `automerge` → "Enable
-automerge", `not-now` → "Not now".
-
-## Step 5: Merge
-
-| Choice | Run |
-|--------|-----|
-| merge-now | `scripts/merge.sh <pr> [--repo owner/name] --mode now` |
-| automerge | `scripts/merge.sh <pr> [--repo owner/name] --mode auto` |
-| not-now | nothing |
-
-`merge.sh` prints `RESULT` (`merged`, `auto-enabled`, `auto-already`, or
-`failed`). On `failed`, show `ERROR`. If `AUTO_AVAILABLE=true`, ask whether to
-enable automerge instead, and run `--mode auto` only if I say yes.
+`apply.sh` re-reads the PR, approves only if I have not, marks a bot draft ready,
+adds the getsentry label in sentry, then merges. If it fails before printing
+`RESULT`, show the error and stop. If `RESULT=failed`, show `ERROR`; when
+`AUTO_AVAILABLE=true`, ask whether to enable automerge instead, and on yes run
+`apply.sh <PR_URL> --merge auto`.
 
 ## Output
 
-End with one line per action from the script output: approval (`APPROVED`),
-ready (`READIED`), label (`LABEL_ADDED`), merge (`RESULT`, or "left open"), and
-`PR_URL`.
+One line per action from `apply.sh`: approval (`APPROVED`), ready (`READIED`),
+label (`LABEL_ADDED`), merge (`RESULT`), then `PR_URL`.
 
 ## Scripts
 
 | Script | Changes GitHub | Notes |
 |--------|----------------|-------|
 | `scripts/pr-facts.sh` | no | author class, approval, CI, threads, `NEXT`, `RECOMMEND` |
-| `scripts/approve.sh` | yes | `--dry-run` prints the gh commands instead |
-| `scripts/merge.sh` | yes | `--dry-run` prints the gh command instead; never uses `--admin` |
+| `scripts/apply.sh` | yes | `--dry-run` prints the gh commands instead; never uses `--admin` |
 | `scripts/lib.test.sh` | no | tests for the decision functions in `scripts/lib.sh` |

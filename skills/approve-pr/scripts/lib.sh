@@ -7,6 +7,29 @@ sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 emit() { printf "%s=%s\n" "$1" "$(sq "${2-}")"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# parse_target <target> [repo] -> "owner name number", or nothing when gh has to
+# resolve it (a branch name, or a bare number with no repo given).
+#
+# Resolving locally skips a `gh pr view` round trip for the common forms.
+parse_target() {
+    local t="${1#\#}" repo="${2:-}"
+    case "$t" in
+        https://github.com/*/*/pull/*)
+            t="${t#https://github.com/}"
+            local owner="${t%%/*}"; t="${t#*/}"
+            local name="${t%%/*}"; t="${t#*/pull/}"
+            printf '%s %s %s' "$owner" "$name" "${t%%[/?#]*}"
+            ;;
+        */*\#*[0-9])
+            local r="${t%%#*}"
+            printf '%s %s %s' "${r%%/*}" "${r#*/}" "${t##*#}"
+            ;;
+        *[!0-9]*|'') ;;
+        *) [ -n "$repo" ] && printf '%s %s %s' "${repo%%/*}" "${repo#*/}" "$t" ;;
+    esac
+    return 0
+}
+
 # classify_author <me> <login> <typename> <head_ref> -> mine | bot | other
 #
 # `__typename == Bot` only covers GitHub App identities. Some automation pushes
@@ -27,21 +50,24 @@ classify_author() {
     printf 'other'
 }
 
-# next_step <pr_state> <class> <my_approval> -> stop | ask-comment | skip-comment | done
+# next_step <pr_state> <class> <my_approval> <auto_merge_on> -> stop | done | ask | apply
 #
-# An existing approval only skips the comment: a second approval would just add a
-# duplicate review, but a bot PR still needs its label and merge decision.
+# An existing approval only drops the comment question: a bot PR still needs its
+# label and merge decision. `apply` is a bot PR with nothing left to ask that may
+# still be missing its ready state or label.
 next_step() {
-    local state="$1" class="$2" approved="$3"
+    local state="$1" class="$2" approved="$3" auto_on="$4"
     if [ "$state" != OPEN ] || [ "$class" = mine ]; then printf 'stop'; return; fi
-    if [ "$approved" = yes ]; then
-        case "$class" in
-            bot) printf 'skip-comment' ;;
-            *)   printf 'done' ;;
-        esac
+    if [ "$class" != bot ]; then
+        if [ "$approved" = yes ]; then printf 'done'; else printf 'ask'; fi
         return
     fi
-    printf 'ask-comment'
+    if [ "$approved" = yes ] && [ "$auto_on" = yes ]; then printf 'apply'; else printf 'ask'; fi
+}
+
+# ask_merge <class> <auto_merge_on> -> yes | no
+ask_merge() {
+    if [ "$1" = bot ] && [ "$2" != yes ]; then printf 'yes'; else printf 'no'; fi
 }
 
 # stop_reason <pr_state> <class> <my_approval> -> one line, empty when nothing stops
@@ -66,14 +92,17 @@ ci_state() {
     fi
 }
 
-# recommend <unresolved_threads> <ci_state> <merge_state> <auto_allowed>
+# recommend <unresolved_threads> <ci_state> <merge_state> <auto_allowed> <label_will_queue>
 #   -> not-now | merge-now | automerge
 #
-# Unresolved threads or failing CI need a person to look first. Anything short of
-# a clean, finished run is handed to automerge, which waits for GitHub's own
-# requirements instead of guessing when they'll be met.
+# The merge question is asked before approving, so this predicts the state after
+# the follow-through: a label about to be added queues new checks, which makes a
+# green run pending. Unresolved threads or failing CI need a person to look first.
+# Anything short of a clean, finished run goes to automerge, which waits for
+# GitHub's own requirements instead of guessing when they'll be met.
 recommend() {
-    local unresolved="$1" ci="$2" merge_state="$3" auto_allowed="$4"
+    local unresolved="$1" ci="$2" merge_state="$3" auto_allowed="$4" label="${5:-no}"
+    if [ "$label" = yes ] && [ "$ci" != failing ]; then ci=pending; fi
     if [ "$unresolved" -gt 0 ] || [ "$ci" = failing ]; then printf 'not-now'
     elif { [ "$ci" = green ] || [ "$ci" = none ]; } && [ "$merge_state" = CLEAN ]; then printf 'merge-now'
     elif [ "$auto_allowed" = true ]; then printf 'automerge'
@@ -93,17 +122,17 @@ merge_options() {
 }
 
 # summary <ci_state> <pass> <fail> <pending> <skipping> <failing_names>
-#         <unresolved> <thread_lines> [label_added]
+#         <unresolved> <thread_lines> [label_will_queue]
 #
 # `skipping` is reported apart from `pass`: path-filtered suites report it, and
 # folding it in would claim tests ran that didn't.
 summary() {
     local ci="$1" pass="$2" fail="$3" pending="$4" skipping="$5" failing="$6"
-    local unresolved="$7" threads="$8" label_added="${9:-no}"
+    local unresolved="$7" threads="$8" label="${9:-no}"
     printf 'CI: %s (%s pass, %s fail, %s pending, %s skipping)' \
         "$ci" "$pass" "$fail" "$pending" "$skipping"
     [ -n "$failing" ] && printf '\nFailing: %s' "$failing"
-    [ "$label_added" = yes ] && printf '\ngetsentry checks were just queued by the label.'
+    [ "$label" = yes ] && printf '\nAdding the getsentry label will queue more checks.'
     if [ "$unresolved" -gt 0 ]; then
         printf '\nUnresolved review threads: %s\n%s' "$unresolved" "$threads"
     else
