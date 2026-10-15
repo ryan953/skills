@@ -7,6 +7,10 @@ sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 emit() { printf "%s=%s\n" "$1" "$(sq "${2-}")"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+# GUI launches (the desktop app) can start without the login shell's PATH, which
+# is where Homebrew puts gh and jq.
+command -v gh >/dev/null 2>&1 || PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+
 # parse_target <target> [repo] -> "owner name number", or nothing when gh has to
 # resolve it (a branch name, or a bare number with no repo given).
 #
