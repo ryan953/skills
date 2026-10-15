@@ -86,6 +86,17 @@ stop_reason() {
     fi
 }
 
+# requeue_dispatch <checks_json> <label_will_queue> -> checks_json
+#
+# A push strips the getsentry label and fails `getsentry dispatch`, and a rerun
+# replays that stale event. Adding the label fires a fresh run, so when that is
+# about to happen the old failure counts as pending instead of blocking the merge.
+requeue_dispatch() {
+    if [ "$2" != yes ]; then printf '%s' "$1"; return; fi
+    printf '%s' "$1" | jq -c 'map(if .name == "getsentry dispatch" and (.bucket == "fail" or .bucket == "cancel")
+                                   then .bucket = "pending" else . end)'
+}
+
 # ci_state <total> <fail> <cancel> <pending> -> none | failing | pending | green
 ci_state() {
     local total="$1" fail="$2" cancel="$3" pending="$4"
@@ -126,7 +137,9 @@ merge_options() {
 }
 
 # summary <ci_state> <pass> <fail> <pending> <skipping> <failing_names>
-#         <unresolved> <thread_lines> [label_will_queue]
+#         <unresolved> <thread_lines> [label: no | yes | rerun]
+#
+# `rerun` means the label will also replace a failed `getsentry dispatch`.
 #
 # `skipping` is reported apart from `pass`: path-filtered suites report it, and
 # folding it in would claim tests ran that didn't.
@@ -136,7 +149,10 @@ summary() {
     printf 'CI: %s (%s pass, %s fail, %s pending, %s skipping)' \
         "$ci" "$pass" "$fail" "$pending" "$skipping"
     [ -n "$failing" ] && printf '\nFailing: %s' "$failing"
-    [ "$label" = yes ] && printf '\nAdding the getsentry label will queue more checks.'
+    case "$label" in
+        yes)   printf '\nAdding the getsentry label will queue more checks.' ;;
+        rerun) printf '\ngetsentry dispatch failed before; the new label will run it again.' ;;
+    esac
     if [ "$unresolved" -gt 0 ]; then
         printf '\nUnresolved review threads: %s\n%s' "$unresolved" "$threads"
     else

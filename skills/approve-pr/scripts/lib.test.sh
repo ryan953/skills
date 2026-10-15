@@ -64,6 +64,15 @@ eq "open, nothing stops"            ""   "$(stop_reason OPEN bot no)"
 eq "bot already approved continues" ""   "$(stop_reason OPEN bot yes)"
 eq "merged"  'PR is merged, not open.'   "$(stop_reason MERGED other no)"
 
+echo "requeue_dispatch <checks> <label_will_queue>"
+CK='[{"name":"getsentry dispatch","bucket":"fail"},{"name":"knip","bucket":"fail"}]'
+eq "label coming: dispatch failure becomes pending, knip stays" \
+    '[{"name":"getsentry dispatch","bucket":"pending"},{"name":"knip","bucket":"fail"}]' \
+    "$(requeue_dispatch "$CK" yes)"
+eq "no label coming: unchanged"   "$CK" "$(requeue_dispatch "$CK" no)"
+eq "cancelled dispatch too" '[{"name":"getsentry dispatch","bucket":"pending"}]' \
+    "$(requeue_dispatch '[{"name":"getsentry dispatch","bucket":"cancel"}]' yes)"
+
 echo "ci_state"
 eq "no checks"                      none    "$(ci_state 0 0 0 0)"
 eq "a failure"                      failing "$(ci_state 5 1 0 2)"
@@ -95,6 +104,10 @@ eq "green, no threads" \
 eq "failing, label will queue, threads" \
     "$(printf 'CI: failing (3 pass, 1 fail, 0 pending, 0 skipping)\nFailing: knip\nAdding the getsentry label will queue more checks.\nUnresolved review threads: 1\n- a.ts:1 @x: fix') " \
     "$(summary failing 3 1 0 0 knip 1 '- a.ts:1 @x: fix' yes) "
+
+eq "dispatch rerun note" \
+    "$(printf 'CI: pending (3 pass, 0 fail, 1 pending, 0 skipping)\ngetsentry dispatch failed before; the new label will run it again.\nNo unresolved review threads.')" \
+    "$(summary pending 3 0 1 0 '' 0 '' rerun)"
 
 echo ""
 echo "passed: $PASS   failed: $FAIL"

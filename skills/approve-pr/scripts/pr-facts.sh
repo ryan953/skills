@@ -99,7 +99,10 @@ AUTO_MERGE_ON="$(pr 'if .autoMergeRequest then "yes" else "no" end')"
 MERGE_STATE="$(pr .mergeStateStatus)"
 
 wait "$CHECKS_PID" || true
-CHECKS="$(cat "$CHECKS_FILE")"
+RAW_CHECKS="$(cat "$CHECKS_FILE")"
+CHECKS="$(requeue_dispatch "$RAW_CHECKS" "$LABEL_WILL_QUEUE")"
+LABEL_NOTE="$LABEL_WILL_QUEUE"
+[ "$CHECKS" = "$(printf '%s' "$RAW_CHECKS" | jq -c .)" ] || LABEL_NOTE=rerun
 count() { printf '%s' "$CHECKS" | jq "map(select(.bucket == \"$1\")) | length"; }
 CI_PASS="$(count pass)"
 CI_FAIL="$(count fail)"
@@ -141,4 +144,4 @@ emit AUTO_MERGE_ON      "$AUTO_MERGE_ON"
 emit RECOMMEND          "$RECOMMEND"
 emit MERGE_OPTIONS      "$(merge_options "$RECOMMEND" "$AUTO_MERGE_ALLOWED")"
 emit SUMMARY            "$(summary "$CI_STATE" "$CI_PASS" "$CI_FAIL" "$CI_PENDING" "$CI_SKIPPING" \
-                            "$CI_FAILING" "$UNRESOLVED" "$THREADS" "$LABEL_WILL_QUEUE")"
+                            "$CI_FAILING" "$UNRESOLVED" "$THREADS" "$LABEL_NOTE")"
