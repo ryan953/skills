@@ -4,7 +4,11 @@
 #
 # Usage:
 #   apply.sh [<pr>] [--repo owner/name] [--body-file <path|->] \
-#            [--merge now|auto|none] [--dry-run]
+#            [--merge now|auto|none] [--expected-head <sha>] [--dry-run]
+#
+# --expected-head is the head commit the user saw when they answered. If the PR
+# has moved since (a bot rebased or pushed), nothing is done: the user would be
+# approving code they never saw. A merge is also pinned to that commit.
 #
 # --body-file is the comment exactly as the user wrote it; `-` reads stdin. Leave
 # it out (or pass an empty body) to approve without a comment. An existing approval
@@ -33,10 +37,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FACT_ARGS=()
 BODY_FILE=""
 MERGE=none
+EXPECTED_HEAD=""
 DRY=no
 while [ $# -gt 0 ]; do
     case "$1" in
         --repo) FACT_ARGS+=(--repo "$2"); shift 2 ;;
+        --expected-head) EXPECTED_HEAD="$2"; shift 2 ;;
         --body-file) BODY_FILE="$2"; shift 2 ;;
         --merge) MERGE="$2"; shift 2 ;;
         --dry-run) DRY=yes; shift ;;
@@ -61,6 +67,10 @@ did() { if [ "$DRY" = yes ]; then printf 'would'; else printf 'yes'; fi; }
 FACTS="$("$HERE/pr-facts.sh" ${FACT_ARGS[0]+"${FACT_ARGS[@]}"})" || exit 1
 eval "$FACTS"
 [ "$NEXT" = stop ] && die "$STOP_REASON"
+case "$HEAD_SHA" in
+    "$EXPECTED_HEAD"*) ;;
+    *) die "PR head moved from ${EXPECTED_HEAD} to ${HEAD_SHA:0:8} since the question was asked; run /approve-pr again." ;;
+esac
 
 if [ "$MY_APPROVAL" = yes ]; then
     APPROVED=already
@@ -100,7 +110,7 @@ if [ "$MERGE" = auto ] && [ "$AUTO_MERGE_ON" = yes ]; then
 elif [ "$MERGE" != none ]; then
     [ -n "$MERGE_METHOD" ] || die "$REPO allows no merge method."
     [ "$MERGE" = now ] || [ "$AUTO_MERGE_ALLOWED" = true ] || die "$REPO does not allow automerge."
-    CMD=(gh pr merge "$PR_NUMBER" --repo "$REPO" "--$MERGE_METHOD")
+    CMD=(gh pr merge "$PR_NUMBER" --repo "$REPO" "--$MERGE_METHOD" --match-head-commit "$HEAD_SHA")
     [ "$MERGE" = auto ] && CMD+=(--auto)
     if [ "$DRY" = yes ]; then
         run "${CMD[@]}"

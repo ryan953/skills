@@ -34,7 +34,7 @@ AskUserQuestion call holding every question that applies:
 
 | When | Header | Question | Options |
 |------|--------|----------|---------|
-| `ASK_COMMENT=yes` | `Comment` | "Comment to post with the approval?" — when `MY_COMMITS` > 0, instead: "Approve this bot PR, including your `<MY_COMMITS>` commit(s) on it? Comment to post:" | `Approve, no comment`, `Approve with LGTM` (I type my own comment through "Other") |
+| `ASK_COMMENT=yes` | `Comment` | "Approve `<AUTHOR>`'s PR #`<PR_NUMBER>` at `<first 8 of HEAD_SHA>`?" — when `MY_COMMITS` > 0, add "It includes your commits: `<MY_COMMIT_LIST lines, joined with ; >`." Then "Comment to post:" | `Approve, no comment`, `Approve with LGTM` (I type my own comment through "Other") |
 | `ASK_MERGE=yes` | `Merge` | "Merge after approving?" | `MERGE_OPTIONS` in order, first one marked "(Recommended)": `merge-now` → "Merge now", `automerge` → "Enable automerge", `not-now` → "Not now" |
 
 If `ASK_COMMENT=no`, say "Already approved by you" above the question.
@@ -42,7 +42,7 @@ If `ASK_COMMENT=no`, say "Already approved by you" above the question.
 ## Step 3: Apply in one call
 
 ```bash
-"${CLAUDE_SKILL_DIR}/scripts/apply.sh" <PR_URL> --merge <now|auto|none> --body-file - <<'BODY'
+"${CLAUDE_SKILL_DIR}/scripts/apply.sh" <PR_URL> --merge <now|auto|none> --expected-head <first 8 of HEAD_SHA> --body-file - <<'BODY'
 <my comment, verbatim>
 BODY
 ```
@@ -52,13 +52,17 @@ BODY
   heredoc. `Approve with LGTM` posts `LGTM`. If my "Other" text declines the
   approval instead of giving a comment, stop without running `apply.sh`.
 - `--merge`: `now` for Merge now, `auto` for Enable automerge, `none` for Not now
-  or when the merge was not asked.
+  or when the merge was not asked. If my comment sets a condition or a hold
+  ("don't merge until…"), use `none` whatever I picked for the merge.
+- `--expected-head`: the head shown in the question. If the PR moved since,
+  `apply.sh` stops; show its error, do nothing else.
+- Keep the body as an inline heredoc in this same command, never a file or variable.
 
 `apply.sh` re-reads the PR, approves only if I have not, marks a bot draft ready,
 adds the getsentry label in sentry, then merges. If it fails before printing
 `RESULT`, show the error and stop. If `RESULT=failed`, show `ERROR`; when
 `AUTO_AVAILABLE=true`, ask whether to enable automerge instead, and on yes run
-`apply.sh <PR_URL> --merge auto`.
+`apply.sh <PR_URL> --merge auto --expected-head <same sha>`.
 
 ## Output
 

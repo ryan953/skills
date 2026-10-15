@@ -60,7 +60,8 @@ QUERY='query($owner: String!, $name: String!, $number: Int!) {
       labels(first: 50) { nodes { name } }
       autoMergeRequest { mergeMethod }
       latestOpinionatedReviews(first: 100) { nodes { author { login } state } }
-      commits(last: 100) { nodes { commit { authors(first: 5) { nodes { user { login } } } } } }
+      headRefOid
+      commits(last: 100) { nodes { commit { oid messageHeadline authors(first: 5) { nodes { user { login } } } } } }
       reviewThreads(first: 100) {
         nodes { isResolved isOutdated path line
           comments(first: 1) { nodes { author { login } body url } } }
@@ -89,6 +90,9 @@ MY_APPROVAL="$(printf '%s' "$DATA" | jq -r --arg me "$ME" \
 # too, so the question has to say so before I answer it.
 MY_COMMITS="$(printf '%s' "$DATA" | jq -r --arg me "$ME" \
     '[.pullRequest.commits.nodes[] | select(any(.commit.authors.nodes[]; .user.login == $me))] | length')"
+MY_COMMIT_LIST="$(printf '%s' "$DATA" | jq -r --arg me "$ME" \
+    '.pullRequest.commits.nodes[] | select(any(.commit.authors.nodes[]; .user.login == $me))
+     | "\(.commit.oid[0:8]) \(.commit.messageHeadline)"')"
 
 # Only sentry has the getsentry dispatch workflow behind this label.
 TEST_LABEL="Trigger: getsentry tests"
@@ -141,6 +145,8 @@ emit AUTHOR             "$AUTHOR"
 emit AUTHOR_CLASS       "$CLASS"
 emit MY_APPROVAL        "$MY_APPROVAL"
 emit MY_COMMITS         "$MY_COMMITS"
+emit MY_COMMIT_LIST     "$MY_COMMIT_LIST"
+emit HEAD_SHA           "$(pr .headRefOid)"
 emit NEXT               "$(next_step "$STATE" "$CLASS" "$MY_APPROVAL" "$AUTO_MERGE_ON")"
 emit STOP_REASON        "$(stop_reason "$STATE" "$CLASS" "$MY_APPROVAL")"
 emit ASK_COMMENT        "$([ "$MY_APPROVAL" = no ] && printf yes || printf no)"
