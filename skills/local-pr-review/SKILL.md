@@ -401,7 +401,7 @@ alone. Run it too before touching `sync-check.sh` or `sync_action`.
 
 ## Notes
 
-- Range detection is delegated to the `diff` skill's `detect-range.sh`, so the
+- Range detection is delegated to the `revdiff` skill's `detect-range.sh`, so the
   facts, the diff pane, and the review all describe the same range.
 - `--dry-run` on `post-annotations.sh` and `verdict.sh` is how every real post
   starts, on any PR — it's the call that produces the `BODY_DIGEST` the post

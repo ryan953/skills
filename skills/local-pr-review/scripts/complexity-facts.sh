@@ -10,7 +10,7 @@
 # Usage:
 #   complexity-facts.sh [--base <ref>] [--cache-dir <dir>]
 #
-# --base defaults to the fork point computed by the `diff` skill's
+# --base defaults to the fork point computed by the `revdiff` skill's
 # detect-range.sh, so the facts cover the same range revdiff will show.
 #
 # Output: eval-safe KEY='value' lines — FACTS BASE FILES ADDED DELETED FRONTEND
@@ -39,7 +39,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
 # Same base revdiff will use, so the facts describe the diff the reviewer sees.
 # detect-range.sh emits `arg<TAB><value>`; the first non-flag arg is the base.
 if [ -z "$BASE" ]; then
-    if DETECT="$(find_sibling_script diff detect-range.sh)"; then
+    if DETECT="$(find_sibling_script revdiff detect-range.sh)"; then
         while IFS=$'\t' read -r kind val; do
             [ "$kind" = arg ] || continue
             case "$val" in --*) continue ;; esac

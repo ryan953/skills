@@ -2,7 +2,7 @@
 # Tests for detect-range.sh. Builds throwaway git repos in a temp dir, runs the
 # detector, and asserts the exact revdiff args (and range summary) it produces.
 #
-# Run:  skills/diff/scripts/detect-range.test.sh
+# Run:  skills/revdiff/scripts/detect-range.test.sh
 # Exit: 0 all pass, 1 any failure.
 
 set -uo pipefail

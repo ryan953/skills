@@ -131,7 +131,7 @@ than stack when iterating on your own commit. Push only when the user says to
 (`--force-with-lease` after an amend; if it rejects as stale, `git fetch` and confirm the
 remote still points at your prior commit before forcing).
 
-To iterate visually, use the `diff` skill (revdiff in a tmux window) on `HEAD~1` so the
+To iterate visually, use the `revdiff` skill (revdiff in a tmux window) on `HEAD~1` so the
 reviewer sees just your commit; address annotations and relaunch on the same range.
 
 ## Anti-patterns

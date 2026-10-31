@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # detect-range.sh — compute the revdiff argv + a human range summary for the
-# current git repo state. Git-only by design (the /diff skill is git-centric).
+# current git repo state. Git-only by design (the /revdiff skill is git-centric).
 #
 # Kept separate from diff.sh so it can be unit-tested without a tmux server or
 # the revdiff binary: it reads repo state and prints the decision, nothing else.

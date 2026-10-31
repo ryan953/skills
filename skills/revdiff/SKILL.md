@@ -1,10 +1,10 @@
 ---
-name: diff
-description: Review a diff in revdiff, opened in a persistent tmux window, with the diff range inferred automatically. Use when asked to "diff", "review diff", "review my changes", "review the branch", "revdiff in a window", "compare to <ref>", or to review changes without specifying two explicit commits. Defaults to the full current-branch-vs-main range and never steals terminal focus.
+name: revdiff
+description: Review a diff in revdiff, opened in a persistent tmux window, with the diff range inferred automatically. Use when asked to "revdiff", "diff", "review diff", "review my changes", "review the branch", "revdiff in a window", "compare to <ref>", or to review changes without specifying two explicit commits. Defaults to the full current-branch-vs-main range and never steals terminal focus.
 allowed-tools: Bash, Read, Monitor
 ---
 
-# diff — windowed diff review with inferred range
+# revdiff — windowed diff review with inferred range
 
 Open [revdiff](https://github.com/umputun/revdiff) on an inferred diff range in a
 **persistent tmux window**, capture the reviewer's inline annotations, and address them.
@@ -34,9 +34,9 @@ command -v revdiff || echo "install: brew install umputun/apps/revdiff"
 Resolve this skill's script directory (installed user-scope, or from a repo checkout):
 
 ```bash
-DIFF="$HOME/.claude/skills/diff/scripts/diff.sh"
-[ -f "$DIFF" ] || DIFF="$HOME/.agents/skills/diff/scripts/diff.sh"
-[ -f "$DIFF" ] || DIFF="$(git -C ~/code/skills rev-parse --show-toplevel 2>/dev/null)/skills/diff/scripts/diff.sh"
+DIFF="$HOME/.claude/skills/revdiff/scripts/diff.sh"
+[ -f "$DIFF" ] || DIFF="$HOME/.agents/skills/revdiff/scripts/diff.sh"
+[ -f "$DIFF" ] || DIFF="$(git -C ~/code/skills rev-parse --show-toplevel 2>/dev/null)/skills/revdiff/scripts/diff.sh"
 ```
 
 Run the launcher with the user's argument (verbatim), or no argument for the implied range:

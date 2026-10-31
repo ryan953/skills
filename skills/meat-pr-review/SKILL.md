@@ -69,8 +69,8 @@ Run it from inside the checkout (local mode needs the repo; PR mode doesn't, giv
 | `--pr <n> [--repo owner/name]` | forces PR mode |
 
 Local mode defaults to the whole branch **including uncommitted and untracked
-work**, matching the `/diff` skill's fork-point detection (it reuses
-`diff/scripts/detect-range.sh`, so a stale local `main` doesn't drag in upstream
+work**, matching the `/revdiff` skill's fork-point detection (it reuses
+`revdiff/scripts/detect-range.sh`, so a stale local `main` doesn't drag in upstream
 commits). Untracked files are staged into a *copy* of the index — the real index is
 never touched. Narrow it with:
 
@@ -125,7 +125,7 @@ summary/reading diff already scoped which hunks matter most.
 - Very large diffs are split at file/hunk boundaries and abridged chunk-by-chunk,
   then merged — expect longer runtimes on big diffs, not failures.
 - On a trunk branch with nothing to compare, local mode falls back to the working
-  tree vs `HEAD`, or to `HEAD~1..HEAD` when clean — the same rule `/diff` uses.
+  tree vs `HEAD`, or to `HEAD~1..HEAD` when clean — the same rule `/revdiff` uses.
 - `scripts/target.sh` holds the pure target-classification logic (PR number vs URL
   vs range vs branch, and which mode wins); `scripts/target.test.sh` covers it with
   no network or repo. Run that test after touching either.

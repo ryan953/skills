@@ -176,14 +176,14 @@ if [ "$COMMITTED" = yes ] && [ -z "$HEAD_REF" ]; then
     HEAD_REF=HEAD
 fi
 
-# Detected base: reuse the /diff skill's fork-point detection rather than forking
+# Detected base: reuse the /revdiff skill's fork-point detection rather than forking
 # it — it is the one place that already handles a stale local trunk vs origin's.
 detect_base_via_diff_skill() {
     local c script
-    for c in "$HERE/../../diff/scripts/detect-range.sh" \
-             "$HOME/.claude/skills/diff/scripts/detect-range.sh" \
-             "$HOME/.agents/skills/diff/scripts/detect-range.sh" \
-             "$HOME/code/skills/skills/diff/scripts/detect-range.sh"; do
+    for c in "$HERE/../../revdiff/scripts/detect-range.sh" \
+             "$HOME/.claude/skills/revdiff/scripts/detect-range.sh" \
+             "$HOME/.agents/skills/revdiff/scripts/detect-range.sh" \
+             "$HOME/code/skills/skills/revdiff/scripts/detect-range.sh"; do
         [ -f "$c" ] && { script="$c"; break; }
     done
     [ -n "${script:-}" ] || return 1
@@ -191,7 +191,7 @@ detect_base_via_diff_skill() {
         | awk -F'\t' '$1=="arg" && $2 !~ /^--/ {print $2; exit}'
 }
 
-# Fallback when the /diff skill isn't installed: the descendant-most merge-base
+# Fallback when the /revdiff skill isn't installed: the descendant-most merge-base
 # across every spelling of the trunk. Same reasoning as detect-range.sh — a stale
 # local `main` would otherwise drag in every upstream commit as if it were ours.
 detect_base_fallback() {

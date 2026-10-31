@@ -115,7 +115,7 @@ open)
     WORK_DIR="${CACHE:-$(job_tmp)}"
     mkdir -p "$WORK_DIR"
 
-    # Reuse the diff skill's range detection rather than reimplementing fork-point
+    # Reuse the revdiff skill's range detection rather than reimplementing fork-point
     # resolution here; degrade to plain revdiff args if it isn't installed.
     #
     # --range means the caller already ran detection and is handing back its
@@ -125,7 +125,7 @@ open)
     # args must never be re-detected.
     RANGE="$RANGE_ARG"
     DETECT=""
-    [ -z "$RANGE" ] && DETECT="$(find_sibling_script diff detect-range.sh || true)"
+    [ -z "$RANGE" ] && DETECT="$(find_sibling_script revdiff detect-range.sh || true)"
     if [ -n "$DETECT" ]; then
         DETECTED=()
         while IFS=$'\t' read -r kind val; do

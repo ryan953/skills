@@ -152,7 +152,7 @@ default_branch() {
 }
 
 # find_sibling_script <skill> <script> — absolute path to another skill's script.
-# This skill reuses the `diff` skill's range detection rather than forking it,
+# This skill reuses the `revdiff` skill's range detection rather than forking it,
 # and skills live either installed user-scope or in a repo checkout, so probe
 # both. Prints nothing and returns 1 when absent so callers can degrade.
 find_sibling_script() {
