@@ -1,0 +1,26 @@
+{
+  "name": "pr-board",
+  "version": "0.1.0",
+  "description": "A pane of open pull requests (mine, other people's, bots') with labels, CI and review state, filters, snoozing, and buttons to open, chat, approve, merge or run getsentry tests.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "queries": {
+      "type": "string",
+      "title": "GitHub searches",
+      "description": "Semicolon-separated GitHub PR searches to list (is:pr is:open is added). Example: author:@me; review-requested:@me; org:getsentry author:app/dependabot",
+      "default": "author:@me; review-requested:@me"
+    },
+    "codeRoots": {
+      "type": "string",
+      "title": "Code folders",
+      "description": "Comma-separated folders holding your clones (as <root>/<repo> or <root>/<owner>/<repo>); a new chat about a PR starts in its clone.",
+      "default": "~/code"
+    },
+    "refreshMinutes": {
+      "type": "number",
+      "title": "Refresh every (minutes)",
+      "description": "How often the list reloads in the background; 0 turns it off.",
+      "default": 5
+    }
+  }
+}

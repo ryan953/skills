@@ -1,0 +1,5 @@
+{
+  "name": "ryan953-skills",
+  "owner": { "name": "ryan953" },
+  "plugins": [{ "name": "pr-board", "source": "./plugins/pr-board" }]
+}
