@@ -391,8 +391,12 @@ test('every heading folds its rows and unfolds them again, and a folded heading 
     expect(await ui.findAll({ type: 'Button', text: /Projects/ })).toHaveLength(0)
     expect(await ui.findAll({ type: 'Text', text: /^Projects$/ })).toHaveLength(1)
     // An open heading draws a rail down the side of what it holds; a folded one has nothing to mark.
-    const rail = async (key: string) => (await ui.find({ type: 'Box', key: `rail:${key}` }))?.props.backgroundColor
-    expect(await rail('projects')).toBe('subtle')
+    const rail = async (key: string) => {
+      const p = (await ui.find({ type: 'Box', key: `rail:${key}` }))?.props
+      return p && { borderStyle: p.borderStyle, marginLeft: p.marginLeft }
+    }
+    // The rail starts at the middle of the fold button's gutter, so the line runs under its center.
+    expect(await rail('projects')).toEqual({ borderStyle: 'quote', marginLeft: 2 })
     await $.ui.press({ plugin: 'taskboard', key: 'fold:projects' })
     expect(await marker('projects')).toBe('▶')
     expect(await rail('projects')).toBeUndefined()

@@ -31,8 +31,10 @@ const FILTERS = ['needs-you', 'follow-up', 'merge']
 const OTHERS = 'others'
 // Percent widths leave room for the column gap.
 const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
-// Each level under a heading starts this many cells further in, so the tree reads as one.
-const INDENT = 2
+// The fold button sits centered in a gutter this wide, and the rail under it starts at the
+// gutter's middle. The terminal draws the button as `[ ▼ ]`, five cells, centered at cell 2.
+const GUTTER: Record<string, number> = { terminal: 5 }
+const GUTTER_DEFAULT = 4
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
 const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-7' })
@@ -282,6 +284,7 @@ export const register: Register = on => {
     // Cards wrap into as many columns as the pane is wide enough for.
     const cols = e.props.bodyColumns >= 150 ? 3 : e.props.bodyColumns >= 96 ? 2 : 1
     const cardWidth = CARD_WIDTH[cols]
+    const gutter = GUTTER[e.surface] ?? GUTTER_DEFAULT
     const dispatchTo = (id: string) => void $.command.run({ command: 'taskboard', args: `dispatch ${id}` })
 
     const subRow = (t: BoardTask, c: TreeNode) => (
@@ -416,11 +419,13 @@ export const register: Register = on => {
     // needs-you count shows even when folded, so a folded group cannot hide a task that waits for the user.
     const heading = (n: BoardNode, depth: number) => (
       <Box key={`head:${n.key}`} gap={1} alignItems="center">
-        <Button
-          key={`fold:${n.key}`}
-          label={isShut(n) ? '▶' : '▼'}
-          onPress={() => update($, folded, keys => (keys.includes(n.key) ? keys.filter(k => k !== n.key) : [...keys, n.key]))}
-        />
+        <Box width={gutter} flexShrink={0} justifyContent="center">
+          <Button
+            key={`fold:${n.key}`}
+            label={isShut(n) ? '▶' : '▼'}
+            onPress={() => update($, folded, keys => (keys.includes(n.key) ? keys.filter(k => k !== n.key) : [...keys, n.key]))}
+          />
+        </Box>
         <Text size={depth === 0 ? 'heading' : 'body'} weight="semibold">{n.title}</Text>
         <Text dimColor size="caption" tabular>{isFiltered ? shown(n) : n.count}</Text>
         {n.needsYou > 0 && <Text color="warning" size="caption">{n.needsYou} need you</Text>}
@@ -436,20 +441,25 @@ export const register: Register = on => {
         <Box key={n.key} flexDirection="column" gap={1}>
           {heading(n, depth)}
           {!isShut(n) && (
-            // The kit has no one-sided border, so the rail is a one-cell Box that the row stretches
-            // to the height of what the heading holds.
-            <Box gap={INDENT - 1}>
-              <Box key={`rail:${n.key}`} width={1} flexShrink={0} backgroundColor="subtle" />
-              <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
-                {!isFiltered && n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
-                {tasks.length > 0 && (
-                  <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-                    {tasks.map(card)}
-                  </Box>
-                )}
-                {prs.length > 0 && <Box flexDirection="column" gap={1}>{prs.map(p => prLine(p, 'queue'))}</Box>}
-                {n.children.map(c => branch(c, depth + 1))}
-              </Box>
+            // The quote border is a line down the left side only. Starting the Box at the gutter's
+            // middle puts that line under the center of the fold button.
+            <Box
+              key={`rail:${n.key}`}
+              flexDirection="column"
+              gap={1}
+              marginLeft={Math.floor(gutter / 2)}
+              paddingLeft={1}
+              borderStyle="quote"
+              borderDimColor
+            >
+              {!isFiltered && n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
+              {tasks.length > 0 && (
+                <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                  {tasks.map(card)}
+                </Box>
+              )}
+              {prs.length > 0 && <Box flexDirection="column" gap={1}>{prs.map(p => prLine(p, 'queue'))}</Box>}
+              {n.children.map(c => branch(c, depth + 1))}
             </Box>
           )}
         </Box>
