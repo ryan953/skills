@@ -403,13 +403,13 @@ export function turnState(s) {
 }
 
 // Only the turn state of each session: cheap enough for the mod to read every minute.
-export function readSessionTurns() {
+export function readSessionTurns(skip = new Set()) {
   const self = process.env.CLAUDE_CODE_SESSION_ID;
   const out = new Map();
   for (const file of sessionFiles(self ? sessionsDir(self) : SESSIONS_ROOT)) {
     try {
       const s = JSON.parse(readFileSync(file, 'utf8'));
-      if (s.sessionId && !(self && s.cliSessionId === self)) out.set(s.sessionId, turnState(s));
+      if (s.sessionId && !skip.has(s.sessionId)) out.set(s.sessionId, turnState(s));
     } catch {}
   }
   return out;
@@ -427,7 +427,9 @@ function sessionsDir(self) {
   return SESSIONS_ROOT;
 }
 
-export function readClaudeSessions(teams) {
+// `skip` holds the manager sessions. It is a fixed list, not "the session that runs this":
+// the mod runs the sync from every session, and a worker must still see itself in its task.
+export function readClaudeSessions(teams, skip = new Set()) {
   const self = process.env.CLAUDE_CODE_SESSION_ID;
   const byKey = new Map();
   for (const file of sessionFiles(self ? sessionsDir(self) : SESSIONS_ROOT)) {
@@ -437,8 +439,8 @@ export function readClaudeSessions(teams) {
     } catch {
       continue;
     }
-    // The manager session is not a task of its own.
-    if (!s.sessionId || (self && s.cliSessionId === self)) continue;
+    // A manager session is not a task of its own.
+    if (!s.sessionId || skip.has(s.sessionId)) continue;
     const recorded = (parse(s.prs) ?? []).map(p => prKey(p.repo ?? DEFAULT_REPO, p.prNumber));
     const summary = parse(s.postTurnSummary) ?? {};
     const title = s.title ?? '(untitled)';

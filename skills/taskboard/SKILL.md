@@ -21,6 +21,7 @@ Requires authenticated `gh`, the `linear` CLI, `node` 22+, and the jr MCP tools 
 | `node scripts/taskboard.mjs dispatch <id> [--brief full\|review\|validate] [--route session\|jr\|new] [--step <text>]` | pick where the next step goes and write the message or brief, as JSON |
 | `node scripts/taskboard.mjs assign <id> <item-key> [--notes <text>]` | record the session or jr conversation that works the task |
 | `node scripts/taskboard.mjs detail <id>` | one task's Overview, fetched now: ticket properties, the latest 5 comments, the whole tree, items, as JSON |
+| `node scripts/taskboard.mjs manager add\|remove <session-id>` | sessions that manage the board; they are never items |
 | `node scripts/taskboard.mjs workers` | running sessions on open tasks, from local files only, as JSON |
 | `node scripts/taskboard.mjs ask <item-key>` | the question to send to a session or jr conversation before it is archived |
 | `node scripts/taskboard.mjs checked <item-key> [--remaining <text>]` | record its answer; no `--remaining` means nothing is left |
@@ -123,7 +124,9 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
 
 The timer cannot reach jr, because jr needs MCP tools. jr stays as of the last `/taskboard sync`.
 
-Load it in one session: `claude --plugin-dir <skill>/mod`, or copy it to the session's mods folder. Tests: `claude plugin test mod`.
+It loads in every session through `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`, pointing at this folder's `mod/`. Only sessions started after that setting get it. The folder is watched, so an edit reloads the mod. Every session runs the timers, but a timer sync reuses a ledger that is less than 9 minutes old (`sync --max-age 540`), so only one session fetches each period. **Sync** always fetches. Tests: `claude plugin test mod`.
+
+Manager sessions (`manager add`) are left out of the ledger. Before, the sync left out the session that ran it. That broke when the mod runs the sync from a worker session, because the worker then dropped out of its own task.
 
 ## How items link
 

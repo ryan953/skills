@@ -95,13 +95,16 @@ async function openOverview($: EngineInterface, id: string) {
 let timer: { cancel: () => void } | null = null
 let workerTimer: { cancel: () => void } | null = null
 
-async function runSync($: EngineInterface, offline = false) {
+// 'saved' reads the ledger, 'timer' fetches only when no other session's timer did so lately,
+// 'fetch' always fetches (the Sync button).
+async function runSync($: EngineInterface, mode: 'saved' | 'timer' | 'fetch' = 'fetch') {
   const state = await read($, sync)
   if (state.isSyncing) return
   await update($, sync, s => ({ ...s, isSyncing: true, error: null }))
   try {
     const before = await read($, board)
-    const after = await cli($, offline ? ['show', '--board'] : ['sync', '--board'])
+    const args = { saved: ['show', '--board'], timer: ['sync', '--board', '--max-age', String(SYNC_EVERY_MS / 1000 - 60)], fetch: ['sync', '--board'] }[mode]
+    const after = await cli($, args)
     await update($, board, () => after)
     await update($, sync, () => ({ isSyncing: false, error: null, at: Date.now() }))
     const news = alerts(before, after)
@@ -121,10 +124,10 @@ export const register: Register = on => {
     // $.state outlives a reload, so a sync cut off by one would otherwise block every later sync.
     await update($, sync, s => ({ ...s, isSyncing: false }))
     // Draw the last saved ledger at once (a local read); the first fetch waits for the timer or Sync.
-    await runSync($, true)
+    await runSync($, 'saved')
     timer?.cancel()
     // Linear, GitHub and session files only: jr needs MCP tools, so its snapshot is as of the last /taskboard sync.
-    timer = $.clock.every(SYNC_EVERY_MS, () => void runSync($))
+    timer = $.clock.every(SYNC_EVERY_MS, () => void runSync($, 'timer'))
     await readWorkers($)
     workerTimer?.cancel()
     workerTimer = $.clock.every(WORKERS_EVERY_MS, () => void readWorkers($))

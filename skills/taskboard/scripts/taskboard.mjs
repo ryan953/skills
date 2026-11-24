@@ -6,6 +6,8 @@
 //   taskboard.mjs show [--json] [--all]          print the saved ledger without fetching
 //   --board (sync or show)                       print a compact summary for the taskboard mod
 //   taskboard.mjs workers                        running sessions on tasks, from local files only (JSON)
+//   taskboard.mjs manager add|remove <session-id>   sessions that manage the board are never items
+//   sync --max-age <seconds>                     reuse a ledger younger than this instead of fetching
 //   taskboard.mjs detail <id>                    one task's Overview: ticket properties, comments, tree, items (JSON)
 //   taskboard.mjs task <id|item-key>             print one task with its items, as JSON
 //   taskboard.mjs join <keyA> <keyB> | split <key> | ignore <key>   manual link fixes
@@ -41,6 +43,7 @@ const paths = {
   ledger: join(DIR, 'ledger.json'),
   overrides: join(DIR, 'overrides.json'),
   checks: join(DIR, 'checks.json'),
+  managers: join(DIR, 'managers.json'),
   jr: join(DIR, 'sources', 'jr.json'),
   cache: join(DIR, 'sources', 'fetched.json'),
 };
@@ -52,9 +55,10 @@ function writeJson(p, value) {
   writeFileSync(`${p}.tmp`, `${JSON.stringify(value, null, 2)}\n`);
   renameSync(`${p}.tmp`, p);
 }
+const managers = () => new Set(readJson(paths.managers, []));
 const readStdinOrFile = f => readFileSync(f === '-' ? 0 : f, 'utf8');
 
-const VALUE_FLAGS = new Set(['--brief', '--route', '--step', '--notes', '--remaining']);
+const VALUE_FLAGS = new Set(['--brief', '--route', '--step', '--notes', '--remaining', '--max-age']);
 const [cmd = 'show', ...rest] = process.argv.slice(2);
 const flags = new Set();
 const opts = {};
@@ -69,7 +73,7 @@ for (let i = 0; i < rest.length; i++) {
 async function collect() {
   const teams = new Set(process.env.TASKBOARD_LINEAR_TEAMS?.split(',') ?? (await linearTeams()));
   const [{me, items: prs}, linear] = await Promise.all([fetchGithub(teams), fetchLinear()]);
-  const claude = readClaudeSessions(teams);
+  const claude = readClaudeSessions(teams, managers());
   const jr = readJr(teams);
 
   // Resolve strong refs to items we did not fetch (merged PRs, tickets assigned to others),
@@ -237,6 +241,14 @@ function findTask(ref) {
 
 async function main() {
   if (cmd === 'sync') {
+    // Every session's mod has a sync timer; the first one due fetches, and the others reuse its ledger.
+    if (opts['max-age']) {
+      const last = readJson(paths.ledger, null);
+      if (last && Date.now() - Date.parse(last.generatedAt) < Number(opts['max-age']) * 1000) {
+        print(last);
+        return;
+      }
+    }
     const fetched = flags.has('--offline') ? readJson(paths.cache, null) : await collect();
     if (!fetched) throw new Error('No cached fetch; run sync without --offline first.');
     if (!flags.has('--offline')) writeJson(paths.cache, fetched);
@@ -330,7 +342,7 @@ async function main() {
     const ledger = readJson(paths.ledger, null);
     if (!ledger) throw new Error('No ledger yet; run sync.');
     const out = [];
-    for (const [key, turn] of readSessionTurns()) {
+    for (const [key, turn] of readSessionTurns(managers())) {
       const task = ledger.tasks.find(t => t.id === ledger.itemTask[key]);
       if (!turn.running || !task || task.stage === 'done') continue;
       out.push({session: key, title: ledger.items[key]?.title ?? null, task: task.id, stage: task.stage, isOwner: task.owner === key, turnStartedAt: turn.turnStartedAt});
@@ -370,6 +382,16 @@ async function main() {
     checks[args[0]] = {at: new Date().toISOString(), remaining: opts.remaining ?? null};
     writeJson(paths.checks, checks);
     console.log(`${args[0]}: ${opts.remaining ? `remaining: ${opts.remaining}` : 'nothing left'}. Run "sync --offline".`);
+    return;
+  }
+  if (cmd === 'manager') {
+    const [op, id] = args;
+    if (!['add', 'remove'].includes(op) || !id) throw new Error('Usage: manager add|remove <session-id>');
+    const list = new Set(readJson(paths.managers, []));
+    if (op === 'add') list.add(id);
+    else list.delete(id);
+    writeJson(paths.managers, [...list].sort());
+    console.log(`managers: ${[...list].join(', ') || 'none'}. Run "sync".`);
     return;
   }
   if (cmd === 'assign') {
