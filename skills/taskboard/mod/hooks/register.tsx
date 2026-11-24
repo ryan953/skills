@@ -282,7 +282,7 @@ export const register: Register = on => {
     const row = (t: BoardTask) => (
       <Box key={`row:${t.id}`} flexDirection="column">
         <Box gap={1}>
-          <Text bold>{t.id}</Text>
+          <Text weight="semibold">{t.id}</Text>
           <Text>{t.title}</Text>
           {ws
             .filter(w => w.task === t.id)
@@ -346,7 +346,7 @@ export const register: Register = on => {
           if (!ts.length) return null
           return (
             <Box key={`stage:${stage}`} flexDirection="column">
-              <Text bold underline>
+              <Text weight="semibold" underline>
                 {stage} ({ts.length})
               </Text>
               {ts.map(row)}
@@ -376,7 +376,7 @@ export const register: Register = on => {
     const node = (n: OverviewNode) => (
       <Box key={`ov:${n.id}`} gap={1}>
         <Link href={n.url} label={n.id} />
-        <Text dimColor={n.isDone} bold={n.id === o.tree?.self}>
+        <Text dimColor={n.isDone} weight={n.id === o.tree?.self ? 'semibold' : undefined}>
           {n.title}
         </Text>
         <Text dimColor>
@@ -390,7 +390,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" gap={1}>
         <Box gap={1}>
-          <Text bold>{o.id}</Text>
+          <Text weight="semibold">{o.id}</Text>
           <Text>{o.title}</Text>
           <Text dimColor>
             {o.stage} · {o.kind}
@@ -422,7 +422,7 @@ export const register: Register = on => {
           </Box>
         )}
         <Box flexDirection="column">
-          <Text bold>Items</Text>
+          <Text weight="semibold">Items</Text>
           {o.items.map(i => (
             <Box key={`item:${i.key}`} gap={1}>
               {i.url ? <Link href={i.url} label={i.label} /> : <Text>{i.label}</Text>}
@@ -433,13 +433,13 @@ export const register: Register = on => {
         </Box>
         {t?.description && (
           <Box flexDirection="column">
-            <Text bold>Description</Text>
+            <Text weight="semibold">Description</Text>
             <Markdown key="ov-description" text={clip(t.description, DESCRIPTION_LIMIT)} />
           </Box>
         )}
         {o.comments.length > 0 && (
           <Box flexDirection="column">
-            <Text bold>Latest comments</Text>
+            <Text weight="semibold">Latest comments</Text>
             {o.comments.map((c, n) => (
               <Box key={`comment:${n}`} flexDirection="column">
                 <Text dimColor>
@@ -455,15 +455,15 @@ export const register: Register = on => {
           <Box flexDirection="column">
             {o.tree.parent && (
               <Box gap={1}>
-                <Text bold>Parent</Text>
+                <Text weight="semibold">Parent</Text>
                 <Link href={o.tree.parent.url} label={o.tree.parent.id} />
                 <Text>{o.tree.parent.title}</Text>
                 <Text dimColor>{pct(o.tree.parent.progress)}</Text>
               </Box>
             )}
-            {o.tree.children.length > 0 && <Text bold>Sub-issues · {pct(o.tree.progress)}</Text>}
+            {o.tree.children.length > 0 && <Text weight="semibold">Sub-issues · {pct(o.tree.progress)}</Text>}
             {o.tree.children.map(node)}
-            {o.tree.siblings.length > 0 && <Text bold>Siblings ({o.tree.siblings.length})</Text>}
+            {o.tree.siblings.length > 0 && <Text weight="semibold">Siblings ({o.tree.siblings.length})</Text>}
             {o.tree.siblings.map(node)}
           </Box>
         )}
