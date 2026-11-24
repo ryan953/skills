@@ -69,3 +69,38 @@ An Overview pane for one task. Open it from a row in the board pane. It shows:
 - the description
 - the latest Linear comments
 - the item tree from 6.3
+
+## Phase 7: the tree is the board, and it re-opens sessions
+
+The user's ask (2026-11-24): use the mock's tree view (project → ticket → PR) as the main board, and use the tree to re-open existing sessions for a task.
+
+Today the board is a flat list by stage, and each task's tree is behind a **Tree** button. `project` is fetched only by `detail`, and `TreeNode` has no sessions.
+
+### 7.1 Tree view as the default
+
+The stage list stays as a second view or a filter.
+
+- **Level 1, the group.** Start from the team/project grouping that the "Taskboard grouping by team/project" session is building (`lib/group.mjs`, `taskGroup`). Do not build a second grouping. Tasks with no project go under "No project". Review tasks with no ticket go under their repo, or under "Reviews".
+- **Level 2, the parent ticket.** Show the parent's progress ("2 of 6 done"), then the tickets and sub-issues under it. "This ticket" is highlighted. Each task has a stage badge (needs-you, merge, iterate…), so the stage order is not lost.
+- **Level 3, the PRs.** Each ticket's PRs are nested cards with the 6.1 detail line: checks, threads, review.
+- **Done tickets** (decided 2026-11-24): they stay visible, collapsed to one line with the merged PR. Only open work expands by default.
+- **Siblings:** an "Also under <parent>" line of sibling chips.
+
+### 7.2 Sessions on the tree nodes
+
+- Each `TreeNode` and each task row gets the Claude sessions and jr conversations that link to it: the owner first, then the others, newest first.
+- Each one shows its title, whether it is running (6.2), and whether it is archived.
+- A session goes on the PR node when its `prs` list names that PR. If not, it goes on the ticket node.
+- A ticket with no session of its own shows its parent's or children's sessions in a secondary "related" list, so a session for the same feature can be reused.
+- Archived sessions must be read too. Today the sync reads them, but the board does not show them.
+
+### 7.3 Re-open from the tree
+
+Each node gets one main button:
+
+- **Open**, when a live session exists: the session opens in a **split view** beside the management session (decided 2026-11-24).
+  - First test whether a mod `<Link href>` with the session's `link` (`claude://claude.ai/epitaxy/local_…`) opens it with no model turn. A link likely opens the session focused, not split.
+  - If it does not split, run `/taskboard open <task-id>`. The skill then calls `mcp__ccd_window__open_session_in` with split view.
+- **Resume**, when the only session is archived: `/taskboard open <task-id>` calls `unarchive_session`, then opens the session in a split view. It asks the user **each time**, as for archive (decided 2026-11-24).
+- **Dispatch**, when there is no session: the existing reuse rule.
+- **jr conversations:** an **Open** link to their `url`.
