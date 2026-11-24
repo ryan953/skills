@@ -91,8 +91,12 @@ const OVERVIEW_DATA = {
   actions: [],
 }
 
-function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }, sessions: string[] = ['cli-main']) {
+function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }, sessions: string[] = ['cli-main'], looks: any[] = []) {
   mock.store(on, { enabledSessions: sessions })
+  on('theme.set', (_: unknown, e: any) => {
+    looks.push(e)
+    return { value: { isDrawn: true, requestId: 'theme' } }
+  })
   on('session.id', () => ({ value: 'cli-main' }))
   // Refusing the first period ends the interval, so no timer runs in a test.
   on('clock.every', () => ({ deny: 'no timer in tests' }))
@@ -126,8 +130,9 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   expect(calls[0]?.slice(-2)).toEqual(['show', '--board'])
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /^needs-you/ }))?.text).toBe('needs-you (1)')
-  expect((await ui.find({ type: 'Text', text: /^iterate/ }))?.text).toBe('iterate (1)')
+  expect(await ui.find({ type: 'Text', text: /^Needs you$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^Iterate$/ })).toBeTruthy()
+  expect((await ui.find({ type: 'Text', text: /^need you$/ }))).toBeTruthy()
   expect((await ui.find({ type: 'Text', text: /^Left to do/ }))?.text).toBe('Left to do: file the Safari ticket')
   expect((await ui.find({ type: 'Text', text: /warden/ }))?.text).toBe('+12 −3 · 2 files · ✓40 ✗1 · warden: no problems')
   expect((await ui.find({ type: 'Text', text: /^Implementing/ }))?.text).toBe('Implementing · 6m')
@@ -234,4 +239,29 @@ test('/board on enables this session and marks it a manager; /board off stops it
   const after = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
   expect(await after.find({ type: 'Text', text: /^taskboard:/ })).toBeFalsy()
   await after.unmount()
+})
+
+test('the manager session and the other sessions get different backdrops', async ($, on) => {
+  const looks: any[] = []
+  engine(on, [], [], { fail: false }, [], looks)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'board', args: 'on', ...TYPED })
+  await $.command.run({ command: 'board', args: 'off', ...TYPED })
+  expect(looks.length).toBe(3)
+  const [worker, manager, back] = looks.map(l => JSON.stringify(l.backdrop))
+  expect(manager).not.toBe(worker)
+  expect(back).toBe(worker)
+})
+
+test('the grid draws on every surface, narrow and wide', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    for (const bodyColumns of [60, 120, 180]) {
+      const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns }, surface })
+      expect(await ui.find({ type: 'Text', text: /^Needs you$/ })).toBeTruthy()
+      expect(await ui.find({ type: 'Text', text: /^Iterate$/ })).toBeTruthy()
+      await ui.unmount()
+    }
+  }
 })

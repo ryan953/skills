@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
 import type { Board, BoardTask, Overview, OverviewNode, Progress, TreeNode, Worker } from '../types'
 
@@ -14,6 +14,21 @@ const WORKERS_EVERY_MS = 60 * 1000
 const STAGES = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc']
 // Stages where the next move is the user's; dispatch would only answer "ask the user".
 const NO_DISPATCH = new Set(['needs-you', 'merge'])
+const STAGE_LABEL: Record<string, string> = {
+  'needs-you': 'Needs you',
+  'follow-up': 'Follow-up',
+  merge: 'Ready to merge',
+  iterate: 'Iterate',
+  review: 'Review',
+  fix: 'Fix',
+  validate: 'Validate',
+  verify: 'Verify',
+  adhoc: 'Ad hoc',
+}
+// Only the stages that ask for the user get a colored border; the rest stay quiet.
+const STAGE_COLOR: Record<string, string | undefined> = { 'needs-you': 'warning', 'follow-up': 'warning', merge: 'success' }
+// Percent widths leave room for the column gap.
+const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
 const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-5' })
@@ -32,6 +47,24 @@ const enabled = atom({ plugin: 'taskboard', key: 'enabled' } as const, false)
 // $.store is shared by every session, so the list of enabled sessions outlives a restart.
 const ENABLED_SESSIONS = 'enabledSessions'
 const OFF_TEXT = 'The taskboard is off in this session. Type /board on in the session that manages the others.'
+
+// The backdrop tells the management session apart from the sessions it dispatches to at a glance.
+// Palette names, not raw colors, so each ground follows light and dark mode.
+const MANAGER_LOOK: ThemeSetArgs = {
+  backdrop: { gradient: { shape: 'radial', stops: [{ at: 0, color: 'bg-pro' }, { at: 0.7, color: 'surface-0' }] } },
+}
+const WORKER_LOOK: ThemeSetArgs = {
+  backdrop: { gradient: { angle: 180, stops: [{ at: 0.6, color: 'surface-0' }, { at: 1, color: 'bg-accent' }] } },
+}
+
+async function applyLook($: EngineInterface, isManager: boolean) {
+  try {
+    await $.theme.set(isManager ? MANAGER_LOOK : WORKER_LOOK)
+  } catch (err) {
+    // A build or surface that refuses the look still gets a working board.
+    $.ui.log(`taskboard: backdrop not set: ${String((err as Error).message ?? err)}`)
+  }
+}
 
 // The skill is installed at a fixed place; a login shell finds the right node on PATH.
 async function run($: EngineInterface, args: string[]): Promise<string> {
@@ -133,6 +166,7 @@ async function runSync($: EngineInterface, mode: 'saved' | 'timer' | 'fetch' = '
 
 async function start($: EngineInterface) {
   await update($, enabled, () => true)
+  await applyLook($, true)
   // $.state outlives a reload, so a sync cut off by one would otherwise block every later sync.
   await update($, sync, s => ({ ...s, isSyncing: false }))
   // Draw the last saved ledger at once (a local read); the first fetch waits for the timer or Sync.
@@ -150,6 +184,7 @@ async function stop($: EngineInterface) {
   workerTimer?.cancel()
   timer = workerTimer = null
   await update($, enabled, () => false)
+  await applyLook($, false)
 }
 
 export const register: Register = on => {
@@ -230,13 +265,20 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const { Box, Button, Link, Text } = $.ui.resolve(e)
 
+    if (!(await read($, enabled))) return <Text dimColor>{OFF_TEXT}</Text>
+    if (!b) return <Text dimColor>{s.error ? `No ledger: ${s.error}` : 'Loading the ledger…'}</Text>
+
+    // Cards wrap into as many columns as the pane is wide enough for.
+    const cols = e.props.bodyColumns >= 150 ? 3 : e.props.bodyColumns >= 96 ? 2 : 1
+    const cardWidth = CARD_WIDTH[cols]
     const dispatchTo = (id: string) => void $.command.run({ command: 'taskboard', args: `dispatch ${id}` })
+
     const subRow = (t: BoardTask, c: TreeNode) => (
-      <Box key={`sub:${t.id}:${c.id}`} gap={1}>
-        <Text dimColor>  ▸</Text>
+      <Box key={`sub:${t.id}:${c.id}`} gap={1} flexWrap="wrap" alignItems="center">
+        <Text dimColor>▸</Text>
         <Link href={c.url} label={c.id} />
-        <Text>{c.title}</Text>
-        <Text dimColor>
+        <Text wrap="truncate-end">{c.title}</Text>
+        <Text dimColor size="caption">
           {c.state}
           {c.prs.length ? ` · ${c.prs.join(', ')}` : ''}
         </Text>
@@ -252,104 +294,147 @@ export const register: Register = on => {
       ].filter(Boolean)
       const isOpen = open.has(t.id)
       return (
-        <Box key={`tree:${t.id}`} flexDirection="column">
-          <Box gap={1}>
-            <Text dimColor>{summary.join(' · ')}</Text>
+        <Box key={`tree:${t.id}`} flexDirection="column" gap={0}>
+          <Box gap={1} alignItems="center" justifyContent="space-between">
+            <Text dimColor size="caption">{summary.join(' · ')}</Text>
             <Button
               key={`tree-toggle:${t.id}`}
               label={isOpen ? 'Hide tree' : 'Tree'}
               onPress={() => update($, expanded, ids => (ids.includes(t.id) ? ids.filter(i => i !== t.id) : [...ids, t.id]))}
             />
           </Box>
-          {isOpen && tr.parent && (
-            <Box gap={1}>
-              <Text dimColor>parent</Text>
-              {tr.parent.url ? <Link href={tr.parent.url} label={tr.parent.id} /> : <Text>{tr.parent.id}</Text>}
-              <Text>{tr.parent.title ?? ''}</Text>
+          {isOpen && (
+            <Box flexDirection="column" paddingLeft={1}>
+              {tr.parent && (
+                <Box gap={1}>
+                  <Text dimColor size="caption">parent</Text>
+                  {tr.parent.url ? <Link href={tr.parent.url} label={tr.parent.id} /> : <Text>{tr.parent.id}</Text>}
+                  <Text wrap="truncate-end">{tr.parent.title ?? ''}</Text>
+                </Box>
+              )}
+              {tr.children.length > 0 && <Text dimColor size="caption">open sub-issues ({tr.children.length})</Text>}
+              {tr.children.map(c => subRow(t, c))}
+              {tr.siblings.length > 0 && <Text dimColor size="caption">open siblings</Text>}
+              {tr.siblings.map(c => subRow(t, c))}
+              {tr.moreSiblings > 0 && <Text dimColor size="caption">and {tr.moreSiblings} more</Text>}
             </Box>
           )}
-          {isOpen && tr.children.length > 0 && <Text dimColor>open sub-issues ({tr.children.length})</Text>}
-          {isOpen && tr.children.map(c => subRow(t, c))}
-          {isOpen && tr.siblings.length > 0 && <Text dimColor>open siblings</Text>}
-          {isOpen && tr.siblings.map(c => subRow(t, c))}
-          {isOpen && tr.moreSiblings > 0 && <Text dimColor>  and {tr.moreSiblings} more</Text>}
         </Box>
       )
     }
-    if (!(await read($, enabled))) return <Text dimColor>{OFF_TEXT}</Text>
-    if (!b) return <Text dimColor>{s.error ? `No ledger: ${s.error}` : 'Loading the ledger…'}</Text>
 
-    const row = (t: BoardTask) => (
-      <Box key={`row:${t.id}`} flexDirection="column">
-        <Box gap={1}>
-          <Text weight="semibold">{t.id}</Text>
-          <Text>{t.title}</Text>
-          {ws
-            .filter(w => w.task === t.id)
-            .slice(0, 1)
-            .map(w => (
-              <Text color="success">
-                {VERB[t.stage] ?? 'Implementing'} · {ago(w.turnStartedAt, now)}
-              </Text>
-            ))}
-        </Box>
-        {t.actions
-          .filter(a => a.type === 'follow-up')
-          .map(a => (
-            <Text color="warning">Left to do: {a.reason}</Text>
-          ))}
-        {t.prs
-          .filter(p => p.detail)
-          .map(p => (
-            <Box key={`pr:${p.key}`} gap={1}>
-              <Link href={p.url} label={p.label} />
-              {p.headAt && now - Date.parse(p.headAt) < 60 * 60_000 && <Text color="success">pushed {ago(p.headAt, now)} ago</Text>}
-              <Text dimColor>{p.detail}</Text>
+    const card = (t: BoardTask) => {
+      const w = ws.find(x => x.task === t.id)
+      const accent = STAGE_COLOR[t.stage]
+      return (
+        <Box
+          key={`row:${t.id}`}
+          flexDirection="column"
+          width={cardWidth}
+          borderStyle="round"
+          borderColor={accent}
+          borderDimColor={!accent}
+          paddingX={1}
+          rowGap={1}
+        >
+          <Box flexDirection="column">
+            <Box gap={1} justifyContent="space-between">
+              <Text weight="semibold" tabular>{t.id}</Text>
+              {w && (
+                <Text color="success" size="caption">
+                  {VERB[t.stage] ?? 'Implementing'} · {ago(w.turnStartedAt, now)}
+                </Text>
+              )}
             </Box>
-          ))}
-        {tree(t)}
-        <Box gap={1}>
-          <Text dimColor>{t.parts}</Text>
-          {t.url && <Link href={t.url} label="Open" />}
-          <Button key={`overview:${t.id}`} label="Overview" onPress={() => void openOverview($, t.id)} />
-          {!NO_DISPATCH.has(t.stage) && (
-            <Button
-              key={`dispatch:${t.id}`}
-              label="Dispatch"
-              onPress={() => dispatchTo(t.id)}
-            />
+            <Text maxLines={2}>{t.title}</Text>
+          </Box>
+          {t.actions
+            .filter(a => a.type === 'follow-up')
+            .map(a => (
+              <Text key={`follow:${t.id}:${a.item}`} color="warning">Left to do: {a.reason}</Text>
+            ))}
+          {t.prs.some(p => p.detail) && (
+            <Box flexDirection="column">
+              {t.prs
+                .filter(p => p.detail)
+                .map(p => (
+                  <Box key={`pr:${p.key}`} flexDirection="column">
+                    <Box gap={1}>
+                      <Link href={p.url} label={p.label} />
+                      {p.headAt && now - Date.parse(p.headAt) < 60 * 60_000 && <Text color="success" size="caption">pushed {ago(p.headAt, now)} ago</Text>}
+                    </Box>
+                    <Text dimColor size="caption">{p.detail}</Text>
+                  </Box>
+                ))}
+            </Box>
           )}
+          {tree(t)}
+          <Box flexDirection="column">
+            <Text dimColor size="caption" wrap="truncate-end">{t.parts}</Text>
+            <Box gap={1} justifyContent="flex-end">
+              {t.url && <Link href={t.url} label="Open" />}
+              <Button key={`overview:${t.id}`} label="Overview" onPress={() => void openOverview($, t.id)} />
+              {!NO_DISPATCH.has(t.stage) && <Button key={`dispatch:${t.id}`} label="Dispatch" variant="primary" onPress={() => dispatchTo(t.id)} />}
+            </Box>
+          </Box>
         </Box>
+      )
+    }
+
+    const by = (stage: string) => b.tasks.filter(t => t.stage === stage).length
+    const cleanup = b.counts.archive + b.counts.close + b.counts.check
+    const tile = (label: string, n: number, color?: string) => (
+      <Box key={`tile:${label}`} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={14}>
+        <Text size="title" weight="semibold" tabular color={n ? color : undefined} dimColor={!n}>
+          {n}
+        </Text>
+        <Text dimColor size="caption">{label}</Text>
       </Box>
     )
 
-    const cleanup = b.counts.archive + b.counts.close + b.counts.check
     return (
-      <Box flexDirection="column" gap={1}>
-        <Box gap={1}>
-          <Text dimColor>
-            {b.counts.open} open · {b.counts.queue} in review queue · {b.counts.backlog} filed, unlinked · synced{' '}
-            {b.generatedAt.slice(11, 16)} UTC
+      <Box flexDirection="column" gap={2} paddingX={1} paddingY={1}>
+        <Box flexDirection="column" gap={1}>
+          <Box justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+            <Text size="heading" weight="semibold">Taskboard</Text>
+            <Box gap={1} alignItems="center">
+              <Text dimColor size="caption">synced {b.generatedAt.slice(11, 16)} UTC</Text>
+              {cleanup > 0 && (
+                <Button
+                  key="pane-cleanup"
+                  label={`Clean up (${cleanup})`}
+                  onPress={() => void $.command.run({ command: 'taskboard', args: 'ask the sessions to check, then offer the archive and close actions' })}
+                />
+              )}
+              <Button key="pane-sync" label={s.isSyncing ? 'Syncing…' : 'Sync'} onPress={() => void runSync($)} />
+            </Box>
+          </Box>
+          <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+            {tile('need you', b.counts.needsYou, 'warning')}
+            {tile('follow-ups', b.counts.followUp, 'warning')}
+            {tile('to merge', by('merge'), 'success')}
+            {tile('iterate', by('iterate'))}
+            {tile('review', by('review'))}
+            {tile('workers', ws.length, 'success')}
+            {tile('clean-up', cleanup, 'warning')}
+          </Box>
+          <Text dimColor size="caption">
+            {b.counts.open} open · {b.counts.queue} in review queue · {b.counts.backlog} filed, unlinked
           </Text>
-          <Button key="pane-sync" label={s.isSyncing ? 'Syncing…' : 'Sync'} onPress={() => void runSync($)} />
-          {cleanup > 0 && (
-            <Button
-              key="pane-cleanup"
-              label={`Clean up (${cleanup})`}
-              onPress={() => void $.command.run({ command: 'taskboard', args: 'ask the sessions to check, then offer the archive and close actions' })}
-            />
-          )}
+          {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
         </Box>
-        {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
         {STAGES.map(stage => {
           const ts = b.tasks.filter(t => t.stage === stage)
           if (!ts.length) return null
           return (
-            <Box key={`stage:${stage}`} flexDirection="column">
-              <Text weight="semibold" underline>
-                {stage} ({ts.length})
-              </Text>
-              {ts.map(row)}
+            <Box key={`stage:${stage}`} flexDirection="column" gap={1}>
+              <Box gap={1} alignItems="center">
+                <Text size="heading" weight="semibold" color={STAGE_COLOR[stage]}>{STAGE_LABEL[stage] ?? stage}</Text>
+                <Text dimColor tabular>{ts.length}</Text>
+              </Box>
+              <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                {ts.map(card)}
+              </Box>
             </Box>
           )
         })}
