@@ -22,7 +22,7 @@ class UnionFind {
   }
 }
 
-function edgesOf(item, known) {
+export function edgesOf(item, known) {
   // A summary's first tracked ref is its subject; later ones are usually context
   // ("VDY-445 is related but distinct"), so only that one links.
   const firstWeak = item.weak.find(k => known.has(k));

@@ -28,6 +28,8 @@ export type BoardTree = {
 export type BoardNode = {
   key: string
   title: string
+  // A line under the heading that says how the group is sorted.
+  caption: string | null
   url: string | null
   folded: boolean
   count: number
@@ -47,6 +49,8 @@ export type BoardTask = {
   parts: string
   actions: BoardAction[]
   prs: BoardPr[]
+  // Which items tie two or more PRs together, for a card with no ticket.
+  linkedBy: string | null
   tree: BoardTree | null
 }
 

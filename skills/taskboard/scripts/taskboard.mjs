@@ -22,7 +22,7 @@ import {join} from 'node:path';
 
 import {dispatch} from './lib/dispatch.mjs';
 import {prDetailText} from './lib/format.mjs';
-import {boardSections} from './lib/group.mjs';
+import {boardSections, linkedBy} from './lib/group.mjs';
 import {fullTree, subIssueTask, taskTree} from './lib/tree.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
@@ -226,6 +226,7 @@ function board(ledger) {
         .map(k => items[k])
         .filter(i => i.type === 'pr' && i.open)
         .map(prRow),
+      linkedBy: linkedBy(t, items),
       tree: taskTree(t, {items, trees: ledger.trees ?? {}, itemTask: ledger.itemTask}, k => (items[k] ? itemLabel(items[k]) : k.replace(/^getsentry\/sentry/, ''))),
     })),
     // Lone PRs are not tasks, but the board lists them under "PRs with no ticket".

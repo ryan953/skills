@@ -37,7 +37,7 @@ const GUTTER: Record<string, number> = { terminal: 5 }
 const GUTTER_DEFAULT = 4
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-7' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-8' })
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
@@ -477,7 +477,12 @@ export const register: Register = on => {
             .map(a => (
               <Text key={`follow:${t.id}:${a.item}`} color="warning">Left to do: {a.reason}</Text>
             ))}
-          {t.prs.length > 0 && <Box flexDirection="column">{t.prs.map(p => prLine(p, 'pr'))}</Box>}
+          {t.prs.length > 0 && (
+            <Box flexDirection="column">
+              {t.prs.map(p => prLine(p, 'pr'))}
+              {t.linkedBy && <Text dimColor size="caption">{t.linkedBy}</Text>}
+            </Box>
+          )}
           {tree(t)}
           <Box flexDirection="column">
             <Text dimColor size="caption" wrap="truncate-end">{t.parts}</Text>
@@ -534,7 +539,17 @@ export const register: Register = on => {
       const prs = prsOf(n)
       return (
         <Box key={n.key} flexDirection="column" gap={1}>
-          {heading(n, depth)}
+          {n.caption ? (
+            // The caption sits flush under the title, past the fold button's gutter.
+            <Box key={`titled:${n.key}`} flexDirection="column">
+              {heading(n, depth)}
+              <Box paddingLeft={gutter + 1}>
+                <Text dimColor size="caption">{n.caption}</Text>
+              </Box>
+            </Box>
+          ) : (
+            heading(n, depth)
+          )}
           {!isShut(n) && (
             // The quote border is a line down the left side only. Starting the Box at the gutter's
             // middle puts that line under the center of the fold button.

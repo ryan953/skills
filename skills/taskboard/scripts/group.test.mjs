@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {boardSections, prAuthor, prRole, taskPlace} from './lib/group.mjs';
+import {boardSections, linkedBy, prAuthor, prRole, taskPlace} from './lib/group.mjs';
 import {prItem} from './lib/sources.mjs';
 
 const ONBOARDING = 'Onboarding deletes projects, dead-ends, and breaks agent setup';
@@ -119,7 +119,46 @@ test('PRs with no ticket group by repo, then role, then team, then author', () =
   assert.deepEqual(find(sections, 'repo:getsentry/sentry:team:value-discovery:author:jr').tasks, ['getsentry/sentry#131594']);
   assert.deepEqual(find(sections, 'repo:getsentry/sentry:direct:author:human').tasks, ['getsentry/sentry#131700']);
   assert.deepEqual(find(sections, 'repo:bcoe/pokemon-market:mine:author:seer').tasks, ['bcoe/pokemon-market#2']);
-  assert.deepEqual(find(sections, 'repo:getsentry/getsentry:mine:author:you').tasks, ['getsentry/getsentry#22485']);
+});
+
+test('role headings say how the PR involves you, and a level that repeats its parent is left out', () => {
+  assert.deepEqual(titles(find(sections, 'repo:bcoe/pokemon-market')), ['Your PRs']);
+  // Your own PRs sit straight under Your PRs; only a bot that made one for you gets a level.
+  const mine = find(sections, 'repo:getsentry/getsentry:mine');
+  assert.equal(mine.title, 'Your PRs');
+  assert.deepEqual(mine.tasks, ['getsentry/getsentry#22485']);
+  assert.deepEqual(mine.children, []);
+  assert.deepEqual(titles(find(sections, 'repo:bcoe/pokemon-market:mine')), ['seer']);
+  // A team review for one team is one heading, and keeps the role's key and fold.
+  const solo = boardSections({tasks: [tasks[4]], items, me: 'ryan953'});
+  const team = find(solo, 'repo:getsentry/sentry:team');
+  assert.equal(team.title, 'Team review: app-frontend');
+  assert.equal(team.folded, true);
+  assert.deepEqual(titles(team), ['human']);
+  assert.deepEqual(find(solo, 'repo:getsentry/sentry:team:app-frontend:author:human').tasks, ['getsentry/sentry#132071']);
+  const reviewed = boardSections({tasks: [task('x', ['getsentry/sentry#129579'])], items, me: 'ryan953'});
+  assert.deepEqual(titles(find(reviewed, 'repo:getsentry/sentry')), ['You reviewed']);
+  // The section's caption says how it is sorted.
+  assert.match(find(sections, 'adhoc').caption, /^By repo, then how the PR involves you, then who opened it\./);
+  assert.equal(find(sections, 'projects').caption, null);
+});
+
+test('a card with PRs from two repos says which items name them both', () => {
+  const dot = pr('ryan953/dotFiles', 18);
+  const skills = pr('ryan953/skills', 20);
+  const both = {...session('local_a'), strong: [skills.key], weak: [dot.key]};
+  const fork = {...session('local_b'), strong: [dot.key]};
+  const its = Object.fromEntries([dot, skills, both, fork].map(i => [i.key, i]));
+  const t = task('local_a', [dot.key, skills.key, 'local_a', 'local_b']);
+  assert.equal(linkedBy(t, its), 'Linked: both PRs are named by 1 Claude session');
+  const again = {...session('local_c'), strong: [dot.key, skills.key]};
+  assert.equal(linkedBy({...t, items: [...t.items, 'local_c']}, {...its, local_c: again}), 'Linked: both PRs are named by 2 Claude sessions');
+  // A ticket's PRs sit inside the ticket's card, so they need no line.
+  const vdy = {...ticket('VDY-1'), strong: [dot.key, skills.key]};
+  assert.equal(linkedBy({...t, items: [...t.items, 'VDY-1']}, {...its, 'VDY-1': vdy}), null);
+  // One open PR, or PRs tied only through a chain, get no line.
+  assert.equal(linkedBy(task('x', [dot.key, 'local_b']), its), null);
+  assert.equal(linkedBy({...t, items: [dot.key, skills.key, 'local_b']}, its), null);
 });
 
 test('lone queue PRs are listed under their place, newest first, and team review starts folded', () => {

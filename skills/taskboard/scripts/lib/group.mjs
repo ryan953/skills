@@ -1,14 +1,17 @@
 // The board's tree. A task with a ticket sits under the ticket's project, or with no project
 // under the ticket's team; its PRs ride along inside the task. A PR with no ticket sits under
 // its repo, then your role on it, then its author. A task with neither goes under Other.
+// A level that would only repeat its parent is left out: your own PRs sit straight under
+// "Your PRs" (only bot authors get a level there), and a team review with one team is one heading.
 
-import {STAGE_ORDER} from './link.mjs';
+import {edgesOf, STAGE_ORDER} from './link.mjs';
 
 const ROLES = [
-  ['mine', 'Mine'],
+  // A bot's PR made for you counts as yours; it sits under the bot's name.
+  ['mine', 'Your PRs'],
   ['direct', 'Review requested of you'],
   ['team', 'Team review'],
-  ['reviewed', 'Reviewed by you'],
+  ['reviewed', 'You reviewed'],
   ['other', 'Other PRs'],
 ];
 // Team review requests come from CODEOWNERS and can number 40 or more, so they start folded.
@@ -54,11 +57,29 @@ function prPlace(pr, me) {
   return {kind: 'pr', repo: pr.meta.repo, role, team: role === 'team' ? (pr.meta.reviewTeams?.[0] ?? 'unknown team') : null, author: prAuthor(pr, me)};
 }
 
+const NOUN = {claude: 'Claude session', jr: 'jr conversation', linear: 'ticket', pr: 'PR'};
+
+// A card with no ticket can hold PRs from more than one repo while it sits under one repo's
+// heading, so it says which items tie its PRs together: the ones whose own links name two or more.
+export function linkedBy(task, items) {
+  const prs = new Set(task.items.filter(k => items[k]?.type === 'pr' && items[k].open));
+  if (prs.size < 2) return null;
+  const known = new Set(Object.keys(items));
+  const linkers = task.items.map(k => items[k]).filter(i => i && edgesOf(i, known).filter(k => prs.has(k)).length >= 2);
+  // A ticket's own PRs need no explaining: they sit inside the ticket's card.
+  if (!linkers.length || linkers.some(i => i.type === 'linear')) return null;
+  const byType = Map.groupBy(linkers, i => i.type);
+  const names = [...byType].map(([type, list]) =>
+    list.length === 1 && (type === 'linear' || type === 'pr') ? list[0].key : `${list.length} ${NOUN[type] ?? type}${list.length === 1 ? '' : 's'}`,
+  );
+  return `Linked: ${prs.size === 2 ? 'both PRs' : `all ${prs.size} PRs`} are named by ${names.join(' and ')}`;
+}
+
 const byName = (a, b) => a.localeCompare(b);
 
 // `rank` orders siblings before their title does; it is dropped from the output.
-function node(key, title, {url = null, folded = false, rank = 0} = {}) {
-  return {key, title, url, folded, count: 0, needsYou: 0, children: [], tasks: [], prs: [], rank};
+function node(key, title, {url = null, folded = false, rank = 0, caption = null} = {}) {
+  return {key, title, caption, url, folded, count: 0, needsYou: 0, children: [], tasks: [], prs: [], rank};
 }
 
 function child(parent, key, title, opts) {
@@ -79,7 +100,7 @@ function tally(n, stageOf) {
 export function boardSections({tasks, items, queue = [], projects = [], me = null}) {
   const projectSec = node('projects', 'Projects');
   const teamSec = node('teams', 'Tickets with no project');
-  const prSec = node('adhoc', 'PRs with no ticket');
+  const prSec = node('adhoc', 'PRs with no ticket', {caption: 'By repo, then how the PR involves you, then who opened it. Your PRs include bot PRs made for you.'});
   const otherSec = node('other', 'Other');
 
   // Projects you lead or belong to show even with no ticket of yours; a ticket's project shows either way.
@@ -93,8 +114,9 @@ export function boardSections({tasks, items, queue = [], projects = [], me = nul
     const role = ROLES.findIndex(([r]) => r === place.role);
     let at = child(repo, `${repo.key}:${place.role}`, ROLES[role][1], {folded: FOLDED_ROLES.has(place.role), rank: role});
     if (place.team) at = child(at, `${at.key}:${place.team}`, place.team);
+    if (place.role === 'mine' && place.author === 'you') return at;
     // People's PRs lead the bots'.
-    const rank = place.author === 'you' ? 0 : place.author === 'human' ? 1 : 2;
+    const rank = place.author === 'human' ? 0 : 1;
     return child(at, `${at.key}:author:${place.author}`, place.author, {rank});
   };
 
@@ -113,6 +135,15 @@ export function boardSections({tasks, items, queue = [], projects = [], me = nul
   const newest = (a, b) => updated(b).localeCompare(updated(a));
   for (const row of [...queue].sort(newest)) prNode(prPlace(items[row.key], me)).prs.push(row);
 
+  // The merged heading keeps the role's key, so its fold state stays put; the author levels below keep theirs.
+  const oneTeam = repo => {
+    for (const role of repo.children) {
+      if (role.key !== `${repo.key}:team` || role.children.length !== 1) continue;
+      const [team] = role.children;
+      Object.assign(role, {title: `${role.title}: ${team.title}`, children: team.children, tasks: team.tasks, prs: team.prs});
+    }
+  };
+  prSec.children.forEach(oneTeam);
   // Names sort alphabetically so a group stays put between syncs.
   const sortTree = n => {
     n.children.sort((a, b) => a.rank - b.rank || byName(a.title, b.title));

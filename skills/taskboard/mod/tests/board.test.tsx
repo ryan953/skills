@@ -22,6 +22,7 @@ const task = (id: string, stage: string) => ({
   owner: null,
   url: `https://linear.app/x/${id}`,
   parts: `${id} In Progress`,
+  linkedBy: null,
   tree: null,
   actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
   prs:
@@ -31,13 +32,18 @@ const task = (id: string, stage: string) => ({
 })
 
 // The script builds this tree (scripts/lib/group.mjs); the pane only draws it.
-const branch = (key: string, title: string, opts: { tasks?: string[]; prs?: object[]; children?: any[]; folded?: boolean; needsYou?: number; url?: string } = {}): any => {
+const branch = (
+  key: string,
+  title: string,
+  opts: { tasks?: string[]; prs?: object[]; children?: any[]; folded?: boolean; needsYou?: number; url?: string; caption?: string } = {},
+): any => {
   const children = opts.children ?? []
   const tasks = opts.tasks ?? []
   const prs = opts.prs ?? []
   return {
     key,
     title,
+    caption: opts.caption ?? null,
     url: opts.url ?? null,
     folded: opts.folded ?? false,
     count: tasks.length + prs.length + children.reduce((n: number, c: any) => n + c.count, 0),
@@ -55,6 +61,8 @@ const DEPS_PR = {
   detail: '+40 −40 · 2 files · ✓60',
   headAt: null,
 }
+const ADHOC_CAPTION = 'By repo, then how the PR involves you, then who opened it. Your PRs include bot PRs made for you.'
+const LINKED = 'Linked: both PRs are named by 3 Claude sessions'
 const SECTIONS = [
   branch('projects', 'Projects', {
     children: [
@@ -65,6 +73,7 @@ const SECTIONS = [
   }),
   branch('teams', 'Tickets with no project', { children: [branch('team:Value Discovery', 'Value Discovery', { tasks: ['VDY-381'] })] }),
   branch('adhoc', 'PRs with no ticket', {
+    caption: ADHOC_CAPTION,
     children: [
       branch('repo:getsentry/sentry', 'getsentry/sentry', {
         children: [
@@ -77,6 +86,10 @@ const SECTIONS = [
             ],
           }),
         ],
+      }),
+      // Your own PRs sit straight under Your PRs, with no author level.
+      branch('repo:ryan953/dotFiles', 'ryan953/dotFiles', {
+        children: [branch('repo:ryan953/dotFiles:mine', 'Your PRs', { tasks: ['local_dot'] })],
       }),
       branch('repo:ryan953/skills', 'ryan953/skills', {
         children: [
@@ -99,6 +112,15 @@ const BOARD = {
     task('VDY-432', 'needs-you'),
     { ...task('VDY-381', 'follow-up'), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
     { ...task('skills#21', 'review'), url: 'https://github.com/ryan953/skills/pull/21' },
+    {
+      ...task('local_dot', 'iterate'),
+      title: 'chore(agents): Install ryan953/skills from the taskboard branch',
+      prs: [
+        { key: 'ryan953/dotfiles#18', label: 'ryan953/dotFiles#18 draft', title: 'Install skills', url: 'https://github.com/ryan953/dotFiles/pull/18', detail: null, headAt: null },
+        { key: 'ryan953/skills#20', label: 'ryan953/skills#20 draft', title: 'Taskboard', url: 'https://github.com/ryan953/skills/pull/20', detail: null, headAt: null },
+      ],
+      linkedBy: LINKED,
+    },
     { ...task('local_1', 'adhoc'), title: 'Dashboard: number of tests', url: 'https://junior-prod.sentry.dev/conversations/local_1', parts: 'jr:active' },
     {
       ...task('VDY-423', 'fix'),
@@ -461,7 +483,24 @@ test('projects, then tickets by team, then PRs by repo, role and author, then ot
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   const at = (s: string) => texts.indexOf(s)
-  const order = ['Projects', 'Agents', 'Onboarding', 'Tickets with no project', 'Value Discovery', 'PRs with no ticket', 'getsentry/sentry', 'Team review', 'ryan953/skills', 'Review requested of you', 'human', 'Other'].map(at)
+  const order = [
+    'Projects',
+    'Agents',
+    'Onboarding',
+    'Tickets with no project',
+    'Value Discovery',
+    'PRs with no ticket',
+    ADHOC_CAPTION,
+    'getsentry/sentry',
+    'Team review',
+    'ryan953/dotFiles',
+    'Your PRs',
+    'local_dot',
+    'ryan953/skills',
+    'Review requested of you',
+    'human',
+    'Other',
+  ].map(at)
   expect(order.every(n => n >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
   // Each ticket sits under its project with its PR inside the card.
@@ -475,6 +514,10 @@ test('projects, then tickets by team, then PRs by repo, role and author, then ot
   expect(texts[at('VDY-432') + 1]).toBe('Needs you')
   // A project you belong to with no ticket of yours still shows.
   expect(texts[at('Agent handoff') + 2]).toBe('No open tickets of yours')
+  // A card whose PRs span repos says what ties them, under its PR links.
+  const linked = pos(el => el.type === 'Text' && el.text === LINKED)
+  expect(linked).toBeGreaterThan(pos(el => el.type === 'Link' && el.text === 'ryan953/skills#20 draft'))
+  expect(linked).toBeLessThan(pos(el => el.key === 'overview:local_dot'))
   // A lone session keeps its card, with its buttons, under Other.
   expect(at('local_1')).toBeGreaterThan(at('Other'))
   await $.ui.press({ plugin: 'taskboard', key: 'overview:local_1' })
