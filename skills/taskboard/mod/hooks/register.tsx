@@ -401,7 +401,7 @@ export const register: Register = on => {
     return (
       <Box gap={1}>
         <Text color="merged" weight="semibold" inverse> Manager </Text>
-        <Text color={b.counts.needsYou ? 'warning' : undefined}>taskboard:{parts.join(' · ') || 'nothing waiting'}</Text>
+        <Text color={b.counts.needsYou ? 'warning' : undefined}>taskboard: {parts.join(' · ') || 'nothing waiting'}</Text>
         {oldest && (
           <Text color="success">
             {ws.length} {ws.length === 1 ? 'worker' : 'workers'} running · {ago(oldest, now)}

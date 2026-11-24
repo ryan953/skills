@@ -44,7 +44,7 @@ test('counts leave unsubscribed PRs out, and the Unsubscribed section holds them
     pr(131651, {strong: ['VDY-433'], checks: 'FAILURE', needsReason: 'CI failing', unsubscribed: true}),
     ticket('VDY-433'),
   ]);
-  assert.deepEqual(b.counts, {open: 1, needsYou: 1, followUp: 0, check: 0, archive: 0, close: 0, queue: 1, backlog: 0, unsubscribed: 2});
+  assert.deepEqual(b.counts, {open: 1, needsYou: 1, followUp: 0, check: 0, archive: 0, close: 0, nudge: 0, queue: 1, backlog: 0, unsubscribed: 2});
   const sec = b.sections.at(-1);
   assert.equal(sec.key, 'unsubscribed');
   assert.deepEqual(sec.tasks, ['getsentry/sentry#131000']);
