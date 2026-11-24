@@ -25,7 +25,7 @@ const task = (id: string, stage: string) => ({
   actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
   prs:
     stage === 'iterate'
-      ? [{ key: 'getsentry/sentry#131651', label: '#131651 draft', url: 'https://github.com/getsentry/sentry/pull/131651', detail: '+12 −3 · 2 files · ✓40 ✗1 · warden: no problems' }]
+      ? [{ key: 'getsentry/sentry#131651', label: '#131651 draft', url: 'https://github.com/getsentry/sentry/pull/131651', detail: '+12 −3 · 2 files · ✓40 ✗1 · warden: no problems', headAt: '2026-11-24T16:27:00Z' }]
       : [],
 })
 
@@ -39,6 +39,10 @@ const BOARD = {
   ],
 }
 
+const WORKERS = [
+  { session: 'cc-9', title: 'VDY-433', task: 'VDY-433', stage: 'iterate', isOwner: true, turnStartedAt: '2026-11-24T16:24:00Z' },
+]
+
 function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }) {
   // Refusing the first period ends the interval, so no timer runs in a test.
   on('clock.every', () => ({ deny: 'no timer in tests' }))
@@ -46,8 +50,10 @@ function engine(on: any, calls: string[][], prompts: string[], run = { fail: fal
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_: unknown, e: any) => ({ cwd: e.cwd }))
   on('process.hookEnv', () => ({ value: {} }))
+  on('clock.now', () => ({ value: Date.parse('2026-11-24T16:30:00Z') }))
   on('process.run', (_: unknown, e: any) => {
     calls.push([...e.argv])
+    if (e.argv.includes('workers')) return { value: { exitCode: 0, stdout: JSON.stringify(WORKERS), stderr: '' } }
     return run.fail
       ? { value: { exitCode: 1, stdout: '', stderr: 'gh: not logged in' } }
       : { value: { exitCode: 0, stdout: JSON.stringify(BOARD), stderr: '' } }
@@ -64,7 +70,7 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   engine(on, calls, prompts)
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  expect(calls.length).toBe(1)
+  expect(calls.map(c => c.at(-1))).toEqual(['--board', 'workers'])
   expect(calls[0]?.slice(-2)).toEqual(['show', '--board'])
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -72,6 +78,8 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   expect((await ui.find({ type: 'Text', text: /^iterate/ }))?.text).toBe('iterate (1)')
   expect((await ui.find({ type: 'Text', text: /^Left to do/ }))?.text).toBe('Left to do: file the Safari ticket')
   expect((await ui.find({ type: 'Text', text: /warden/ }))?.text).toBe('+12 −3 · 2 files · ✓40 ✗1 · warden: no problems')
+  expect((await ui.find({ type: 'Text', text: /^Implementing/ }))?.text).toBe('Implementing · 6m')
+  expect((await ui.find({ type: 'Text', text: /^pushed/ }))?.text).toBe('pushed 3m ago')
 
   // A task that waits for the user has no Dispatch button.
   await expect($.ui.press({ plugin: 'taskboard', key: 'dispatch:VDY-432' })).rejects.toBeTruthy()
@@ -91,5 +99,13 @@ test('Sync fetches, and a failed sync shows its error', async ($, on) => {
   await $.ui.press({ plugin: 'taskboard', key: 'pane-sync' })
   expect(calls.at(-1)?.slice(-2)).toEqual(['sync', '--board'])
   expect((await ui.find({ type: 'Text', text: /failed/ }))?.text).toBe('Last sync failed: gh: not logged in')
+  await ui.unmount()
+})
+
+test('the band counts running workers and how long the oldest has run', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /running/ }))?.text).toBe('1 worker running · 6m')
   await ui.unmount()
 })

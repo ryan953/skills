@@ -20,6 +20,7 @@ Requires authenticated `gh`, the `linear` CLI, `node` 22+, and the jr MCP tools 
 | `node scripts/taskboard.mjs join <a> <b>` / `split <key>` / `ignore <key>` | fix a wrong link, then `sync --offline` |
 | `node scripts/taskboard.mjs dispatch <id> [--brief full\|review\|validate] [--route session\|jr\|new] [--step <text>]` | pick where the next step goes and write the message or brief, as JSON |
 | `node scripts/taskboard.mjs assign <id> <item-key> [--notes <text>]` | record the session or jr conversation that works the task |
+| `node scripts/taskboard.mjs workers` | running sessions on open tasks, from local files only, as JSON |
 | `node scripts/taskboard.mjs ask <item-key>` | the question to send to a session or jr conversation before it is archived |
 | `node scripts/taskboard.mjs checked <item-key> [--remaining <text>]` | record its answer; no `--remaining` means nothing is left |
 
@@ -107,6 +108,7 @@ The detail comes from a second, batched query, only for open PRs, because a sing
 
 - **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive), with **Board** and **Sync** buttons.
 - **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). **Clean up** shows when there are actions to approve.
+- **Workers:** every minute it runs `workers`, which reads only local files. The band shows "N workers running · 6m" (the oldest turn). A row with a running session shows "Implementing · 6m" ("Validating", "Reviewing" or "Verifying" in those stages). A PR whose head commit is less than an hour old shows "pushed 3m ago", and its pending checks show as ◌ in the detail line.
 - **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, or when new clean-up shows up. Then the prompt box suggests `/taskboard`.
 
 The timer cannot reach jr, because jr needs MCP tools. jr stays as of the last `/taskboard sync`.
@@ -131,6 +133,8 @@ Stages, in report order: `needs-you`, `follow-up` (a conversation said work is l
 A task id comes from its lowest Linear ID, then its first PR, then its jr or session id. It stays the same across syncs. When tasks merge, the lower id is kept. The `owner`, `notes`, `titleOverride` and `kindOverride` fields carry over.
 
 ## Facts that cost time to find (2026-11-23)
+
+- The session files have no running flag. A session is running when `latestUserFrameAt` is later than `lastTurnEdgeAt`, and the turn started at `latestUserFrameAt` (`turnState` in `lib/sources.mjs`). On 2026-11-24 this matched `list_sessions` `isRunning` for all 12 sessions that `list_sessions` listed.
 
 - The desktop app keeps one JSON file per Code session under `~/Library/Application Support/Claude/claude-code-sessions/<account>/<org>/local_*.json`. The fields are `title`, `isArchived`, `prs`, `postTurnSummary` and `cliSessionId`. This is an internal format. Only the folder that holds the current session (matched on `CLAUDE_CODE_SESSION_ID`) is read, because other folders are other orgs that `list_sessions` does not show.
 - `gh search prs --review-requested` includes team requests. In this account, all 42 open requests were team requests. `user-review-requested:` (in the raw query) finds direct requests only.

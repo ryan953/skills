@@ -114,6 +114,7 @@ const PENDING = new Set(['PENDING', 'EXPECTED', 'IN_PROGRESS', 'QUEUED', 'WAITIN
 
 const DETAIL_FIELDS = `
   additions deletions changedFiles
+  headCommit: commits(last: 1) { nodes { commit { committedDate } } }
   reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
   reviews(states: PENDING, first: 5) { nodes { author { login } comments { totalCount } } }
   commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
@@ -144,6 +145,8 @@ export function prDetail(node, me) {
     : null;
   const pending = (node.reviews?.nodes ?? []).find(r => r.author?.login === me);
   return {
+    // The worker pushes the commit it makes, so the head commit's time stands in for the push.
+    headAt: node.headCommit?.nodes?.[0]?.commit?.committedDate ?? null,
     additions: node.additions,
     deletions: node.deletions,
     files: node.changedFiles,
@@ -316,6 +319,29 @@ const parse = v => {
   }
 };
 
+// The files have no running flag. They record when a turn was last sent and when a turn
+// last ended, so a send after the last end means a turn is running. This is the app's
+// internal format, so the rule lives here and nowhere else.
+export function turnState(s) {
+  const sent = Number(parse(s.latestUserFrameAt) ?? 0);
+  const ended = Number(parse(s.lastTurnEdgeAt) ?? 0);
+  if (parse(s.isArchived) === true || !sent || sent <= ended) return {running: false, turnStartedAt: null};
+  return {running: true, turnStartedAt: new Date(sent).toISOString()};
+}
+
+// Only the turn state of each session: cheap enough for the mod to read every minute.
+export function readSessionTurns() {
+  const self = process.env.CLAUDE_CODE_SESSION_ID;
+  const out = new Map();
+  for (const file of sessionFiles(self ? sessionsDir(self) : SESSIONS_ROOT)) {
+    try {
+      const s = JSON.parse(readFileSync(file, 'utf8'));
+      if (s.sessionId && !(self && s.cliSessionId === self)) out.set(s.sessionId, turnState(s));
+    } catch {}
+  }
+  return out;
+}
+
 // The root holds one folder per account and org. Read only the folder that holds this
 // session, since the app can only show and archive sessions from that one.
 function sessionsDir(self) {
@@ -365,7 +391,7 @@ export function readClaudeSessions(teams) {
       roles: [],
       strong,
       weak,
-      meta: {cwd: s.cwd, running: false, active: true, prs: recorded},
+      meta: {cwd: s.cwd, active: true, prs: recorded, ...turnState(s)},
     };
     const prev = byKey.get(item.key);
     if (!prev || (prev.updatedAt ?? '') < (updatedAt ?? '')) byKey.set(item.key, item);

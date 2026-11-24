@@ -1,6 +1,6 @@
 export type BoardAction = { type: string; item: string; reason: string | null }
 
-export type BoardPr = { key: string; label: string; url: string; detail: string | null }
+export type BoardPr = { key: string; label: string; url: string; detail: string | null; headAt: string | null }
 
 export type BoardTask = {
   id: string
@@ -29,10 +29,19 @@ export type Board = {
   tasks: BoardTask[]
 }
 
+export type Worker = {
+  session: string
+  title: string | null
+  task: string
+  stage: string
+  isOwner: boolean
+  turnStartedAt: string
+}
+
 export type SyncState = { isSyncing: boolean; error: string | null; at: number | null }
 
 declare module 'claude-code' {
   interface PluginState {
-    taskboard: { board: Shaped<Board | null>; sync: SyncState }
+    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]> }
   }
 }

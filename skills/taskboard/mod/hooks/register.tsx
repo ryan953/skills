@@ -1,16 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Board, BoardTask } from '../types'
+import type { Board, BoardTask, Worker } from '../types'
 
 const PANE = 'taskboard'
 const SYNC_EVERY_MS = 10 * 60 * 1000
+// Worker state is local files only, so it can refresh far more often than the full sync.
+const WORKERS_EVERY_MS = 60 * 1000
 const STAGES = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc']
 // Stages where the next move is the user's; dispatch would only answer "ask the user".
 const NO_DISPATCH = new Set(['needs-you', 'merge'])
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-3' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-4' })
+const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   isSyncing: false,
   error: null,
@@ -18,14 +21,30 @@ const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
 })
 
 // The skill is installed at a fixed place; a login shell finds the right node on PATH.
-async function cli($: EngineInterface, args: string[]) {
+async function cli<T = Board>($: EngineInterface, args: string[]): Promise<T> {
   const env = await $.process.hookEnv()
   const { exitCode, stdout, stderr } = await $.process.run(
     ['/bin/zsh', '-lc', 'exec node "$HOME/.claude/skills/taskboard/scripts/taskboard.mjs" "$@"', 'taskboard', ...args],
     { env, timeoutMs: 180_000 },
   )
   if (exitCode !== 0) throw new Error(stderr.trim().split('\n').pop() || `exit ${exitCode}`)
-  return JSON.parse(stdout) as Board
+  return JSON.parse(stdout) as T
+}
+
+const VERB: Record<string, string> = { validate: 'Validating', review: 'Reviewing', verify: 'Verifying' }
+
+function ago(iso: string, now: number) {
+  const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000))
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+async function readWorkers($: EngineInterface) {
+  try {
+    const list = await cli<Worker[]>($, ['workers'])
+    await update($, workers, () => list)
+  } catch {
+    // The next tick tries again; a stale list is better than none.
+  }
 }
 
 // What changed in a way that asks for the user: a task that newly needs them or can merge,
@@ -47,6 +66,7 @@ function alerts(before: Board | null, after: Board): string[] {
 
 // session.start can run more than once in one environment, so keep one timer at a time.
 let timer: { cancel: () => void } | null = null
+let workerTimer: { cancel: () => void } | null = null
 
 async function runSync($: EngineInterface, offline = false) {
   const state = await read($, sync)
@@ -78,6 +98,9 @@ export const register: Register = on => {
     timer?.cancel()
     // Linear, GitHub and session files only: jr needs MCP tools, so its snapshot is as of the last /taskboard sync.
     timer = $.clock.every(SYNC_EVERY_MS, () => void runSync($))
+    await readWorkers($)
+    workerTimer?.cancel()
+    workerTimer = $.clock.every(WORKERS_EVERY_MS, () => void readWorkers($))
     return started
   })
 
@@ -90,8 +113,11 @@ export const register: Register = on => {
     const b = await read($, board)
     if (e.props.hasSurvey || !b) return next(e)
     const s = await read($, sync)
+    const ws = await read($, workers)
+    const now = await $.clock.now()
     const { Box, Button, Text } = $.ui.resolve(e)
     const by = (stage: string) => b.tasks.filter(t => t.stage === stage).length
+    const oldest = ws.map(w => w.turnStartedAt).sort()[0]
     const parts = [
       b.counts.needsYou && `${b.counts.needsYou} need you`,
       b.counts.followUp && `${b.counts.followUp} follow-ups`,
@@ -105,6 +131,11 @@ export const register: Register = on => {
     return (
       <Box gap={1}>
         <Text color={b.counts.needsYou ? 'warning' : undefined}>taskboard: {parts.join(' · ') || 'nothing waiting'}</Text>
+        {oldest && (
+          <Text color="success">
+            {ws.length} {ws.length === 1 ? 'worker' : 'workers'} running · {ago(oldest, now)}
+          </Text>
+        )}
         <Text dimColor>{s.isSyncing ? 'syncing…' : s.error ? `sync failed: ${s.error}` : ''}</Text>
         <Button key="board-open" label="Board" onPress={() => void $.ui.open({ id: PANE, title: 'Taskboard' })} />
         <Button key="board-sync" label="Sync" onPress={() => void runSync($)} />
@@ -115,6 +146,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const b = await read($, board)
     const s = await read($, sync)
+    const ws = await read($, workers)
+    const now = await $.clock.now()
     const { Box, Button, Link, Text } = $.ui.resolve(e)
     if (!b) return <Text dimColor>{s.error ? `No ledger: ${s.error}` : 'Loading the ledger…'}</Text>
 
@@ -123,6 +156,14 @@ export const register: Register = on => {
         <Box gap={1}>
           <Text bold>{t.id}</Text>
           <Text>{t.title}</Text>
+          {ws
+            .filter(w => w.task === t.id)
+            .slice(0, 1)
+            .map(w => (
+              <Text color="success">
+                {VERB[t.stage] ?? 'Implementing'} · {ago(w.turnStartedAt, now)}
+              </Text>
+            ))}
         </Box>
         {t.actions
           .filter(a => a.type === 'follow-up')
@@ -134,6 +175,7 @@ export const register: Register = on => {
           .map(p => (
             <Box key={`pr:${p.key}`} gap={1}>
               <Link href={p.url} label={p.label} />
+              {p.headAt && now - Date.parse(p.headAt) < 60 * 60_000 && <Text color="success">pushed {ago(p.headAt, now)} ago</Text>}
               <Text dimColor>{p.detail}</Text>
             </Box>
           ))}

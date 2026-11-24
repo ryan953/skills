@@ -5,6 +5,7 @@
 //   taskboard.mjs ingest jr <file|-> [--archived]  save jr searchConversations output
 //   taskboard.mjs show [--json] [--all]          print the saved ledger without fetching
 //   --board (sync or show)                       print a compact summary for the taskboard mod
+//   taskboard.mjs workers                        running sessions on tasks, from local files only (JSON)
 //   taskboard.mjs task <id|item-key>             print one task with its items, as JSON
 //   taskboard.mjs join <keyA> <keyB> | split <key> | ignore <key>   manual link fixes
 //   taskboard.mjs dispatch <id> [--brief full|review|validate] [--route session|jr|new] [--step <text>]
@@ -26,6 +27,7 @@ import {
   linearTeams,
   normalizeJr,
   readClaudeSessions,
+  readSessionTurns,
   resolveLinear,
   resolvePrs,
 } from './lib/sources.mjs';
@@ -201,7 +203,7 @@ function board(ledger) {
       prs: t.items
         .map(k => items[k])
         .filter(i => i.type === 'pr' && i.open)
-        .map(i => ({key: i.key, label: itemLabel(i), url: i.url, detail: prDetailText(i.meta.detail)})),
+        .map(i => ({key: i.key, label: itemLabel(i), url: i.url, detail: prDetailText(i.meta.detail), headAt: i.meta.detail?.headAt ?? null})),
     })),
     changes: ledger.changes,
   };
@@ -263,6 +265,18 @@ async function main() {
   if (cmd === 'task') {
     const {ledger, task} = findTask(args[0]);
     console.log(JSON.stringify({...task, items: task.items.map(k => ledger.items[k])}, null, 2));
+    return;
+  }
+  if (cmd === 'workers') {
+    const ledger = readJson(paths.ledger, null);
+    if (!ledger) throw new Error('No ledger yet; run sync.');
+    const out = [];
+    for (const [key, turn] of readSessionTurns()) {
+      const task = ledger.tasks.find(t => t.id === ledger.itemTask[key]);
+      if (!turn.running || !task || task.stage === 'done') continue;
+      out.push({session: key, title: ledger.items[key]?.title ?? null, task: task.id, stage: task.stage, isOwner: task.owner === key, turnStartedAt: turn.turnStartedAt});
+    }
+    console.log(JSON.stringify(out));
     return;
   }
   if (cmd === 'dispatch') {

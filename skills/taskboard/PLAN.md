@@ -38,7 +38,7 @@ Bot reviews (decided 2026-11-24):
 - `cursor`, `sentry` (Seer) and `github-advanced-security` (CodeQL) are minor reviews, and a fuller review usually follows them. Do not show them as "reviewed". At most, show a small combined count.
 - `linear-code`, `github-actions` and `getsantry` are not reviews.
 
-### 6.2 Worker state
+### 6.2 Worker state (built 2026-11-24)
 
 For each owner session, show whether it is running and when its turn started:
 

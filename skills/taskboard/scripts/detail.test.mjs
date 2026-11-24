@@ -46,3 +46,13 @@ test('only your own pending review counts as your draft', () => {
   assert.equal(d.draftComments, 3);
   assert.equal(prDetailText(d), '+120 −30 · 4 files · your draft review: 3');
 });
+
+test('a session is running when a turn was sent after the last turn ended', async () => {
+  const {turnState} = await import('./lib/sources.mjs');
+  const sent = 1795485758342;
+  assert.deepEqual(turnState({latestUserFrameAt: sent, lastTurnEdgeAt: sent - 5000}), {running: true, turnStartedAt: new Date(sent).toISOString()});
+  // The app stores some numbers as strings.
+  assert.equal(turnState({latestUserFrameAt: String(sent), lastTurnEdgeAt: String(sent + 1)}).running, false);
+  assert.equal(turnState({latestUserFrameAt: sent, lastTurnEdgeAt: sent - 5000, isArchived: true}).running, false);
+  assert.equal(turnState({}).running, false);
+});
