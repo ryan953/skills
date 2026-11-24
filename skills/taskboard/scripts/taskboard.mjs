@@ -129,7 +129,8 @@ function buildLedger(fetched) {
   const previous = readJson(paths.ledger, null);
   const overrides = readJson(paths.overrides, {});
   const all = [...fetched.items, ...readJr(new Set(fetched.teams))];
-  const result = link(all, {previous, overrides, checks: readJson(paths.checks, {})});
+  // The fetch time, not the clock, so `sync --offline` relinks to the same answer.
+  const result = link(all, {previous, overrides, checks: readJson(paths.checks, {}), now: Date.parse(fetched.fetchedAt)});
   const items = Object.fromEntries(all.map(i => [i.key, i]));
   return {version: 1, generatedAt: fetched.fetchedAt, me: fetched.me, ...result, items, trees: fetched.trees ?? {}, projects: fetched.projects ?? []};
 }
@@ -156,7 +157,7 @@ function report(ledger, {all = false} = {}) {
   const count = t => actions.filter(a => a.type === t).length;
   lines.push(
     `taskboard ${ledger.generatedAt}: ${tasks.filter(t => t.stage !== 'done').length} open tasks, ` +
-      `${count('needs-you')} need you, ${count('follow-up')} follow-ups, ${count('check')} to check, ${count('archive')} to archive, ${count('close-linear')} tickets to close, ` +
+      `${count('needs-you')} need you, ${count('follow-up')} follow-ups, ${count('check')} to check, ${count('archive')} to archive, ${count('close-linear')} tickets to close, ${count('nudge')} to nudge, ` +
       `${queue.length} in the review queue, ${ledger.backlog.length} unlinked tickets you filed, ${unsubscribed} unsubscribed`
   );
 
@@ -218,6 +219,7 @@ function board(ledger) {
       check: count('check'),
       archive: count('archive'),
       close: count('close-linear'),
+      nudge: count('nudge'),
       queue: ledger.queue.length,
       backlog: ledger.backlog.length,
       unsubscribed: open.length - inView.length + unsubscribed.length,

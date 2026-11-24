@@ -65,6 +65,7 @@ export type Board = {
     check: number
     archive: number
     close: number
+    nudge: number
     queue: number
     backlog: number
     unsubscribed: number

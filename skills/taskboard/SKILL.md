@@ -47,6 +47,7 @@ Every action needs the user's yes. Group them so one yes covers a kind (for exam
 | `archive` Claude session | `mcp__ccd_session_mgmt__archive_session` with the `local_…` id |
 | `close-linear` | Linear MCP `save_issue` with the Done state, or tell the user to close it |
 | `needs-you` | show the reason and a link; the user answers in that conversation or PR |
+| `nudge` | A ready PR of the user's (not a draft, not approved, no changes requested) has had no activity for `TASKBOARD_REVIEW_NUDGE_HOURS` (default 4). Offer to ask the team for review. Draft the request; send it only after the user approves the text. |
 
 Then run `sync --offline` so the ledger shows the result.
 
@@ -87,9 +88,33 @@ Briefs (`--brief` overrides; the default comes from the task kind and stage):
 - `review`: review with `deep-pr-review` (or `code-review` when it is not installed), draft the review, ask before it is posted. No code changes.
 - `validate`: reproduce, report with screenshots, stop.
 
-Every message has the same rules: never merge, ask before posting anything others see, commit only on the task's own branch, end each stop with one line of status. A worker stops at "ready to merge"; the merge stays with the user.
+Every message has the same rules: never merge, ask before posting anything others see, commit only on the task's own branch, end each stop with one line of status. A worker stops at "ready to merge"; the merge stays with the user. Every message also ends with the close-out questions (see Manage).
 
 Sessions started from here report back when they end a turn. For a reused session or jr conversation, read its state with `get_session` and `list_events`, or jr `getConversation`, then `sync`.
+
+## Manage
+
+A session with `/board on` is the manager. The mod adds a short manager section to its system prompt while the board is on; this section is the playbook. The manager makes sure that each task is considered and moved forward. It does not judge the quality of the work, and it does not redo it.
+
+1. **Start work in a sub-session.** For a task the user names: `dispatch`, then start the session with a good brief (the `/spawn` rules: the user's words, where, what done looks like, rules, landing), then `assign`. A piece of the current conversation is a fork; a new task is fresh.
+2. **Close-out.** Every dispatch message and brief ends with six questions. The worker answers each one with yes or no and one line when it stops:
+   - Implementation: is a code change needed, or is this done, not a bug, or out of scope?
+   - Review: is more review needed (the agent review, bot threads, a `deep-pr-review` pass)?
+   - Tests: are the tests enough? Which ones were added or run?
+   - Skills: which of the user's skills apply, and were they used? To name them, read the skills list in this session.
+   - Sign-off: does this need the user's review, or a review request to the team?
+   - Next step: what is it, and who owns it: the worker, the user or the team?
+3. **When a worker's report comes back** (a side-session note, or `get_session` and `list_events` for a reused session), check only that each question has an answer and that the next step has an owner. If an answer is missing, `SendMessage` the worker and name the missing question. Do not grade the answers.
+4. **Move it forward.** A next step that the worker owns, on a task the user named: send it with `dispatch`, without asking. A next step that the user or the team owns goes on the list in step 6.
+5. **Review nudge.** A `nudge` action means that a ready PR has had no activity for some hours. Offer to ask the team for review, and draft the request.
+6. **End each turn with what needs the user:** answers a worker waits for, merges, review requests to send, clean-up to approve, and workers that stopped with no next step. Run `workers` to see which ones are still running.
+
+| The manager may do alone | It needs the user's yes | Never |
+|---|---|---|
+| sync, and read sessions, PRs and tickets | start work on a task the user did not name | merge a PR |
+| `dispatch` and `assign` for a task the user named | archive a session or jr conversation (ask before archive) | post as the user without a yes for that text |
+| send a worker its next step, or ask it for a missing close-out answer | a review request to a person or a team, Slack or Linear posts | approve a permission prompt for a worker |
+| `checked`, `join`, `split`, `ignore` | a Linear state change on a ticket not assigned to the user | |
 
 ## PR detail
 
@@ -118,7 +143,8 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
 
 - **`/board on`** runs the board in this session: it records the session in the mod's store (shared by all sessions, so the choice outlives a restart), runs `manager add` for it, starts the timers and opens the pane. **`/board off`** stops it and runs `manager remove`. **`/board`** opens the pane. In a session that is not on, there is no band, no timer and no CLI call.
 
-- **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive), with **Board** and **Sync** buttons.
+- **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive, to close, to nudge), with **Board** and **Sync** buttons.
+- **System prompt:** while the board is on, the mod adds a short `taskboard:manager` section to the session's system prompt (`prompt.compose`). It holds the manager's stance and its approval rules, and points to the Manage section above. `/board off` removes it.
 - **Manager marker:** a session with the board on shows `◆ Taskboard manager` in the status line under the prompt and an inverse **Manager** badge first in the band, on every surface. On desktop it also gets a still violet pinstripe backdrop and a violet frame on the user's messages; a build that refuses the message style gets the backdrop alone. Every other session gets a faint blue wash at the bottom. All of them use palette names, so they follow light and dark mode. `/board off` clears the status line and goes back to the wash.
 - **Pane** "Taskboard" (or `/board`): open tasks as cards (1, 2 or 3 columns, by the pane's width) in a tree that the script builds (`lib/group.mjs`, `sections` in `--board`):
   1. **Projects**: the Linear projects you lead or are a member of (shown even with no ticket of yours), and the project of any ticket on the board. Under each, its tickets' tasks.
@@ -130,7 +156,7 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
   A task's PRs show inside its card. A card with no ticket sits under the repo of its first open PR, so when it holds two or more PRs, a line under them names the items that link them ("Linked: both PRs are named by 3 Claude sessions"). The ▼/▶ button before each heading folds or unfolds what is under it (the heading, its count and "N need you" stay), and each open level is indented under its heading with a rail down its left side. Team review starts folded and the rest start open; a fold you change survives a reload. Filter buttons under the header (**Needs you**, **Follow-up**, **Ready to merge**, each with its count) show only tasks in those stages and add up when you pick more than one. **All others** shows every other stage and the lone PRs, **All** clears the filters, and groups with nothing left are hidden. Names sort alphabetically; inside a group, cards sort by stage, most urgent first, and each card shows its stage. Each card has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). A row with a Linear tree shows "↑ parent · N of M done" and a **Tree** button. The button opens the parent, the open sub-issues and the open siblings, and each one without a PR has its own **Dispatch**. **Overview** opens the task's detail pane (below). **Clean up** shows when there are actions to approve. It sends the clean-up request (`/taskboard clean up` and the whole flow, so a new session can act on it) to a desktop session kept for clean-up, never to the session that draws the pane. The mod's store remembers that session. If it is archived or gone, or none is kept yet, the button starts a new one with `start_session`, detaches it (so the app does not wake the manager at the end of each of its turns), and runs `manager add` for it. A toast names the session.
 - **Overview pane:** one task, fetched when it opens, so the sync stays cheap. It shows the ticket's properties (status, priority, assignee, labels, project, cycle, team, branch), the pending actions, the items with PR detail, the description, the latest 5 comments, and the whole tree: the parent, every sub-issue and every sibling, finished ones dim. Each open sub-issue or sibling without a PR has **Dispatch**. The branch is the PR's head branch when there is a PR, and Linear's suggested `branchName` when there is none. A task with no ticket shows only its items.
 - **Workers:** every minute it runs `workers`, which reads only local files. The band shows "N workers running · 6m" (the oldest turn). A row with a running session shows "Implementing · 6m" ("Validating", "Reviewing" or "Verifying" in those stages). A PR whose head commit is less than an hour old shows "pushed 3m ago", and its pending checks show as ◌ in the detail line.
-- **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, or when new clean-up shows up. Then the prompt box suggests `/taskboard`.
+- **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, when new clean-up shows up, or when more PRs wait for a review nudge. Then the prompt box suggests `/taskboard`.
 
 The timer cannot reach jr, because jr needs MCP tools. jr stays as of the last `/taskboard sync`.
 

@@ -40,7 +40,7 @@ const GUTTER_DEFAULT = 4
 const UNSUBSCRIBED = 'unsubscribed'
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-9' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-10' })
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
@@ -78,6 +78,19 @@ const CLEANUP_REQUEST = [
 const CLEANUP_BACKGROUND =
   "The taskboard (the `taskboard` skill and its mod) keeps a ledger of the user's Linear tickets, PRs, jr conversations and Claude sessions, and suggests clean-up actions. " +
   "This session is kept for that clean-up: the Taskboard pane's Clean up button sends each later request here, so the long exchange stays out of the sessions the user works in."
+
+// Only the stance and the hard rules ride in the system prompt, where they hold through compaction;
+// the playbook stays in the skill, so the always-on part stays small.
+const MANAGER_SECTION = [
+  '# Taskboard manager',
+  '',
+  'This session manages the taskboard. Its job is to delegate tasks to worker sessions and move them forward until each one is done or waits for the user. Read the Manage section of the taskboard skill before you dispatch, relay a worker report, or end a turn with workers running.',
+  '',
+  '- Start work in sub-sessions (`/taskboard dispatch`, or a fork for a piece of this conversation), not here. Then `assign` the task to the session.',
+  '- Make sure each close-out question in a worker report has an answer and the next step has an owner. Send a worker back for a missing answer. Do not judge the quality of the answers or redo the work.',
+  '- You may send a worker its next step for a task the user named. Ask the user before you start work on a task they did not name, archive anything, request a review from a person or team, or post anything others see. Never merge a PR.',
+  '- End each turn with what needs the user: answers a worker waits for, merges, review requests to send, clean-up to approve, workers that stopped with no next step.',
+].join('\n')
 
 // The backdrop tells the management session apart from the sessions it dispatches to at a glance.
 // Palette names, not raw colors, so each ground follows light and dark mode.
@@ -251,6 +264,7 @@ function alerts(before: Board | null, after: Board): string[] {
     }
   }
   if (after.counts.followUp > before.counts.followUp) out.push(`${after.counts.followUp - before.counts.followUp} new follow-ups`)
+  if (after.counts.nudge > before.counts.nudge) out.push(`${after.counts.nudge - before.counts.nudge} PRs wait for review`)
   const cleanup = (c: Board['counts']) => c.archive + c.close + c.check
   if (cleanup(after.counts) > cleanup(before.counts)) out.push(`${cleanup(after.counts) - cleanup(before.counts)} new clean-up actions`)
   return out
@@ -331,6 +345,12 @@ export const register: Register = on => {
     return started
   })
 
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (!(await read($, enabled))) return composed
+    return { sections: [...composed.sections, { id: 'taskboard:manager', text: MANAGER_SECTION, scope: 'session' }] }
+  })
+
   on('command.run', { command: 'board' }, async ($, e) => {
     const arg = e.args.trim()
     const id = await $.session.id()
@@ -376,6 +396,7 @@ export const register: Register = on => {
       b.counts.check && `${b.counts.check} to check`,
       b.counts.archive && `${b.counts.archive} to archive`,
       b.counts.close && `${b.counts.close} to close`,
+      b.counts.nudge && `${b.counts.nudge} to nudge`,
     ].filter(Boolean)
     return (
       <Box gap={1}>

@@ -250,3 +250,17 @@ test('a task with no ticket stays in view while any of its open PRs is subscribe
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0].unsubscribed, false);
 });
+
+test('a ready PR of ours with no activity for 4 hours gets a nudge; drafts, approved and reviewed PRs do not', () => {
+  const now = Date.parse('2026-11-24T12:00:00Z');
+  const quiet = {...pr(200, {status: 'open'}), updatedAt: '2026-11-24T07:30:00Z'};
+  const recent = {...pr(201, {status: 'open'}), updatedAt: '2026-11-24T10:00:00Z'};
+  const draft = {...pr(202), updatedAt: '2026-11-24T01:00:00Z'};
+  const approved = {...pr(203, {status: 'open', review: 'APPROVED'}), updatedAt: '2026-11-24T01:00:00Z'};
+  const theirs = {...pr(204, {status: 'open', roles: ['review'], watched: true}), updatedAt: '2026-11-24T01:00:00Z'};
+  const actions = Object.fromEntries(
+    [quiet, recent, draft, approved, theirs].map(p => [p.meta.number, link([p], {now}).tasks[0]?.actions ?? []])
+  );
+  assert.deepEqual(actions[200], [{type: 'nudge', item: 'getsentry/sentry#200', reason: 'no review activity for 4h'}]);
+  for (const n of [201, 202, 203, 204]) assert.deepEqual(actions[n], [], `PR ${n}`);
+});

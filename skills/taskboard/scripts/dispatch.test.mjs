@@ -117,3 +117,15 @@ test('a follow-up goes back to the session that named it', () => {
   assert.equal(out.target.key, 'cc-old');
   assert.match(out.message, /^Finish what you said was left/);
 });
+
+test('every brief ends with the close-out questions, for a reused session and a new one', () => {
+  const questions = ['Implementation:', 'Review:', 'Tests:', 'Skills:', 'Sign-off:', 'Next step:'];
+  const reused = only([issue('VDY-400', {stateType: 'triage'}), jr('jr-400', 'Validate VDY-400', {strong: ['VDY-400']})]);
+  const fresh = only([issue('VDY-433', {prs: ['getsentry/sentry#131651']}), pr(131651, {linear: ['VDY-433']})]);
+  for (const text of [reused.message, fresh.prompt]) {
+    assert.match(text, /Close-out: end each report with these answers/);
+    for (const q of questions) assert.ok(text.includes(`- ${q}`), `missing ${q}`);
+    // The rules come first, so the questions are the last thing the worker reads.
+    assert.ok(text.indexOf('Do not merge a PR') < text.indexOf('Close-out'));
+  }
+});

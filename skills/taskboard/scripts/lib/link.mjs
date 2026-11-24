@@ -2,6 +2,8 @@
 // derive each task's stage, and list the clean-up actions the manager can offer.
 
 const NOISE_AUTHORS = new Set(['dependabot', 'github-actions', 'renovate', 'getsantry']);
+// Hours a ready PR of ours may sit with no activity before the manager offers to ask the team for review.
+const NUDGE_HOURS = Number(process.env.TASKBOARD_REVIEW_NUDGE_HOURS ?? 4);
 const STAGE_ORDER = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc', 'done'];
 
 class UnionFind {
@@ -116,7 +118,16 @@ function closeOut(item, why, checks, byKey) {
   return [{type: 'archive', item: item.key, reason: 'it said nothing is left'}];
 }
 
-function actionsFor(task, items, checks) {
+// `updatedAt` moves on any activity, bots included, so a quiet PR is one nobody has touched.
+function nudgeFor(p, now) {
+  const ours = p.roles.some(r => r === 'author' || r === 'bot');
+  const waiting = p.meta.review !== 'APPROVED' && p.meta.review !== 'CHANGES_REQUESTED';
+  if (!p.open || p.meta.draft || !ours || !waiting || p.needsYou || !p.updatedAt) return [];
+  const hours = Math.floor((now - Date.parse(p.updatedAt)) / 3_600_000);
+  return hours >= NUDGE_HOURS ? [{type: 'nudge', item: p.key, reason: `no review activity for ${hours}h`}] : [];
+}
+
+function actionsFor(task, items, checks, now) {
   const out = [];
   const byKey = new Map(items.map(i => [i.key, i]));
   const members = task.items.map(k => byKey.get(k));
@@ -140,11 +151,12 @@ function actionsFor(task, items, checks) {
       out.push({type: 'close-linear', item: l.key, reason: `all linked PRs merged (${linked.map(p => p.key).join(', ')})`});
     }
   }
+  for (const p of prs) out.push(...nudgeFor(p, now));
   for (const i of liveAsks(members)) out.push({type: 'needs-you', item: i.key, reason: i.needsReason});
   return out;
 }
 
-export function link(allItems, {previous = null, overrides = {}, checks = {}} = {}) {
+export function link(allItems, {previous = null, overrides = {}, checks = {}, now = Date.now()} = {}) {
   const ignore = new Set(overrides.ignore ?? []);
   const split = new Set(overrides.split ?? []);
   const items = allItems.filter(i => !ignore.has(i.key));
@@ -202,7 +214,7 @@ export function link(allItems, {previous = null, overrides = {}, checks = {}} = 
       kindOverride: prevTask?.kindOverride ?? null,
       unsubscribed: isUnsubscribed(members),
     };
-    task.actions = actionsFor(task, items, checks);
+    task.actions = actionsFor(task, items, checks, now);
     // Remaining work a conversation named keeps the task in view, above the routine stages.
     if (task.actions.some(a => a.type === 'follow-up') && task.stage !== 'needs-you') task.stage = 'follow-up';
     tasks.push(task);

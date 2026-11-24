@@ -116,7 +116,7 @@ const SECTIONS = [
 
 const BOARD = {
   generatedAt: '2026-11-23T23:09:22.202Z',
-  counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, queue: 38, backlog: 46, unsubscribed: 2 },
+  counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, nudge: 1, queue: 38, backlog: 46, unsubscribed: 2 },
   sections: SECTIONS,
   tasks: [
     task('VDY-433', 'iterate'),
@@ -211,6 +211,7 @@ function engine(
     return { value: undefined }
   })
   on('session.id', () => ({ value: 'cli-main' }))
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'You are Claude Code.', scope: 'shared' }] }))
   // Refusing the first period ends the interval, so no timer runs in a test.
   on('clock.every', () => ({ deny: 'no timer in tests' }))
   on('command.register', () => ({ value: { command: 'board' } }))
@@ -400,6 +401,7 @@ test('the band counts running workers and how long the oldest has run', async ($
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /running/ }))?.text).toBe('1 worker running · 6m')
+  expect((await ui.find({ type: 'Text', text: /^taskboard:/ }))?.text).toMatch(/1 to nudge$/)
   await ui.unmount()
 })
 
@@ -752,6 +754,27 @@ test('the band leaves unsubscribed tasks out of its counts', async ($, on) => {
   engine(on, [], [])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /^taskboard:/ }))?.text).toBe('taskboard: 1 need you · 1 follow-ups · 2 iterate · 1 review')
+  expect((await ui.find({ type: 'Text', text: /^taskboard:/ }))?.text).toBe('taskboard: 1 need you · 1 follow-ups · 2 iterate · 1 review · 1 to nudge')
   await ui.unmount()
+})
+
+test('the system prompt carries the manager section only while the board is on', async ($, on) => {
+  engine(on, [], [], { fail: false }, [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const input = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools: [], outputStyle: null, traits: [] } as const
+  const ids = async () => (await $.prompt.compose(input)).sections.map(s => s.id)
+  expect(await ids()).toEqual(['intro'])
+
+  await $.command.run({ command: 'board', args: 'on', ...TYPED })
+  const on1 = await $.prompt.compose(input)
+  expect(on1.sections.map(s => s.id)).toEqual(['intro', 'taskboard:manager'])
+  const section = on1.sections.at(-1)!
+  // It varies by session, so it sits after the cache boundary.
+  expect(section.scope).toBe('session')
+  expect(section.text).toMatch(/Manage section of the taskboard skill/)
+  expect(section.text).toMatch(/Never merge a PR/)
+  expect(section.text).toMatch(/Do not judge the quality/)
+
+  await $.command.run({ command: 'board', args: 'off', ...TYPED })
+  expect(await ids()).toEqual(['intro'])
 })

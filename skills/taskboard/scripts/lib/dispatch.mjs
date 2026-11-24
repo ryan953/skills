@@ -23,6 +23,18 @@ const RULES = [
   'When you stop, give one line of status: what is done, what is left, and what you need from me.',
 ];
 
+// The manager checks that each question has an answer, not whether the answer is right,
+// so a worker that skips one is sent back for it.
+const CLOSE_OUT = [
+  'Implementation: is a code change needed, or is this done, not a bug, or out of scope?',
+  'Review: is more review needed (the agent review, bot threads, a deep-pr-review pass)?',
+  'Tests: are the tests enough for this change? Which ones did you add or run?',
+  'Skills: which of my skills apply here (for example commit, pr-writer, iterate-pr, deep-pr-review, verify-sentry, agent-browser, frontend-conventions), and did you use them?',
+  'Sign-off: does this need my review, or a review request to the team?',
+  'Next step: what is it, and who owns it: you, me or the team?',
+];
+const CLOSE_OUT_HEAD = 'Close-out: end each report with these answers, yes or no and one line each:';
+
 const prLabel = p => (p.meta.repo === DEFAULT_REPO ? `#${p.meta.number}` : p.key);
 
 function partsOf(members) {
@@ -125,7 +137,7 @@ export function dispatch(task, members, {brief, route, step} = {}) {
       ...base,
       route: chosen,
       target: {key: target.key, title: target.title, url: target.url, running: Boolean(target.meta.running)},
-      message: `${text}\n\n${RULES.join('\n')}`,
+      message: [text, '', ...RULES, '', CLOSE_OUT_HEAD, ...CLOSE_OUT.map(q => `- ${q}`)].join('\n'),
       reason: target.key === task.owner ? 'the task owner' : `the newest live ${type === 'claude' ? 'session' : 'jr conversation'} on the task`,
     };
   }
@@ -144,7 +156,7 @@ export function dispatch(task, members, {brief, route, step} = {}) {
     title: sessionTitle(task, brief, p),
     repo,
     cwd: cwdOf(repo),
-    prompt: [`Task ${task.id}: ${task.title}`, '', text, '', 'Rules:', ...RULES.map(r => `- ${r}`)].join('\n'),
+    prompt: [`Task ${task.id}: ${task.title}`, '', text, '', 'Rules:', ...RULES.map(r => `- ${r}`), '', CLOSE_OUT_HEAD, ...CLOSE_OUT.map(q => `- ${q}`)].join('\n'),
     background: [chain, '', 'Items in this task:', ...tracked.map(itemLine), ...(task.notes ? ['', `Notes: ${task.notes}`] : [])].join('\n'),
     reason: 'no live session or jr conversation on the task',
   };

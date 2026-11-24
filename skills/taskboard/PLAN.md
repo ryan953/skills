@@ -157,7 +157,7 @@ The user's ask (2026-11-24): mark the management session clearly, and make it a 
 | Cost | its prompt replaces the whole system prompt, so it loses Claude Code's own sections unless it copies them | one short `session` section after the cache boundary; one cache miss at each on and off | nothing until it is loaded |
 | Fits what exists | no: the session already exists when `/board on` runs | yes: same switch as the band, backdrop and timers | yes: dispatch, `assign`, ask-before-archive and `workers` are already there |
 
-**Recommendation: `prompt.compose` plus the skill.** The mod adds a short section (about 15 lines) only while the board is on: the stance, the close-out questions, and the approval rules below. It says "read the Manage section of the taskboard skill before you dispatch or relay". The skill holds the long playbook, so the always-on part stays small. The agent definition fails on the first row: the user turns a running session into a manager. A `$.agent.register` subagent type has the same problem, because it is a subagent and not the session itself.
+**Recommendation: `prompt.compose` plus the skill.** The user picked it (2026-11-24), and it is built as 9.5 describes. The mod adds a short section (about 15 lines) only while the board is on: the stance, the close-out questions, and the approval rules below. It says "read the Manage section of the taskboard skill before you dispatch or relay". The skill holds the long playbook, so the always-on part stays small. The agent definition fails on the first row: the user turns a running session into a manager. A `$.agent.register` subagent type has the same problem, because it is a subagent and not the session itself.
 
 ### 9.3 What the manager does
 
@@ -183,7 +183,7 @@ The user's ask (2026-11-24): mark the management session clearly, and make it a 
 | send a worker its next step, or ask it for a missing close-out answer | a review request to a person or a team, Slack or Linear posts | approve a permission prompt for a worker |
 | `checked`, `join`, `split`, `ignore` | a Linear state change on a ticket not assigned to the user (8.2) | |
 
-### 9.5 Build steps, once an option is picked
+### 9.5 Build steps (built 2026-11-24)
 
 - Mod: `prompt.compose` hook that appends `taskboard:manager` (`scope: 'session'`) when `enabled`; a test that the section is present only while the board is on.
 - `lib/dispatch.mjs`: the close-out block in `RULES` (session messages and new-session briefs); tests.
