@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
+import { registerJrRead } from './jr-read'
 import type { Board, BoardNode, BoardPr, BoardTask, Overview, OverviewNode, Progress, TreeNode, Worker } from '../types'
 
 const PANE = 'taskboard'
@@ -337,6 +338,9 @@ async function stop($: EngineInterface) {
 }
 
 export const register: Register = on => {
+  // Every session, board on or off: Claude reads jr wherever it works.
+  registerJrRead(on)
+
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({ name: 'board', description: 'Open the taskboard pane; /board on|off runs it in this session' })

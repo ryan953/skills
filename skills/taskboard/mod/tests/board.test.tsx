@@ -778,3 +778,78 @@ test('the system prompt carries the manager section only while the board is on',
   await $.command.run({ command: 'board', args: 'off', ...TYPED })
   expect(await ids()).toEqual(['intro'])
 })
+
+// jr as its MCP connector answers, over a list of messages per conversation.
+const JR = 'mcp__381edf2d-e9df-4970-9a5a-0fabca4cd665'
+const jrCursor = (id: string, seq: number) => `${btoa(JSON.stringify({ conversationId: id, seq, version: 1 })).replace(/=+$/, '')}.sig`
+
+function jr(on: any, conversations: Record<string, any[]>) {
+  const marks: any[] = []
+  mock.store(on, {})
+  on('tool.call', (_: unknown, e: any) => {
+    const id = e.conversationId ?? 'local:web:new'
+    const list = (conversations[id] ??= [])
+    const tail = list.at(-1)?.seq ?? -1
+    const answer = (v: object) => ({ result: {}, text: JSON.stringify(v) })
+    switch (e.tool.split('__').pop()) {
+      case 'createConversation':
+      case 'sendMessage': {
+        const messageId = `api-msg:${list.length}`
+        list.push({ seq: tail + 1, messageId, role: 'user', author: 'Ryan' })
+        return answer({ conversationId: id, messageId, pendingMessages: [{ messageId }], cursor: jrCursor(id, tail) })
+      }
+      case 'getConversation':
+        return answer({ conversation: { conversationId: id }, messages: list, cursor: jrCursor(id, tail + 2) })
+      case 'listConversationMessages':
+        return answer({ messages: list })
+      case 'markConversationRead':
+        marks.push(e)
+        return answer({ lastReadSeq: e.lastReadSeq })
+    }
+    return { result: {}, text: 'unknown tool', isError: true }
+  })
+  return marks
+}
+
+const reply = (seq: number, to: string) => ({ seq, messageId: `turn_${to.replace(/:/g, '_')}:assistant:1`, role: 'assistant' })
+
+test('a jr conversation Claude started is marked read up to the newest reply it read', async ($, on) => {
+  const conversations: Record<string, any[]> = {}
+  const marks = jr(on, conversations)
+  await $.tool.call({ tool: `${JR}__createConversation`, message: 'Is anything left?' })
+  conversations['local:web:new']!.push(reply(11, 'api-msg:0'))
+
+  await $.tool.call({ tool: `${JR}__getConversation`, conversationId: 'local:web:new' })
+  expect(marks).toEqual([expect.objectContaining({ tool: `${JR}__markConversationRead`, conversationId: 'local:web:new', lastReadSeq: 11 })])
+
+  // Nothing new since: no second call.
+  await $.tool.call({ tool: `${JR}__listConversationMessages`, conversationId: 'local:web:new' })
+  expect(marks.length).toBe(1)
+})
+
+test('a jr conversation the user chats in is never marked read', async ($, on) => {
+  const slack = 'slack:D0AN20G5WMS:1795468391.929599'
+  const conversations: Record<string, any[]> = {
+    [slack]: [{ seq: 4, messageId: 'slack:1795468391.929599', role: 'user' }, reply(9, 'slack:1795468391.929599')],
+  }
+  const marks = jr(on, conversations)
+  await $.tool.call({ tool: `${JR}__getConversation`, conversationId: slack })
+  await $.tool.call({ tool: `${JR}__listConversationMessages`, conversationId: slack })
+  expect(marks).toEqual([])
+})
+
+test('a jr conversation goes back to the user at the first message Claude did not cause', async ($, on) => {
+  const slack = 'slack:D0AN20G5WMS:1795467864.789489'
+  const conversations: Record<string, any[]> = { [slack]: [{ seq: 2, messageId: 'slack:old', role: 'user' }, reply(5, 'slack:old')] }
+  const marks = jr(on, conversations)
+  await $.tool.call({ tool: `${JR}__sendMessage`, conversationId: slack, message: 'Is anything left?' })
+  // Claude's question (6), jr's answer (8), then the user types in Slack (9) and jr answers them (12).
+  conversations[slack]!.push(reply(8, 'api-msg:2'), { seq: 9, messageId: 'slack:new', role: 'user' }, reply(12, 'slack:new'))
+
+  await $.tool.call({ tool: `${JR}__getConversation`, conversationId: slack })
+  expect(marks.map(m => m.lastReadSeq)).toEqual([8])
+
+  conversations[slack]!.push(reply(14, 'slack:new'))
+  await $.tool.call({ tool: `${JR}__getConversation`, conversationId: slack })
+  expect(marks.length).toBe(1)
+})

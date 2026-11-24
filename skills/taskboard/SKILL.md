@@ -56,7 +56,7 @@ Then run `sync --offline` so the ledger shows the result.
 A finished ticket or a merged PR does not prove that a conversation is finished. It can hold other PRs, follow-ups, or a question. So `archive` comes only from the conversation's own answer:
 
 1. With the user's yes for the list of `check` items, send each one the `message` from `ask <item-key>`. For a session, use `SendMessage` to the `local_…` id. For jr, use `sendMessage`.
-2. Read each reply: `list_events` for a session, `getConversation` for jr. A session that is still busy answers later. Read it on the next sync.
+2. Read each reply: `list_events` for a session, `getConversation` for jr. A session that is still busy answers later. Read it on the next sync. The mod marks a jr reply read when you read it (see [jr read state](#jr-read-state)).
 3. Record each reply: `checked <key>` for `NOTHING LEFT`, or `checked <key> --remaining "<what>"`. When a reply is unclear, record what it says as `--remaining`.
 4. `sync --offline`. Then `check` becomes `archive` (nothing left) or `follow-up` (work is left; the task moves to the `follow-up` stage).
 
@@ -74,7 +74,7 @@ Dispatch sends a task's next step to a worker. Do it only for a task the user na
    |---|---|
    | `user` | Do not send. Tell the user `reason` (it waits for their answer, the merge is theirs, or an adhoc task needs `--step`). |
    | `session` | `SendMessage` (or `mcp__ccd_session_mgmt__send_message`) to `target.key` with `message`. A busy session queues it. |
-   | `jr` | jr `sendMessage` to `target.key` with `message`. |
+   | `jr` | jr `sendMessage` to `target.key` with `message`. From then on, the replies you read are marked read in jr. |
    | `new` | `mcp__ccd_session__start_session`: `initiation: "user_asked"`, `context: "fresh"`, `use_worktree: true`, and `title`, `prompt`, `background` from the output. Pass `cwd` only when it is not this project's folder. When `cwd` is null, ask the user for the folder. |
 
 2. `node scripts/taskboard.mjs assign <id> <session or jr id>`. The owner is reused first next time, is never asked about as a duplicate, and stays in the task even when its title names nothing.
@@ -115,6 +115,18 @@ A session with `/board on` is the manager. The mod adds a short manager section 
 | `dispatch` and `assign` for a task the user named | archive a session or jr conversation (ask before archive) | post as the user without a yes for that text |
 | send a worker its next step, or ask it for a missing close-out answer | a review request to a person or a team, Slack or Linear posts | approve a permission prompt for a worker |
 | `checked`, `join`, `split`, `ignore` | a Linear state change on a ticket not assigned to the user | |
+
+## jr read state
+
+Each jr reply also notifies the user in Slack and in jr's inbox. When Claude asked, Claude reads the answer, so the mod (`mod/hooks/jr-read.ts`, in every session, board on or off) marks it read in jr. Nothing in this skill calls `markConversationRead` itself.
+
+A jr conversation is **orchestrated by Claude** from the moment Claude calls `createConversation` or `sendMessage` on it. `$.store` keeps that for 14 days, so a reply read in a later session counts too. When Claude reads the conversation (`getConversation`, `listConversationMessages`), the mod marks read up to the newest `seq` among the messages after that point that Claude sent or that answer Claude's messages. jr names each assistant message after the message it answers (`turn_<messageId>:assistant:N`).
+
+The first message Claude did not cause (the user writing in Slack or on the web, or jr's reply to them) hands the conversation back: it and everything after it stay unread, and the mod stops marking until Claude sends again. A conversation Claude never sent to is never marked.
+
+The read position is one `seq` per conversation, so marking a reply also marks older messages read, including unread ones from before Claude joined.
+
+Marking read moves jr's status from `needs_input` to `done`. Slack keeps its own read state, and nothing here can mark a Slack DM thread read. A conversation from `createConversation` (`local:web:…`, surface `api`) has no Slack thread, so prefer it for work only Claude follows.
 
 ## PR detail
 
