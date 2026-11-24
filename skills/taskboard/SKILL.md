@@ -124,7 +124,7 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
 
 The timer cannot reach jr, because jr needs MCP tools. jr stays as of the last `/taskboard sync`.
 
-It loads in every session through `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`, pointing at this folder's `mod/`. Only sessions started after that setting get it. The folder is watched, so an edit reloads the mod. Every session runs the timers, but a timer sync reuses a ledger that is less than 9 minutes old (`sync --max-age 540`), so only one session fetches each period. **Sync** always fetches. Tests: `claude plugin test mod`.
+Load it only in the management session: link this folder's `mod/` into that session's mods folder (`ln -s <skill>/mod ~/.claude/dev-mods/<session-id>/taskboard`), or start the session with `claude --plugin-dir <skill>/mod`. Worker sessions do not need it. The link follows the checkout, so an edit reloads the mod. When more than one session loads it, a timer sync reuses a ledger that is less than 9 minutes old (`sync --max-age 540`), so only one session fetches each period. **Sync** always fetches. Tests: `claude plugin test mod`.
 
 Manager sessions (`manager add`) are left out of the ledger. Before, the sync left out the session that ran it. That broke when the mod runs the sync from a worker session, because the worker then dropped out of its own task.
 
