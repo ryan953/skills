@@ -212,7 +212,7 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
 const CLEANUP_BOARD = { ...BOARD, counts: { ...BOARD.counts, check: 2, archive: 1 } }
 
 // The desktop app's session tools as the mod calls them, over a list of known sessions.
-function desktop(on: any, known: Record<string, { isArchived: boolean }>) {
+function desktop(on: any, known: Record<string, { isArchived: boolean }>, refusal?: string) {
   const tools: any[] = []
   const sends: any[] = []
   const toasts: string[] = []
@@ -225,6 +225,7 @@ function desktop(on: any, known: Record<string, { isArchived: boolean }>) {
         : { result: {}, text: `No session ${e.session_id}`, isError: true }
     }
     if (e.tool === 'mcp__ccd_session__start_session') {
+      if (refusal) return { result: {}, text: refusal }
       known['local_new-1'] = { isArchived: false }
       return { result: {}, text: 'Started session "Taskboard clean-up" (session_id: local_new-1, name: taskboard-cleanup). It runs on its own.' }
     }
@@ -311,6 +312,26 @@ async function replaced($: any, on: any, known: Record<string, { isArchived: boo
 test('Clean up replaces a kept session that was archived', ($, on) => replaced($, on, { local_kept: { isArchived: true } }))
 
 test('Clean up replaces a kept session that is gone', ($, on) => replaced($, on, {}))
+
+test('a refused start shows the whole reason in the pane and keeps nothing', async ($, on) => {
+  const calls: string[][] = []
+  const prompts: string[] = []
+  engine(on, calls, prompts, { fail: false, board: CLEANUP_BOARD })
+  const refusal = 'Nothing was started. Before this can work, the user needs to trust the folder the new session would run in.'
+  const app = desktop(on, {}, refusal)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  await $.ui.press({ plugin: 'taskboard', key: 'pane-cleanup' })
+  expect(prompts).toEqual([])
+  expect(app.names()).toEqual(['start_session'])
+  expect(calls.some(c => c.includes('manager'))).toBe(false)
+  expect(app.toasts).toEqual(['Clean-up went nowhere. The Taskboard pane says why.'])
+  const shown = await ui.find({ type: 'Text', text: /^Clean-up not started/ })
+  expect(shown?.text).toBe(`Clean-up not started: ${refusal}`)
+  expect(shown?.props.color).toBe('error')
+  await ui.unmount()
+})
 
 test('Sync fetches, and a failed sync shows its error', async ($, on) => {
   const calls: string[][] = []

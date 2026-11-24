@@ -114,8 +114,11 @@ export type OverviewState = { id: string | null; isLoading: boolean; error: stri
 
 export type SyncState = { isSyncing: boolean; error: string | null; at: number | null }
 
+// The last Clean up press: where the request went, or why it went nowhere.
+export type CleanupNote = { text: string; isError: boolean }
+
 declare module 'claude-code' {
   interface PluginState {
-    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]>; expanded: string[]; folded: string[]; filter: string[]; overview: Shaped<Overview | null>; overviewState: OverviewState; enabled: boolean }
+    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]>; expanded: string[]; folded: string[]; filter: string[]; overview: Shaped<Overview | null>; overviewState: OverviewState; enabled: boolean; cleanupNote: CleanupNote | null }
   }
 }

@@ -47,6 +47,7 @@ const folded = atom({ plugin: 'taskboard', key: 'folded' } as const, [] as strin
 // Filters picked in the pane; none picked shows everything.
 const filter = atom({ plugin: 'taskboard', key: 'filter' } as const, [] as string[])
 const overview = atom({ plugin: 'taskboard', key: 'overview' } as const, null, { shape: 'overview-1' })
+const cleanupNote = atom({ plugin: 'taskboard', key: 'cleanupNote' } as const, null)
 const overviewState = atom({ plugin: 'taskboard', key: 'overviewState' } as const, { id: null, isLoading: false, error: null })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   isSyncing: false,
@@ -161,6 +162,13 @@ async function startCleanup($: EngineInterface, consent: string): Promise<KeptSe
 // One press at a time, so a double press cannot start two sessions.
 let cleaningUp = false
 
+// A toast is one cut-off line, and the app's refusals are long, so the pane keeps the whole note.
+async function note($: EngineInterface, text: string, isError = false) {
+  await update($, cleanupNote, () => ({ text, isError }))
+  $.ui.log(`taskboard: ${text}`)
+  $.ui.toast(isError ? 'Clean-up went nowhere. The Taskboard pane says why.' : text, { timeoutMs: 8000 })
+}
+
 async function cleanUp($: EngineInterface, consent: string) {
   if (cleaningUp) return
   cleaningUp = true
@@ -169,14 +177,15 @@ async function cleanUp($: EngineInterface, consent: string) {
     const live = kept && (await liveSession($, kept.id))
     if (live) {
       const sent = await $.session.send({ to: live.id, text: CLEANUP_REQUEST })
-      $.ui.toast(sent.isDelivered ? `Clean-up sent to "${live.title}".` : `Clean-up not sent to "${live.title}": ${sent.reason}`, { timeoutMs: 8000 })
+      if (sent.isDelivered) await note($, `Clean-up sent to "${live.title}".`)
+      else await note($, `Clean-up not sent to "${live.title}": ${sent.reason}`, true)
       return
     }
     if (kept) await run($, ['manager', 'remove', kept.id]).catch(() => {})
     const started = await startCleanup($, consent)
-    $.ui.toast(`Started "${started.title}" for the clean-up.`, { timeoutMs: 8000 })
+    await note($, `Started "${started.title}" for the clean-up.`)
   } catch (err) {
-    $.ui.toast(`Clean-up not started: ${String((err as Error).message ?? err)}`, { timeoutMs: 8000 })
+    await note($, `Clean-up not started: ${String((err as Error).message ?? err)}`, true)
   } finally {
     cleaningUp = false
   }
@@ -360,6 +369,7 @@ export const register: Register = on => {
     const open = new Set(await read($, expanded))
     const shut = new Set(await read($, folded))
     const picked = new Set(await read($, filter))
+    const cleaned = await read($, cleanupNote)
     const now = await $.clock.now()
     const { Box, Button, Link, Text } = $.ui.resolve(e)
 
@@ -573,6 +583,7 @@ export const register: Register = on => {
             {b.counts.open} open · {b.counts.queue} in review queue · {b.counts.backlog} filed, unlinked
           </Text>
           {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
+          {cleaned && <Text color={cleaned.isError ? 'error' : undefined} dimColor={!cleaned.isError} size="caption">{cleaned.text}</Text>}
           <Box gap={1} flexWrap="wrap" alignItems="center">
             <Button key="filter:all" label="All" variant={isFiltered ? undefined : 'primary'} onPress={() => update($, filter, () => [])} />
             {[...FILTERS, OTHERS].map(f => (
