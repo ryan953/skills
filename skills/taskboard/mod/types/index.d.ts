@@ -1,4 +1,4 @@
-export type BoardAction = { type: string; item: string }
+export type BoardAction = { type: string; item: string; reason: string | null }
 
 export type BoardTask = {
   id: string
@@ -16,6 +16,8 @@ export type Board = {
   counts: {
     open: number
     needsYou: number
+    followUp: number
+    check: number
     archive: number
     close: number
     queue: number

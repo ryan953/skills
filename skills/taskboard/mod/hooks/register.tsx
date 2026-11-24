@@ -5,12 +5,12 @@ import type { Board, BoardTask } from '../types'
 
 const PANE = 'taskboard'
 const SYNC_EVERY_MS = 10 * 60 * 1000
-const STAGES = ['needs-you', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc']
+const STAGES = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc']
 // Stages where the next move is the user's; dispatch would only answer "ask the user".
 const NO_DISPATCH = new Set(['needs-you', 'merge'])
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-1' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-2' })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   isSyncing: false,
   error: null,
@@ -39,8 +39,9 @@ function alerts(before: Board | null, after: Board): string[] {
       out.push(`${t.id} ${t.stage === 'merge' ? 'can merge' : 'needs you'}`)
     }
   }
-  const cleanup = after.counts.archive + after.counts.close - (before.counts.archive + before.counts.close)
-  if (cleanup > 0) out.push(`${cleanup} new clean-up actions`)
+  if (after.counts.followUp > before.counts.followUp) out.push(`${after.counts.followUp - before.counts.followUp} new follow-ups`)
+  const cleanup = (c: Board['counts']) => c.archive + c.close + c.check
+  if (cleanup(after.counts) > cleanup(before.counts)) out.push(`${cleanup(after.counts) - cleanup(before.counts)} new clean-up actions`)
   return out
 }
 
@@ -93,9 +94,11 @@ export const register: Register = on => {
     const by = (stage: string) => b.tasks.filter(t => t.stage === stage).length
     const parts = [
       b.counts.needsYou && `${b.counts.needsYou} need you`,
+      b.counts.followUp && `${b.counts.followUp} follow-ups`,
       by('merge') && `${by('merge')} to merge`,
       by('iterate') && `${by('iterate')} iterate`,
       by('review') && `${by('review')} review`,
+      b.counts.check && `${b.counts.check} to check`,
       b.counts.archive && `${b.counts.archive} to archive`,
       b.counts.close && `${b.counts.close} to close`,
     ].filter(Boolean)
@@ -121,6 +124,11 @@ export const register: Register = on => {
           <Text bold>{t.id}</Text>
           <Text>{t.title}</Text>
         </Box>
+        {t.actions
+          .filter(a => a.type === 'follow-up')
+          .map(a => (
+            <Text color="warning">Left to do: {a.reason}</Text>
+          ))}
         <Box gap={1}>
           <Text dimColor>{t.parts}</Text>
           {t.url && <Link href={t.url} label="Open" />}
@@ -135,7 +143,7 @@ export const register: Register = on => {
       </Box>
     )
 
-    const cleanup = b.counts.archive + b.counts.close
+    const cleanup = b.counts.archive + b.counts.close + b.counts.check
     return (
       <Box flexDirection="column" gap={1}>
         <Box gap={1}>
@@ -148,7 +156,7 @@ export const register: Register = on => {
             <Button
               key="pane-cleanup"
               label={`Clean up (${cleanup})`}
-              onPress={() => void $.command.run({ command: 'taskboard', args: 'offer the suggested archive and close actions' })}
+              onPress={() => void $.command.run({ command: 'taskboard', args: 'ask the sessions to check, then offer the archive and close actions' })}
             />
           )}
         </Box>

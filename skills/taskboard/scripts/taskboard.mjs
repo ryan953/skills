@@ -9,6 +9,8 @@
 //   taskboard.mjs join <keyA> <keyB> | split <key> | ignore <key>   manual link fixes
 //   taskboard.mjs dispatch <id> [--brief full|review|validate] [--route session|jr|new] [--step <text>]
 //   taskboard.mjs assign <id> <item-key> [--notes <text>]   record who works the task
+//   taskboard.mjs ask <item-key>                 the question to send before a session or jr is archived
+//   taskboard.mjs checked <item-key> [--remaining <text>]   record its answer (no --remaining: nothing left)
 
 import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -30,6 +32,7 @@ const DIR = process.env.TASKBOARD_DIR ?? join(homedir(), '.local', 'state', 'tas
 const paths = {
   ledger: join(DIR, 'ledger.json'),
   overrides: join(DIR, 'overrides.json'),
+  checks: join(DIR, 'checks.json'),
   jr: join(DIR, 'sources', 'jr.json'),
   cache: join(DIR, 'sources', 'fetched.json'),
 };
@@ -43,7 +46,7 @@ function writeJson(p, value) {
 }
 const readStdinOrFile = f => readFileSync(f === '-' ? 0 : f, 'utf8');
 
-const VALUE_FLAGS = new Set(['--brief', '--route', '--step', '--notes']);
+const VALUE_FLAGS = new Set(['--brief', '--route', '--step', '--notes', '--remaining']);
 const [cmd = 'show', ...rest] = process.argv.slice(2);
 const flags = new Set();
 const opts = {};
@@ -70,7 +73,8 @@ async function collect() {
     const wantLinear = new Set();
     for (const i of items) {
       // The first weak ref is the item's likely subject, so it is resolved too.
-      for (const k of [...i.strong, ...i.weak.slice(0, 1)]) {
+      // A session's whole PR list is resolved too: one open PR means the session is not finished.
+      for (const k of [...i.strong, ...i.weak.slice(0, 1), ...(i.type === 'claude' ? i.meta.prs : [])]) {
         if (have.has(k)) continue;
         (k.includes('#') ? wantPrs : wantLinear).add(k);
       }
@@ -96,7 +100,7 @@ function buildLedger(fetched) {
   const previous = readJson(paths.ledger, null);
   const overrides = readJson(paths.overrides, {});
   const all = [...fetched.items, ...readJr(new Set(fetched.teams))];
-  const result = link(all, {previous, overrides});
+  const result = link(all, {previous, overrides, checks: readJson(paths.checks, {})});
   const items = Object.fromEntries(all.map(i => [i.key, i]));
   return {version: 1, generatedAt: fetched.fetchedAt, me: fetched.me, ...result, items};
 }
@@ -120,7 +124,7 @@ function report(ledger, {all = false} = {}) {
   const count = t => actions.filter(a => a.type === t).length;
   lines.push(
     `taskboard ${ledger.generatedAt}: ${tasks.filter(t => t.stage !== 'done').length} open tasks, ` +
-      `${count('needs-you')} need you, ${count('archive')} to archive, ${count('close-linear')} tickets to close, ` +
+      `${count('needs-you')} need you, ${count('follow-up')} follow-ups, ${count('check')} to check, ${count('archive')} to archive, ${count('close-linear')} tickets to close, ` +
       `${queue.length} in the review queue, ${ledger.backlog.length} unlinked tickets you filed`
   );
 
@@ -169,6 +173,8 @@ function board(ledger) {
     counts: {
       open: open.length,
       needsYou: count('needs-you'),
+      followUp: count('follow-up'),
+      check: count('check'),
       archive: count('archive'),
       close: count('close-linear'),
       queue: ledger.queue.length,
@@ -184,7 +190,7 @@ function board(ledger) {
       parts: ['linear', 'pr', 'jr', 'claude']
         .flatMap(type => t.items.map(k => items[k]).filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel))
         .join(', '),
-      actions: t.actions.map(a => ({type: a.type, item: a.item})),
+      actions: t.actions.map(a => ({type: a.type, item: a.item, reason: a.reason ?? null})),
     })),
     changes: ledger.changes,
   };
@@ -251,6 +257,29 @@ async function main() {
   if (cmd === 'dispatch') {
     const {ledger, task} = findTask(args[0]);
     console.log(JSON.stringify(dispatch(task, task.items.map(k => ledger.items[k]), opts), null, 2));
+    return;
+  }
+  if (cmd === 'ask') {
+    const ledger = readJson(paths.ledger, null);
+    const item = ledger?.items[args[0]];
+    if (!item || (item.type !== 'claude' && item.type !== 'jr')) throw new Error(`No session or jr conversation ${args[0]}`);
+    const task = ledger.tasks.find(t => t.id === ledger.itemTask[item.key]);
+    const why = task?.actions.find(a => a.item === item.key)?.reason ?? 'its tracked work looks finished';
+    const message = [
+      `The taskboard suggests archiving this conversation (${why}).`,
+      'Before that: is anything left from this conversation? For example an open PR, a follow-up fix, a ticket to file, or a question for me.',
+      'Do not start new work. Answer with one line: `NOTHING LEFT`, or `REMAINING: <what is left>`.',
+    ].join('\n');
+    console.log(JSON.stringify({item: item.key, route: item.type === 'claude' ? 'session' : 'jr', title: item.title, message}, null, 2));
+    return;
+  }
+  if (cmd === 'checked') {
+    if (!args[0]) throw new Error('Usage: checked <item-key> [--remaining <text>]');
+    const checks = readJson(paths.checks, {});
+    // Activity after this time makes the answer stale, and the conversation is asked again.
+    checks[args[0]] = {at: new Date().toISOString(), remaining: opts.remaining ?? null};
+    writeJson(paths.checks, checks);
+    console.log(`${args[0]}: ${opts.remaining ? `remaining: ${opts.remaining}` : 'nothing left'}. Run "sync --offline".`);
     return;
   }
   if (cmd === 'assign') {

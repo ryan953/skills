@@ -97,8 +97,23 @@ test('the owner is reused first and stays in its task after a sync', () => {
   // The worker's title names nothing, so only the owner field ties it to VDY-445.
   const second = link([...items, session('cc-worker', 'Untitled', {updatedAt: '2026-11-19T00:00:00Z'})], {previous: {tasks: first.tasks, itemTask: first.itemTask}});
   assert.equal(second.tasks.length, 1);
-  assert.deepEqual(second.tasks[0].actions, [{type: 'archive', item: 'cc-a', reason: 'duplicate of cc-worker'}]);
+  assert.deepEqual(second.tasks[0].actions, [{type: 'check', item: 'cc-a', reason: 'duplicate of cc-worker'}]);
   const byKey = new Map([...items, session('cc-worker', 'Untitled')].map(i => [i.key, i]));
   const out = dispatch(second.tasks[0], second.tasks[0].items.map(k => byKey.get(k)));
   assert.equal(out.target.key, 'cc-worker');
+});
+
+test('a follow-up goes back to the session that named it', () => {
+  const items = [
+    {...issue('VDY-381'), open: false, status: 'Done'},
+    session('cc-old', 'VDY-381 a', {strong: ['VDY-381'], updatedAt: '2026-11-18T00:00:00Z'}),
+    session('cc-new', 'VDY-381 b', {strong: ['VDY-381'], updatedAt: '2026-11-18T01:00:00Z'}),
+  ];
+  const {tasks} = link(items, {checks: {'cc-old': {at: '2026-11-19T00:00:00Z', remaining: 'add the Safari test'}}});
+  assert.equal(tasks[0].stage, 'follow-up');
+  const byKey = new Map(items.map(i => [i.key, i]));
+  const out = dispatch(tasks[0], tasks[0].items.map(k => byKey.get(k)));
+  assert.equal(out.route, 'session');
+  assert.equal(out.target.key, 'cc-old');
+  assert.match(out.message, /^Finish what you said was left/);
 });

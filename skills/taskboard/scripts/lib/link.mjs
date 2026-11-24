@@ -2,7 +2,7 @@
 // derive each task's stage, and list the clean-up actions the manager can offer.
 
 const NOISE_AUTHORS = new Set(['dependabot', 'github-actions', 'renovate', 'getsantry']);
-const STAGE_ORDER = ['needs-you', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc', 'done'];
+const STAGE_ORDER = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc', 'done'];
 
 class UnionFind {
   parent = new Map();
@@ -95,24 +95,33 @@ function deriveKind(items) {
   return 'cycle';
 }
 
-function actionsFor(task, items) {
+// Finished tracked work does not prove a conversation is finished: it may hold follow-ups
+// or other PRs. So the conversation is asked first, and its answer decides.
+function closeOut(item, why, checks, byKey) {
+  if (item.meta.running) return [];
+  // A session with any open PR of its own still has work, whatever task it landed in.
+  if ((item.meta.prs ?? []).some(k => byKey.get(k)?.open)) return [];
+  const check = checks[item.key];
+  const fresh = check && (item.updatedAt ?? '') <= check.at;
+  if (!fresh) return [{type: 'check', item: item.key, reason: why}];
+  if (check.remaining) return [{type: 'follow-up', item: item.key, reason: check.remaining}];
+  return [{type: 'archive', item: item.key, reason: 'it said nothing is left'}];
+}
+
+function actionsFor(task, items, checks) {
   const out = [];
   const byKey = new Map(items.map(i => [i.key, i]));
   const members = task.items.map(k => byKey.get(k));
   const live = t => members.filter(i => i.type === t && i.open);
 
   if (task.stage === 'done') {
-    for (const i of [...live('jr'), ...live('claude')]) {
-      if (i.meta.running) continue;
-      out.push({type: 'archive', item: i.key, reason: 'task is done'});
-    }
+    for (const i of [...live('jr'), ...live('claude')]) out.push(...closeOut(i, 'task is done', checks, byKey));
   } else {
-    // Keep one session per task: the owner, or else the most recent. Others are leftovers from re-runs.
+    // Keep one session per task: the owner, or else the most recent. Others are likely leftovers from re-runs.
     const sessions = live('claude').sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
     const keep = sessions.find(s => s.key === task.owner) ?? sessions[0];
     for (const s of sessions) {
-      if (s === keep || s.meta.running) continue;
-      out.push({type: 'archive', item: s.key, reason: `duplicate of ${keep.key}`});
+      if (s !== keep) out.push(...closeOut(s, `duplicate of ${keep.key}`, checks, byKey));
     }
   }
 
@@ -127,7 +136,7 @@ function actionsFor(task, items) {
   return out;
 }
 
-export function link(allItems, {previous = null, overrides = {}} = {}) {
+export function link(allItems, {previous = null, overrides = {}, checks = {}} = {}) {
   const ignore = new Set(overrides.ignore ?? []);
   const split = new Set(overrides.split ?? []);
   const items = allItems.filter(i => !ignore.has(i.key));
@@ -179,7 +188,9 @@ export function link(allItems, {previous = null, overrides = {}} = {}) {
       titleOverride: prevTask?.titleOverride ?? null,
       kindOverride: prevTask?.kindOverride ?? null,
     };
-    task.actions = actionsFor(task, items);
+    task.actions = actionsFor(task, items, checks);
+    // Remaining work a conversation named keeps the task in view, above the routine stages.
+    if (task.actions.some(a => a.type === 'follow-up') && task.stage !== 'needs-you') task.stage = 'follow-up';
     tasks.push(task);
   }
   tasks.sort((a, b) => STAGE_ORDER.indexOf(a.stage) - STAGE_ORDER.indexOf(b.stage) || a.id.localeCompare(b.id));

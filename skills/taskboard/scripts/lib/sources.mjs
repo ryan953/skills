@@ -288,7 +288,7 @@ export function readClaudeSessions(teams) {
       roles: [],
       strong,
       weak,
-      meta: {cwd: s.cwd, running: false, active: true},
+      meta: {cwd: s.cwd, running: false, active: true, prs: recorded},
     };
     const prev = byKey.get(item.key);
     if (!prev || (prev.updatedAt ?? '') < (updatedAt ?? '')) byKey.set(item.key, item);

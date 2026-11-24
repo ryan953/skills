@@ -20,8 +20,10 @@ Requires authenticated `gh`, the `linear` CLI, `node` 22+, and the jr MCP tools 
 | `node scripts/taskboard.mjs join <a> <b>` / `split <key>` / `ignore <key>` | fix a wrong link, then `sync --offline` |
 | `node scripts/taskboard.mjs dispatch <id> [--brief full\|review\|validate] [--route session\|jr\|new] [--step <text>]` | pick where the next step goes and write the message or brief, as JSON |
 | `node scripts/taskboard.mjs assign <id> <item-key> [--notes <text>]` | record the session or jr conversation that works the task |
+| `node scripts/taskboard.mjs ask <item-key>` | the question to send to a session or jr conversation before it is archived |
+| `node scripts/taskboard.mjs checked <item-key> [--remaining <text>]` | record its answer; no `--remaining` means nothing is left |
 
-State lives in `~/.local/state/taskboard/` (`TASKBOARD_DIR` overrides): `ledger.json`, `overrides.json`, `sources/`.
+State lives in `~/.local/state/taskboard/` (`TASKBOARD_DIR` overrides): `ledger.json`, `overrides.json`, `checks.json`, `sources/`.
 
 ## Sync
 
@@ -36,12 +38,25 @@ Every action needs the user's yes. Group them so one yes covers a kind (for exam
 
 | Action | How |
 |---|---|
+| `check` | Ask first (see below). Never archive on a `check`. |
+| `follow-up` | The conversation named work that is left (`reason`). Show it to the user. `dispatch` the task to send that conversation back to it. |
 | `archive` jr | `archiveConversation` with `conversationId` and the item's `meta.lastSeenAt` |
 | `archive` Claude session | `mcp__ccd_session_mgmt__archive_session` with the `local_…` id |
 | `close-linear` | Linear MCP `save_issue` with the Done state, or tell the user to close it |
 | `needs-you` | show the reason and a link; the user answers in that conversation or PR |
 
 Then run `sync --offline` so the ledger shows the result.
+
+### Ask before archive
+
+A finished ticket or a merged PR does not prove that a conversation is finished. It can hold other PRs, follow-ups, or a question. So `archive` comes only from the conversation's own answer:
+
+1. With the user's yes for the list of `check` items, send each one the `message` from `ask <item-key>`. For a session, use `SendMessage` to the `local_…` id. For jr, use `sendMessage`.
+2. Read each reply: `list_events` for a session, `getConversation` for jr. A session that is still busy answers later. Read it on the next sync.
+3. Record each reply: `checked <key>` for `NOTHING LEFT`, or `checked <key> --remaining "<what>"`. When a reply is unclear, record what it says as `--remaining`.
+4. `sync --offline`. Then `check` becomes `archive` (nothing left) or `follow-up` (work is left; the task moves to the `follow-up` stage).
+
+An answer is good only until the conversation is active again. New activity after `checked` gives a new `check`. A session that has any open PR in its own PR list gets no `check` and no `archive`.
 
 Before you archive a Claude session, check it with `get_session`. Skip it if it is running, or if it has uncommitted work in a worktree.
 
@@ -58,7 +73,7 @@ Dispatch sends a task's next step to a worker. Do it only for a task the user na
    | `jr` | jr `sendMessage` to `target.key` with `message`. |
    | `new` | `mcp__ccd_session__start_session`: `initiation: "user_asked"`, `context: "fresh"`, `use_worktree: true`, and `title`, `prompt`, `background` from the output. Pass `cwd` only when it is not this project's folder. When `cwd` is null, ask the user for the folder. |
 
-2. `node scripts/taskboard.mjs assign <id> <session or jr id>`. The owner is reused first next time, is never suggested as a duplicate to archive, and stays in the task even when its title names nothing.
+2. `node scripts/taskboard.mjs assign <id> <session or jr id>`. The owner is reused first next time, is never asked about as a duplicate, and stays in the task even when its title names nothing.
 3. Put a new session in the sidebar group "Tasks": `list_groups`, then `create_group` if it is missing, then `move_sessions`.
 
 Reuse order: the task owner, then the newest live Claude session, then the newest active jr conversation, then a new session. `--route` forces one.
@@ -77,7 +92,7 @@ Sessions started from here report back when they end a turn. For a reused sessio
 
 `mod/` is a Claude Code mod for the management session.
 
-- **Band** above the prompt: the counts (need you, to merge, iterate, review, to archive), with **Board** and **Sync** buttons.
+- **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive), with **Board** and **Sync** buttons.
 - **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). **Clean up** shows when there are actions to approve.
 - **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, or when new clean-up shows up. Then the prompt box suggests `/taskboard`.
 
@@ -98,7 +113,7 @@ Load it in one session: `claude --plugin-dir <skill>/mod`, or copy it to the ses
 - **Archived repos:** PRs there are dropped at fetch time. They can never change.
 - **Buckets:** a PR from a dependency bot (dependabot, renovate) goes to `queue`. So does a lone team review request (from CODEOWNERS), unless it changes a file whose path matches `TASKBOARD_WATCH` (default `onboarding|agent[_-]?handoff`, case-insensitive): then it is a review task. The match is made at fetch time, so after you change `TASKBOARD_WATCH`, run `sync`, not `sync --offline`. A lone ticket that you filed but that is not assigned to you goes to `backlog`. Both are counted, not listed.
 
-Stages, in report order: `needs-you`, `merge`, `iterate`, `review`, `fix`, `validate`, `verify` (PRs merged, ticket open), `adhoc` (only sessions or jr), `done`.
+Stages, in report order: `needs-you`, `follow-up` (a conversation said work is left), `merge`, `iterate`, `review`, `fix`, `validate`, `verify` (PRs merged, ticket open), `adhoc` (only sessions or jr), `done`.
 
 A task id comes from its lowest Linear ID, then its first PR, then its jr or session id. It stays the same across syncs. When tasks merge, the lower id is kept. The `owner`, `notes`, `titleOverride` and `kindOverride` fields carry over.
 

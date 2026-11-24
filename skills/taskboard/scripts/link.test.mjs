@@ -79,7 +79,7 @@ test('ticket still open after its PR merged: close the ticket', () => {
   assert.deepEqual(tasks[0].actions.map(a => a.type), ['close-linear']);
 });
 
-test('sessions for a finished ticket are archived, unless one is still running', () => {
+test('sessions for a finished ticket are asked before archive, unless one is still running', () => {
   const items = [
     issue('VDY-381', {open: false}),
     session('cc-1', 'Work on VDY-381', {linear: ['VDY-381']}),
@@ -88,10 +88,10 @@ test('sessions for a finished ticket are archived, unless one is still running',
   ];
   const {tasks} = link(items);
   assert.equal(tasks[0].stage, 'done');
-  assert.deepEqual(tasks[0].actions.map(a => a.item).sort(), ['cc-1', 'cc-2']);
+  assert.deepEqual(tasks[0].actions.map(a => [a.type, a.item]).sort(), [['check', 'cc-1'], ['check', 'cc-2']]);
 });
 
-test('older duplicate sessions on an open task are archived, the newest stays', () => {
+test('older duplicate sessions on an open task are asked about, the newest stays', () => {
   const items = [
     issue('VDY-423', {prs: ['getsentry/sentry#132081']}),
     pr(132081, {status: 'open'}),
@@ -99,7 +99,7 @@ test('older duplicate sessions on an open task are archived, the newest stays', 
     session('cc-new', 'VDY-423 Agent progress polls forever', {prs: ['getsentry/sentry#132081'], updatedAt: '2026-11-20T00:00:00Z'}),
   ];
   const {tasks} = link(items);
-  assert.deepEqual(tasks[0].actions, [{type: 'archive', item: 'cc-old', reason: 'duplicate of cc-new'}]);
+  assert.deepEqual(tasks[0].actions, [{type: 'check', item: 'cc-old', reason: 'duplicate of cc-new'}]);
 });
 
 test('team review requests stay in the queue unless something links them', () => {
@@ -180,7 +180,7 @@ test('an old question in a session about finished work does not ask for you', ()
   const asking = {...session('cc-412', 'VDY-412 React init snippet', {linear: ['VDY-412']}), needsYou: true, needsReason: 'screenshots?'};
   const {tasks} = link([issue('VDY-412', {open: false}), asking]);
   assert.equal(tasks[0].stage, 'done');
-  assert.deepEqual(tasks[0].actions, [{type: 'archive', item: 'cc-412', reason: 'task is done'}]);
+  assert.deepEqual(tasks[0].actions, [{type: 'check', item: 'cc-412', reason: 'task is done'}]);
 });
 
 test('a team review request in a watched path is a review task; a bot PR stays in the queue', () => {
@@ -193,4 +193,28 @@ test('a team review request in a watched path is a review task; a bot PR stays i
   const {tasks, queue} = link(items);
   assert.deepEqual(queue, ['getsentry/sentry#131726', 'getsentry/sentry#132216']);
   assert.deepEqual(tasks.map(t => [t.id, t.kind, t.stage]), [['getsentry/sentry#132140', 'review', 'review']]);
+});
+
+test('the answer decides: nothing left is archived, remaining work is a follow-up, new activity asks again', () => {
+  const items = [issue('VDY-381', {open: false}), session('cc-1', 'VDY-381 a', {linear: ['VDY-381']}), session('cc-2', 'VDY-381 b', {linear: ['VDY-381']})];
+  const at = '2026-11-19T00:00:00Z';
+  const answered = link(items, {checks: {'cc-1': {at, remaining: null}, 'cc-2': {at, remaining: 'file a ticket for the Safari bug'}}});
+  assert.equal(answered.tasks[0].stage, 'follow-up');
+  assert.deepEqual(answered.tasks[0].actions, [
+    {type: 'archive', item: 'cc-1', reason: 'it said nothing is left'},
+    {type: 'follow-up', item: 'cc-2', reason: 'file a ticket for the Safari bug'},
+  ]);
+  const stale = link(items, {checks: {'cc-1': {at: '2026-11-17T00:00:00Z', remaining: null}}});
+  assert.equal(stale.tasks[0].stage, 'done');
+  assert.deepEqual(stale.tasks[0].actions.map(a => a.type), ['check', 'check']);
+});
+
+test('a session with another open PR is left alone when one of its tasks is done', () => {
+  const items = [
+    issue('VDY-381', {open: false}),
+    pr(131999, {status: 'open'}),
+    {...session('cc-1', 'VDY-381 and more', {linear: ['VDY-381']}), meta: {active: true, prs: ['getsentry/sentry#131999']}},
+  ];
+  const task = link(items).tasks.find(t => t.id === 'VDY-381');
+  assert.deepEqual(task.actions, []);
 });

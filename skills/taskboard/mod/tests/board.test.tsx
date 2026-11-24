@@ -22,13 +22,17 @@ const task = (id: string, stage: string) => ({
   owner: null,
   url: `https://linear.app/x/${id}`,
   parts: `${id} In Progress`,
-  actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1' }] : [],
+  actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
 })
 
 const BOARD = {
   generatedAt: '2026-11-23T23:09:22.202Z',
-  counts: { open: 2, needsYou: 1, archive: 0, close: 0, queue: 38, backlog: 46 },
-  tasks: [task('VDY-432', 'needs-you'), task('VDY-433', 'iterate')],
+  counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, queue: 38, backlog: 46 },
+  tasks: [
+    task('VDY-432', 'needs-you'),
+    task('VDY-433', 'iterate'),
+    { ...task('VDY-381', 'follow-up'), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
+  ],
 }
 
 function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }) {
@@ -62,6 +66,7 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /^needs-you/ }))?.text).toBe('needs-you (1)')
   expect((await ui.find({ type: 'Text', text: /^iterate/ }))?.text).toBe('iterate (1)')
+  expect((await ui.find({ type: 'Text', text: /^Left to do/ }))?.text).toBe('Left to do: file the Safari ticket')
 
   // A task that waits for the user has no Dispatch button.
   await expect($.ui.press({ plugin: 'taskboard', key: 'dispatch:VDY-432' })).rejects.toBeTruthy()

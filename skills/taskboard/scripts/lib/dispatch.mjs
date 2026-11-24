@@ -62,6 +62,9 @@ function stepFor(stage, brief, p) {
   if (stage === 'verify') {
     return `${list(p.prs.filter(x => x.status === 'merged').map(prLabel))} merged. Check that ${tickets(p)} is fixed (use the verify-sentry skill when it covers the area). Tell me whether the ticket can close.`;
   }
+  if (stage === 'follow-up') {
+    return 'Finish what you said was left for this task. When it is done, say `NOTHING LEFT`.';
+  }
   return 'Continue this task from where it stopped and give me its status.';
 }
 
@@ -109,7 +112,9 @@ export function dispatch(task, members, {brief, route, step} = {}) {
   }
 
   const text = step ?? stepFor(task.stage, brief, p);
-  const reuse = pickReuse(task, p);
+  // A follow-up goes back to the conversation that named it, which knows what it meant.
+  const named = task.actions.find(a => a.type === 'follow-up');
+  const reuse = members.find(i => i.key === named?.item) ?? pickReuse(task, p);
   const chosen = route ?? (reuse ? (reuse.type === 'claude' ? 'session' : 'jr') : 'new');
 
   if (chosen === 'session' || chosen === 'jr') {
