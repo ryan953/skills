@@ -104,6 +104,6 @@ export type SyncState = { isSyncing: boolean; error: string | null; at: number |
 
 declare module 'claude-code' {
   interface PluginState {
-    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]>; expanded: string[]; overview: Shaped<Overview | null>; overviewState: OverviewState; enabled: boolean }
+    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]>; expanded: string[]; folded: string[]; overview: Shaped<Overview | null>; overviewState: OverviewState; enabled: boolean }
   }
 }

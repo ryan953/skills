@@ -284,3 +284,34 @@ test('tasks group by team and project, PRs with no ticket by repo, most urgent f
   expect(texts[at('VDY-432') + 1]).toBe('Needs you')
   await ui.unmount()
 })
+
+test('a section or project heading folds its cards and unfolds them again, on every surface', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
+    expect(await has('▾')).toBe(true)
+    expect(await has('▸')).toBe(false)
+
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
+    // A folded section keeps its heading and count; its projects and cards are gone, other sections stay.
+    expect(await has('Value Discovery')).toBe(true)
+    expect(await has('4')).toBe(true)
+    expect(await has('▸')).toBe(true)
+    expect(await has('Agents')).toBe(false)
+    expect(await has('VDY-433')).toBe(false)
+    expect(await has('skills#21')).toBe(true)
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
+    expect(await has('VDY-433')).toBe(true)
+    expect(await has('▸')).toBe(false)
+
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery:Agents' })
+    expect(await has('Agents')).toBe(true)
+    expect(await has('VDY-423')).toBe(false)
+    expect(await has('VDY-433')).toBe(true)
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery:Agents' })
+    expect(await has('VDY-423')).toBe(true)
+    await ui.unmount()
+  }
+})

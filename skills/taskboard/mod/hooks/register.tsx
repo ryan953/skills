@@ -35,6 +35,8 @@ const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
+// Section and project keys folded in the pane. Every section starts open, so a new team or repo is never hidden.
+const folded = atom({ plugin: 'taskboard', key: 'folded' } as const, [] as string[])
 const overview = atom({ plugin: 'taskboard', key: 'overview' } as const, null, { shape: 'overview-1' })
 const overviewState = atom({ plugin: 'taskboard', key: 'overviewState' } as const, { id: null, isLoading: false, error: null })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
@@ -303,6 +305,7 @@ export const register: Register = on => {
     const s = await read($, sync)
     const ws = await read($, workers)
     const open = new Set(await read($, expanded))
+    const shut = new Set(await read($, folded))
     const now = await $.clock.now()
     const { Box, Button, Link, Text } = $.ui.resolve(e)
 
@@ -426,6 +429,20 @@ export const register: Register = on => {
     }
 
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
+    // The whole heading row is one press target, so a fold is one click or one Enter.
+    const heading = (key: string, title: string, count: number, size?: 'heading') => {
+      const isShut = shut.has(key)
+      return (
+        <Button
+          key={`fold:${key}`}
+          plain
+          label={`${isShut ? 'Unfold' : 'Fold'} ${title}`}
+          onPress={() => update($, folded, keys => (keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]))}
+        >
+          <Text dimColor>{isShut ? '▸' : '▾'}</Text> <Text size={size} weight="semibold">{title}</Text> <Text dimColor tabular>{count}</Text>
+        </Button>
+      )
+    }
 
     return (
       <Box flexDirection="column" gap={2} paddingX={1} paddingY={1}>
@@ -451,23 +468,18 @@ export const register: Register = on => {
         </Box>
         {sections(b.tasks).map(sec => (
           <Box key={sec.key} flexDirection="column" gap={1}>
-            <Box gap={1} alignItems="center">
-              <Text size="heading" weight="semibold">{sec.title}</Text>
-              <Text dimColor tabular>{sec.projects.reduce((n, p) => n + p.tasks.length, 0)}</Text>
-            </Box>
-            {sec.projects.map(p => (
-              <Box key={p.key} flexDirection="column" gap={1}>
-                {p.title && (
-                  <Box gap={1} alignItems="center">
-                    <Text weight="semibold">{p.title}</Text>
-                    <Text dimColor tabular>{p.tasks.length}</Text>
-                  </Box>
-                )}
-                <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-                  {p.tasks.map(card)}
+            {heading(sec.key, sec.title, sec.projects.reduce((n, p) => n + p.tasks.length, 0), 'heading')}
+            {!shut.has(sec.key) &&
+              sec.projects.map(p => (
+                <Box key={p.key} flexDirection="column" gap={1}>
+                  {p.title && heading(p.key, p.title, p.tasks.length)}
+                  {!(p.title && shut.has(p.key)) && (
+                    <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                      {p.tasks.map(card)}
+                    </Box>
+                  )}
                 </Box>
-              </Box>
-            ))}
+              ))}
           </Box>
         ))}
       </Box>
