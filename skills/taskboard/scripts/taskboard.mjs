@@ -6,6 +6,7 @@
 //   taskboard.mjs show [--json] [--all]          print the saved ledger without fetching
 //   --board (sync or show)                       print a compact summary for the taskboard mod
 //   taskboard.mjs workers                        running sessions on tasks, from local files only (JSON)
+//   taskboard.mjs detail <id>                    one task's Overview: ticket properties, comments, tree, items (JSON)
 //   taskboard.mjs task <id|item-key>             print one task with its items, as JSON
 //   taskboard.mjs join <keyA> <keyB> | split <key> | ignore <key>   manual link fixes
 //   taskboard.mjs dispatch <id> [--brief full|review|validate] [--route session|jr|new] [--step <text>]
@@ -19,10 +20,11 @@ import {join} from 'node:path';
 
 import {dispatch} from './lib/dispatch.mjs';
 import {prDetailText} from './lib/format.mjs';
-import {subIssueTask, taskTree} from './lib/tree.mjs';
+import {fullTree, subIssueTask, taskTree} from './lib/tree.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
   fetchGithub,
+  fetchIssueDetail,
   fetchPrDetail,
   fetchTrees,
   fetchLinear,
@@ -272,6 +274,56 @@ async function main() {
   if (cmd === 'task') {
     const {ledger, task} = findTask(args[0]);
     console.log(JSON.stringify({...task, items: task.items.map(k => ledger.items[k])}, null, 2));
+    return;
+  }
+  if (cmd === 'detail') {
+    const ledger = readJson(paths.ledger, null);
+    if (!ledger) throw new Error('No ledger yet; run sync.');
+    const tracked = ledger.tasks.find(t => t.id === (ledger.itemTask[args[0]] ?? args[0]));
+    const sub = tracked ? null : subIssueTask(args[0], ledger.trees ?? {});
+    if (!tracked && !sub) throw new Error(`No task for ${args[0]}`);
+    const task = tracked ?? sub.task;
+    const members = tracked ? task.items.map(k => ledger.items[k]) : sub.members;
+    const linear = members.filter(i => i.type === 'linear');
+    const primary = linear.find(i => i.key === task.id) ?? [...linear].sort((a, b) => a.key.localeCompare(b.key))[0];
+    const issue = primary ? await fetchIssueDetail(primary.key) : null;
+    const label = k => (ledger.items[k] ? itemLabel(ledger.items[k]) : k.replace(/^getsentry\/sentry/, ''));
+    const prs = members.filter(i => i.type === 'pr');
+    const out = {
+      id: task.id,
+      title: task.title,
+      stage: task.stage,
+      kind: task.kind,
+      owner: task.owner,
+      ticket: issue && {
+        id: issue.id,
+        title: issue.title,
+        url: issue.url,
+        status: issue.state,
+        priority: issue.priority,
+        assignee: issue.assignee,
+        labels: issue.labels,
+        project: issue.project,
+        cycle: issue.cycle,
+        team: issue.team,
+        // The PR's branch is the real one; Linear's branchName is only a suggestion.
+        branch: prs.find(p => p.open)?.meta.branch ?? prs[0]?.meta.branch ?? issue.branchName,
+        description: issue.description,
+      },
+      comments: issue?.comments.slice(0, 5) ?? [],
+      moreComments: Math.max(0, (issue?.comments.length ?? 0) - 5),
+      tree: issue && (issue.parent || issue.own.children.length) ? fullTree(issue, ledger, label) : null,
+      items: members.map(i => ({
+        key: i.key,
+        type: i.type,
+        label: itemLabel(i),
+        title: i.title,
+        url: i.url ?? null,
+        detail: i.type === 'pr' ? prDetailText(i.meta.detail) : null,
+      })),
+      actions: task.actions.map(a => ({type: a.type, item: a.item, reason: a.reason ?? null})),
+    };
+    console.log(JSON.stringify(out));
     return;
   }
   if (cmd === 'workers') {

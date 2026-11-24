@@ -55,6 +55,39 @@ const WORKERS = [
   { session: 'cc-9', title: 'VDY-433', task: 'VDY-433', stage: 'iterate', isOwner: true, turnStartedAt: '2026-11-24T16:24:00Z' },
 ]
 
+const OVERVIEW_DATA = {
+  id: 'VDY-423',
+  title: 'Agent progress polls forever',
+  stage: 'fix',
+  kind: 'cycle',
+  owner: null,
+  ticket: {
+    id: 'VDY-423',
+    title: 'Agent progress polls forever',
+    url: 'https://linear.app/x/VDY-423',
+    status: 'In Progress',
+    priority: 'Low',
+    assignee: 'Ryan',
+    labels: ['Bug'],
+    project: 'Onboarding',
+    cycle: 'Cycle 25',
+    team: 'Value Discovery (VDY)',
+    branch: 'ryan953/vdy-423',
+    description: 'Polls every **5s** forever.',
+  },
+  comments: [{ author: 'jr', at: '2026-11-20T10:00:00Z', body: 'Validated on dev.' }],
+  moreComments: 2,
+  tree: {
+    self: 'VDY-423',
+    parent: { id: 'VDY-376', title: 'Parent', url: 'https://linear.app/x/VDY-376', progress: { done: 18, total: 73 } },
+    progress: null,
+    children: [],
+    siblings: [{ id: 'VDY-455', title: 'Labels mix grammar', url: 'https://linear.app/x/VDY-455', state: 'Triage', prs: [], task: null, canDispatch: true, isDone: false }],
+  },
+  items: [{ key: 'VDY-423', type: 'linear', label: 'VDY-423 In Progress', title: 'Agent progress polls forever', url: 'https://linear.app/x/VDY-423', detail: null }],
+  actions: [],
+}
+
 function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }) {
   // Refusing the first period ends the interval, so no timer runs in a test.
   on('clock.every', () => ({ deny: 'no timer in tests' }))
@@ -65,6 +98,7 @@ function engine(on: any, calls: string[][], prompts: string[], run = { fail: fal
   on('clock.now', () => ({ value: Date.parse('2026-11-24T16:30:00Z') }))
   on('process.run', (_: unknown, e: any) => {
     calls.push([...e.argv])
+    if (e.argv.includes('detail')) return { value: { exitCode: 0, stdout: JSON.stringify(OVERVIEW_DATA), stderr: '' } }
     if (e.argv.includes('workers')) return { value: { exitCode: 0, stdout: JSON.stringify(WORKERS), stderr: '' } }
     return run.fail
       ? { value: { exitCode: 1, stdout: '', stderr: 'gh: not logged in' } }
@@ -133,5 +167,24 @@ test('the tree opens on press and dispatches an untracked sub-issue', async ($, 
   expect((await ui.find({ type: 'Text', text: /^open sub-issues/ }))?.text).toBe('open sub-issues (1)')
   await $.ui.press({ plugin: 'taskboard', key: 'dispatch-sub:VDY-423:VDY-12' })
   expect(prompts).toEqual(['/taskboard dispatch VDY-12'])
+  await ui.unmount()
+})
+
+test('Overview loads the task on demand and shows properties, comments and siblings', async ($, on) => {
+  const calls: string[][] = []
+  const prompts: string[] = []
+  engine(on, calls, prompts)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const board = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await $.ui.press({ plugin: 'taskboard', key: 'overview:VDY-423' })
+  expect(calls.at(-1)?.slice(-2)).toEqual(['detail', 'VDY-423'])
+  await board.unmount()
+
+  const ui = await $.ui.mount({ ...PANE, requestId: 'taskboard-overview', props: { ...PANE.props, title: 'Task overview' }, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^Value Discovery/ }))?.text).toBe('Value Discovery (VDY)')
+  expect((await ui.find({ type: 'Text', text: /^jr ·/ }))?.text).toBe('jr · 2026-11-20')
+  expect((await ui.find({ type: 'Text', text: /^Siblings/ }))?.text).toBe('Siblings (1)')
+  await $.ui.press({ plugin: 'taskboard', key: 'ov-dispatch:VDY-455' })
+  expect(prompts).toEqual(['/taskboard dispatch VDY-455'])
   await ui.unmount()
 })

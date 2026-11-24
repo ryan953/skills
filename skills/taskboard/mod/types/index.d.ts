@@ -60,10 +60,47 @@ export type Worker = {
   turnStartedAt: string
 }
 
+export type OverviewNode = TreeNode & { isDone: boolean }
+
+export type Overview = {
+  id: string
+  title: string
+  stage: string
+  kind: string
+  owner: string | null
+  ticket: {
+    id: string
+    title: string
+    url: string
+    status: string
+    priority: string | null
+    assignee: string | null
+    labels: string[]
+    project: string | null
+    cycle: string | null
+    team: string | null
+    branch: string | null
+    description: string
+  } | null
+  comments: { author: string; at: string; body: string }[]
+  moreComments: number
+  tree: {
+    self: string
+    parent: { id: string; title: string; url: string; progress: Progress } | null
+    progress: Progress | null
+    children: OverviewNode[]
+    siblings: OverviewNode[]
+  } | null
+  items: { key: string; type: string; label: string; title: string; url: string | null; detail: string | null }[]
+  actions: BoardAction[]
+}
+
+export type OverviewState = { id: string | null; isLoading: boolean; error: string | null }
+
 export type SyncState = { isSyncing: boolean; error: string | null; at: number | null }
 
 declare module 'claude-code' {
   interface PluginState {
-    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]>; expanded: string[] }
+    taskboard: { board: Shaped<Board | null>; sync: SyncState; workers: Shaped<Worker[]>; expanded: string[]; overview: Shaped<Overview | null>; overviewState: OverviewState }
   }
 }

@@ -51,3 +51,15 @@ export function subIssueTask(id, trees) {
   const stage = isDone(c) ? 'done' : c.stateType === 'started' ? 'fix' : 'validate';
   return {task: {id: c.id, title: c.title, kind: 'cycle', stage, items: [c.id], owner: null, notes: null, actions: []}, members: [item]};
 }
+
+// The Overview pane has room for the whole tree, finished sub-issues included.
+export function fullTree(issue, {itemTask}, label = k => k) {
+  const node = c => ({id: c.id, title: c.title, url: c.url, state: c.state, isDone: isDone(c), prs: c.prs.map(label), task: itemTask[c.id] ?? null, canDispatch: !isDone(c) && c.prs.length === 0});
+  return {
+    self: issue.id,
+    parent: issue.parent ? {id: issue.parent.id, title: issue.parent.title, url: issue.parent.url, progress: progress(issue.parent.children)} : null,
+    progress: issue.own.children.length ? progress(issue.own.children) : null,
+    children: issue.own.children.map(node),
+    siblings: (issue.parent?.children ?? []).filter(c => c.id !== issue.id).map(node),
+  };
+}

@@ -1,9 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Board, BoardTask, Progress, TreeNode, Worker } from '../types'
+import type { Board, BoardTask, Overview, OverviewNode, Progress, TreeNode, Worker } from '../types'
 
 const PANE = 'taskboard'
+const OVERVIEW = 'taskboard-overview'
+// Long Linear text is cut so one task cannot fill the pane; the ticket link has the rest.
+const DESCRIPTION_LIMIT = 6000
+const COMMENT_LIMIT = 1500
 const SYNC_EVERY_MS = 10 * 60 * 1000
 // Worker state is local files only, so it can refresh far more often than the full sync.
 const WORKERS_EVERY_MS = 60 * 1000
@@ -16,6 +20,8 @@ const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
+const overview = atom({ plugin: 'taskboard', key: 'overview' } as const, null, { shape: 'overview-1' })
+const overviewState = atom({ plugin: 'taskboard', key: 'overviewState' } as const, { id: null, isLoading: false, error: null })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   isSyncing: false,
   error: null,
@@ -66,6 +72,23 @@ function alerts(before: Board | null, after: Board): string[] {
   const cleanup = (c: Board['counts']) => c.archive + c.close + c.check
   if (cleanup(after.counts) > cleanup(before.counts)) out.push(`${cleanup(after.counts) - cleanup(before.counts)} new clean-up actions`)
   return out
+}
+
+const clip = (text: string, n: number) => (text.length > n ? `${text.slice(0, n)}…` : text)
+
+// The Overview is fetched when it opens, so the 10-minute sync stays cheap.
+async function openOverview($: EngineInterface, id: string) {
+  await update($, overviewState, () => ({ id, isLoading: true, error: null }))
+  void $.ui.open({ id: OVERVIEW, title: 'Task overview' })
+  try {
+    const data = await cli<Overview>($, ['detail', id])
+    // A later press may have picked another task while this one loaded.
+    if ((await read($, overviewState)).id !== id) return
+    await update($, overview, () => data)
+    await update($, overviewState, s => ({ ...s, isLoading: false }))
+  } catch (err) {
+    await update($, overviewState, s => ({ ...s, isLoading: false, error: String((err as Error).message ?? err) }))
+  }
 }
 
 // session.start can run more than once in one environment, so keep one timer at a time.
@@ -235,6 +258,7 @@ export const register: Register = on => {
         <Box gap={1}>
           <Text dimColor>{t.parts}</Text>
           {t.url && <Link href={t.url} label="Open" />}
+          <Button key={`overview:${t.id}`} label="Overview" onPress={() => void openOverview($, t.id)} />
           {!NO_DISPATCH.has(t.stage) && (
             <Button
               key={`dispatch:${t.id}`}
@@ -276,6 +300,120 @@ export const register: Register = on => {
             </Box>
           )
         })}
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: OVERVIEW }, async ($, e) => {
+    const o = await read($, overview)
+    const st = await read($, overviewState)
+    const { Box, Button, Link, Markdown, Text } = $.ui.resolve(e)
+    if (st.error) return <Text color="error">Could not load {st.id}: {st.error}</Text>
+    if (!o || o.id !== st.id) return <Text dimColor>{st.id ? `Loading ${st.id}…` : 'Press Overview on a task in the board.'}</Text>
+
+    const dispatchTo = (id: string) => void $.command.run({ command: 'taskboard', args: `dispatch ${id}` })
+    const t = o.ticket
+    const prop = (name: string, value: string | null | undefined) =>
+      value ? (
+        <Box key={`prop:${name}`} gap={1}>
+          <Text dimColor>{name}</Text>
+          <Text>{value}</Text>
+        </Box>
+      ) : null
+    const node = (n: OverviewNode) => (
+      <Box key={`ov:${n.id}`} gap={1}>
+        <Link href={n.url} label={n.id} />
+        <Text dimColor={n.isDone} bold={n.id === o.tree?.self}>
+          {n.title}
+        </Text>
+        <Text dimColor>
+          {n.state}
+          {n.prs.length ? ` · ${n.prs.join(', ')}` : ''}
+        </Text>
+        {n.canDispatch && <Button key={`ov-dispatch:${n.id}`} label="Dispatch" onPress={() => dispatchTo(n.task ?? n.id)} />}
+      </Box>
+    )
+
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Box gap={1}>
+          <Text bold>{o.id}</Text>
+          <Text>{o.title}</Text>
+          <Text dimColor>
+            {o.stage} · {o.kind}
+          </Text>
+          {t && <Link href={t.url} label="Open ticket" />}
+          <Button key="ov-refresh" label={st.isLoading ? 'Loading…' : 'Refresh'} onPress={() => void openOverview($, o.id)} />
+          {!NO_DISPATCH.has(o.stage) && <Button key="ov-dispatch-task" label="Dispatch" onPress={() => dispatchTo(o.id)} />}
+        </Box>
+        {t && (
+          <Box flexDirection="column">
+            {prop('Status', t.status)}
+            {prop('Priority', t.priority)}
+            {prop('Assignee', t.assignee ?? 'unassigned')}
+            {prop('Labels', t.labels.join(', '))}
+            {prop('Project', t.project)}
+            {prop('Cycle', t.cycle)}
+            {prop('Team', t.team)}
+            {prop('Branch', t.branch)}
+            {prop('Owner', o.owner)}
+          </Box>
+        )}
+        {o.actions.length > 0 && (
+          <Box flexDirection="column">
+            {o.actions.map(a => (
+              <Text color={a.type === 'follow-up' || a.type === 'needs-you' ? 'warning' : undefined}>
+                {a.type}: {a.reason ?? a.item}
+              </Text>
+            ))}
+          </Box>
+        )}
+        <Box flexDirection="column">
+          <Text bold>Items</Text>
+          {o.items.map(i => (
+            <Box key={`item:${i.key}`} gap={1}>
+              {i.url ? <Link href={i.url} label={i.label} /> : <Text>{i.label}</Text>}
+              <Text>{i.title}</Text>
+              {i.detail && <Text dimColor>{i.detail}</Text>}
+            </Box>
+          ))}
+        </Box>
+        {t?.description && (
+          <Box flexDirection="column">
+            <Text bold>Description</Text>
+            <Markdown key="ov-description" text={clip(t.description, DESCRIPTION_LIMIT)} />
+          </Box>
+        )}
+        {o.comments.length > 0 && (
+          <Box flexDirection="column">
+            <Text bold>Latest comments</Text>
+            {o.comments.map((c, n) => (
+              <Box key={`comment:${n}`} flexDirection="column">
+                <Text dimColor>
+                  {c.author} · {c.at.slice(0, 10)}
+                </Text>
+                <Markdown key={`comment-body:${n}`} text={clip(c.body, COMMENT_LIMIT)} />
+              </Box>
+            ))}
+            {o.moreComments > 0 && <Text dimColor>and {o.moreComments} older</Text>}
+          </Box>
+        )}
+        {o.tree && (
+          <Box flexDirection="column">
+            {o.tree.parent && (
+              <Box gap={1}>
+                <Text bold>Parent</Text>
+                <Link href={o.tree.parent.url} label={o.tree.parent.id} />
+                <Text>{o.tree.parent.title}</Text>
+                <Text dimColor>{pct(o.tree.parent.progress)}</Text>
+              </Box>
+            )}
+            {o.tree.children.length > 0 && <Text bold>Sub-issues · {pct(o.tree.progress)}</Text>}
+            {o.tree.children.map(node)}
+            {o.tree.siblings.length > 0 && <Text bold>Siblings ({o.tree.siblings.length})</Text>}
+            {o.tree.siblings.map(node)}
+          </Box>
+        )}
       </Box>
     )
   })

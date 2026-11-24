@@ -40,3 +40,12 @@ test('an untracked sub-issue dispatches to a new session that starts with valida
   assert.match(out.prompt, /^Task VDY-12/);
   assert.equal(subIssueTask('VDY-404', trees), null);
 });
+
+test('the Overview tree lists every sub-issue and sibling, finished ones marked done', async () => {
+  const {fullTree} = await import('./lib/tree.mjs');
+  const issue = {id: 'VDY-423', own: {children: [child('VDY-10', 'completed'), child('VDY-12', 'triage')]}, parent: trees['VDY-376']};
+  const tr = fullTree(issue, {itemTask: {}});
+  assert.deepEqual(tr.children.map(c => [c.id, c.isDone, c.canDispatch]), [['VDY-10', true, false], ['VDY-12', false, true]]);
+  assert.equal(tr.siblings.length, 16);
+  assert.deepEqual(tr.parent.progress, {done: 1, total: 16});
+});

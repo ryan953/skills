@@ -59,7 +59,9 @@ Fetch the parent and the children with `linear api`. The pane then shows:
 - the siblings under the same parent
 - a Dispatch button on each sub-issue that has no PR
 
-### 6.4 Task detail pane
+### 6.4 Task detail pane (built 2026-11-24)
+
+As built: the Overview is fetched with `detail <id>` when it opens (about 1 s), not on every sync. A review task with no ticket shows only its items and their PR detail.
 
 An Overview pane for one task. Open it from a row in the board pane. It shows:
 

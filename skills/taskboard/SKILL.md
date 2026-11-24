@@ -20,6 +20,7 @@ Requires authenticated `gh`, the `linear` CLI, `node` 22+, and the jr MCP tools 
 | `node scripts/taskboard.mjs join <a> <b>` / `split <key>` / `ignore <key>` | fix a wrong link, then `sync --offline` |
 | `node scripts/taskboard.mjs dispatch <id> [--brief full\|review\|validate] [--route session\|jr\|new] [--step <text>]` | pick where the next step goes and write the message or brief, as JSON |
 | `node scripts/taskboard.mjs assign <id> <item-key> [--notes <text>]` | record the session or jr conversation that works the task |
+| `node scripts/taskboard.mjs detail <id>` | one task's Overview, fetched now: ticket properties, the latest 5 comments, the whole tree, items, as JSON |
 | `node scripts/taskboard.mjs workers` | running sessions on open tasks, from local files only, as JSON |
 | `node scripts/taskboard.mjs ask <item-key>` | the question to send to a session or jr conversation before it is archived |
 | `node scripts/taskboard.mjs checked <item-key> [--remaining <text>]` | record its answer; no `--remaining` means nothing is left |
@@ -115,7 +116,8 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
 `mod/` is a Claude Code mod for the management session.
 
 - **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive), with **Board** and **Sync** buttons.
-- **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). A row with a Linear tree shows "↑ parent · N of M done" and a **Tree** button. The button opens the parent, the open sub-issues and the open siblings, and each one without a PR has its own **Dispatch**. **Clean up** shows when there are actions to approve.
+- **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). A row with a Linear tree shows "↑ parent · N of M done" and a **Tree** button. The button opens the parent, the open sub-issues and the open siblings, and each one without a PR has its own **Dispatch**. **Overview** opens the task's detail pane (below). **Clean up** shows when there are actions to approve.
+- **Overview pane:** one task, fetched when it opens, so the sync stays cheap. It shows the ticket's properties (status, priority, assignee, labels, project, cycle, team, branch), the pending actions, the items with PR detail, the description, the latest 5 comments, and the whole tree: the parent, every sub-issue and every sibling, finished ones dim. Each open sub-issue or sibling without a PR has **Dispatch**. The branch is the PR's head branch when there is a PR, and Linear's suggested `branchName` when there is none. A task with no ticket shows only its items.
 - **Workers:** every minute it runs `workers`, which reads only local files. The band shows "N workers running · 6m" (the oldest turn). A row with a running session shows "Implementing · 6m" ("Validating", "Reviewing" or "Verifying" in those stages). A PR whose head commit is less than an hour old shows "pushed 3m ago", and its pending checks show as ◌ in the detail line.
 - **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, or when new clean-up shows up. Then the prompt box suggests `/taskboard`.
 

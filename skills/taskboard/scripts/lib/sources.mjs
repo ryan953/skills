@@ -324,6 +324,40 @@ export async function fetchTrees(ids) {
   return trees;
 }
 
+// One ticket for the Overview pane, fetched when the pane opens rather than on every sync.
+export async function fetchIssueDetail(id) {
+  const data = await linearApi(`query { issue(id: ${JSON.stringify(id)}) {
+    ${TREE_FIELDS}
+    description priorityLabel branchName
+    assignee { name }
+    labels { nodes { name } }
+    project { name }
+    cycle { number name }
+    team { key name }
+    comments(first: 100) { nodes { body createdAt user { name } botActor { name } } }
+    parent { ${TREE_FIELDS} }
+  } }`);
+  const n = data?.issue;
+  if (!n) return null;
+  const tree = t => ({...treeNode(t), children: t.children.nodes.map(treeNode)});
+  return {
+    ...treeNode(n),
+    description: n.description ?? '',
+    priority: n.priorityLabel,
+    assignee: n.assignee?.name ?? null,
+    labels: n.labels.nodes.map(l => l.name),
+    project: n.project?.name ?? null,
+    cycle: n.cycle ? (n.cycle.name ?? `Cycle ${n.cycle.number}`) : null,
+    team: n.team ? `${n.team.name} (${n.team.key})` : null,
+    branchName: n.branchName,
+    comments: n.comments.nodes
+      .map(c => ({author: c.user?.name ?? c.botActor?.name ?? 'unknown', at: c.createdAt, body: c.body}))
+      .sort((a, b) => b.at.localeCompare(a.at)),
+    own: tree(n),
+    parent: n.parent ? tree(n.parent) : null,
+  };
+}
+
 export async function linearTeams() {
   const data = await linearApi(`query { teams(first: 100) { nodes { key } } }`);
   return new Set(data.teams.nodes.map(t => t.key));
