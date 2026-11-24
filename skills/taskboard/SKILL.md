@@ -88,6 +88,19 @@ Every message has the same rules: never merge, ask before posting anything other
 
 Sessions started from here report back when they end a turn. For a reused session or jr conversation, read its state with `get_session` and `list_events`, or jr `getConversation`, then `sync`.
 
+## PR detail
+
+Each open PR has a detail line in the report and the pane, for example `+81 −3 · 3 files · ✓38 ◌25 · 1 unresolved · warden: no problems`:
+
+- size: lines added and removed, and the number of files
+- checks: passed (✓), failed (✗) and pending (◌)
+- the number of unresolved review threads
+- `warden`: the agent review. It shows `running`, `N open of M`, or `no problems`.
+- bot notes: unresolved threads from minor reviewers. The default is `cursor`, `sentry` (Seer) and `github-advanced-security`; `TASKBOARD_MINOR_REVIEWERS` overrides it. A fuller review usually follows these bots, so they do not count as a review.
+- your draft review: the comments in your pending review
+
+The detail comes from a second, batched query, only for open PRs, because a single search with these fields times out.
+
 ## Mod: pane, band and timer
 
 `mod/` is a Claude Code mod for the management session.

@@ -17,9 +17,11 @@ import {homedir} from 'node:os';
 import {join} from 'node:path';
 
 import {dispatch} from './lib/dispatch.mjs';
+import {prDetailText} from './lib/format.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
   fetchGithub,
+  fetchPrDetail,
   fetchLinear,
   linearTeams,
   normalizeJr,
@@ -83,6 +85,8 @@ async function collect() {
     const [morePrs, moreLinear] = await Promise.all([resolvePrs([...wantPrs], me, teams), resolveLinear([...wantLinear])]);
     items = [...items, ...morePrs, ...moreLinear];
   }
+  const detail = await fetchPrDetail(items.filter(i => i.type === 'pr' && i.open).map(i => i.key), me);
+  items = items.map(i => (detail.has(i.key) ? {...i, meta: {...i.meta, detail: detail.get(i.key)}} : i));
   // jr is re-read from its snapshot on every build, so an ingest shows up in `sync --offline`.
   return {me, teams: [...teams], items: items.filter(i => i.type !== 'jr'), fetchedAt: new Date().toISOString()};
 }
@@ -144,6 +148,9 @@ function report(ledger, {all = false} = {}) {
         members.filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel)
       );
       lines.push(`  ${t.id.padEnd(22)} ${short(t.title, 52).padEnd(52)} ${parts.join(', ')}`);
+      for (const p of members.filter(i => i.type === 'pr' && i.open && i.meta.detail)) {
+        lines.push(`  ${''.padEnd(22)}   ${itemLabel(p).split(' ')[0]}: ${prDetailText(p.meta.detail)}`);
+      }
     }
   }
 
@@ -191,6 +198,10 @@ function board(ledger) {
         .flatMap(type => t.items.map(k => items[k]).filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel))
         .join(', '),
       actions: t.actions.map(a => ({type: a.type, item: a.item, reason: a.reason ?? null})),
+      prs: t.items
+        .map(k => items[k])
+        .filter(i => i.type === 'pr' && i.open)
+        .map(i => ({key: i.key, label: itemLabel(i), url: i.url, detail: prDetailText(i.meta.detail)})),
     })),
     changes: ledger.changes,
   };

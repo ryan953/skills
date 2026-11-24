@@ -10,7 +10,7 @@ const STAGES = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', '
 const NO_DISPATCH = new Set(['needs-you', 'merge'])
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-2' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-3' })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   isSyncing: false,
   error: null,
@@ -128,6 +128,14 @@ export const register: Register = on => {
           .filter(a => a.type === 'follow-up')
           .map(a => (
             <Text color="warning">Left to do: {a.reason}</Text>
+          ))}
+        {t.prs
+          .filter(p => p.detail)
+          .map(p => (
+            <Box key={`pr:${p.key}`} gap={1}>
+              <Link href={p.url} label={p.label} />
+              <Text dimColor>{p.detail}</Text>
+            </Box>
           ))}
         <Box gap={1}>
           <Text dimColor>{t.parts}</Text>

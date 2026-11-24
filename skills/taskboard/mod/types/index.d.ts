@@ -1,5 +1,7 @@
 export type BoardAction = { type: string; item: string; reason: string | null }
 
+export type BoardPr = { key: string; label: string; url: string; detail: string | null }
+
 export type BoardTask = {
   id: string
   title: string
@@ -9,6 +11,7 @@ export type BoardTask = {
   url: string | null
   parts: string
   actions: BoardAction[]
+  prs: BoardPr[]
 }
 
 export type Board = {

@@ -103,6 +103,83 @@ export async function fetchGithub(teams) {
   return {me, items: [...byKey.values()].map(({node, roles}) => prItem(node, me, roles, teams))};
 }
 
+// Review detail is heavy (threads, every check run), so it is fetched only for open PRs,
+// in small batches: one search with these fields times out.
+const AGENT_REVIEW = 'sentry-warden';
+// Minor bot reviews: a fuller review usually follows, so they are counted, not shown as reviewed.
+const MINOR_REVIEW = new Set((process.env.TASKBOARD_MINOR_REVIEWERS ?? 'cursor,sentry,github-advanced-security').split(','));
+const PASSED = new Set(['SUCCESS', 'NEUTRAL']);
+const FAILED = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'STARTUP_FAILURE', 'ACTION_REQUIRED']);
+const PENDING = new Set(['PENDING', 'EXPECTED', 'IN_PROGRESS', 'QUEUED', 'WAITING']);
+
+const DETAIL_FIELDS = `
+  additions deletions changedFiles
+  reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
+  reviews(states: PENDING, first: 5) { nodes { author { login } comments { totalCount } } }
+  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
+    checkRunCountsByState { state count }
+    statusContextCountsByState { state count }
+    nodes { ... on CheckRun { name conclusion } }
+  } } } } }
+`;
+
+export function prDetail(node, me) {
+  const login = t => (t.comments.nodes[0]?.author?.login ?? '').replace(/\[bot\]$/, '');
+  const threads = node.reviewThreads?.nodes ?? [];
+  const ctx = node.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts;
+  const checks = {passed: 0, failed: 0, pending: 0};
+  for (const {state, count} of [...(ctx?.checkRunCountsByState ?? []), ...(ctx?.statusContextCountsByState ?? [])]) {
+    if (PASSED.has(state)) checks.passed += count;
+    else if (FAILED.has(state)) checks.failed += count;
+    else if (PENDING.has(state)) checks.pending += count;
+  }
+  const wardenRuns = (ctx?.nodes ?? []).filter(c => c?.name === 'warden' || c?.name?.startsWith('warden:'));
+  const wardenThreads = threads.filter(t => login(t) === AGENT_REVIEW);
+  const warden = wardenRuns.length || wardenThreads.length
+    ? {
+        running: wardenRuns.some(c => c.conclusion === null),
+        open: wardenThreads.filter(t => !t.isResolved).length,
+        found: wardenThreads.length,
+      }
+    : null;
+  const pending = (node.reviews?.nodes ?? []).find(r => r.author?.login === me);
+  return {
+    additions: node.additions,
+    deletions: node.deletions,
+    files: node.changedFiles,
+    unresolved: threads.filter(t => !t.isResolved).length,
+    checks,
+    warden,
+    minorBots: threads.filter(t => !t.isResolved && MINOR_REVIEW.has(login(t))).length,
+    draftComments: pending ? pending.comments.totalCount : 0,
+  };
+}
+
+export async function fetchPrDetail(keys, me) {
+  const out = new Map();
+  const batches = [];
+  for (let i = 0; i < keys.length; i += 20) batches.push(keys.slice(i, i + 20));
+  await Promise.all(
+    batches.map(async chunk => {
+      const parts = chunk.map((k, j) => {
+        const [repo, num] = k.split('#');
+        const [owner, name] = repo.split('/');
+        return `p${j}: repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { pullRequest(number: ${num}) { ${DETAIL_FIELDS} } }`;
+      });
+      try {
+        const data = await gql(`query { ${parts.join('\n')} }`);
+        chunk.forEach((k, j) => {
+          const node = data?.[`p${j}`]?.pullRequest;
+          if (node) out.set(k, prDetail(node, me));
+        });
+      } catch {
+        // Detail is extra: a failed batch leaves those PRs without it, and the sync goes on.
+      }
+    })
+  );
+  return out;
+}
+
 export async function resolvePrs(keys, me, teams) {
   if (!keys.length) return [];
   const out = [];

@@ -23,6 +23,10 @@ const task = (id: string, stage: string) => ({
   url: `https://linear.app/x/${id}`,
   parts: `${id} In Progress`,
   actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
+  prs:
+    stage === 'iterate'
+      ? [{ key: 'getsentry/sentry#131651', label: '#131651 draft', url: 'https://github.com/getsentry/sentry/pull/131651', detail: '+12 −3 · 2 files · ✓40 ✗1 · warden: no problems' }]
+      : [],
 })
 
 const BOARD = {
@@ -67,6 +71,7 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   expect((await ui.find({ type: 'Text', text: /^needs-you/ }))?.text).toBe('needs-you (1)')
   expect((await ui.find({ type: 'Text', text: /^iterate/ }))?.text).toBe('iterate (1)')
   expect((await ui.find({ type: 'Text', text: /^Left to do/ }))?.text).toBe('Left to do: file the Safari ticket')
+  expect((await ui.find({ type: 'Text', text: /warden/ }))?.text).toBe('+12 −3 · 2 files · ✓40 ✗1 · warden: no problems')
 
   // A task that waits for the user has no Dispatch button.
   await expect($.ui.press({ plugin: 'taskboard', key: 'dispatch:VDY-432' })).rejects.toBeTruthy()
