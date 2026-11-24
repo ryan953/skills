@@ -224,6 +224,7 @@ const ISSUE_FIELDS = `
   creator { isMe }
   team { key }
   attachments { nodes { url } }
+  parent { identifier }
 `;
 
 async function linearApi(query) {
@@ -249,7 +250,7 @@ function linearItem(n) {
     roles: [n.assignee?.isMe && 'assignee', n.creator?.isMe && 'creator'].filter(Boolean),
     strong,
     weak: [],
-    meta: {stateType: n.state.type, assignee: n.assignee?.name ?? null, priority: n.priority, team: n.team.key},
+    meta: {stateType: n.state.type, assignee: n.assignee?.name ?? null, priority: n.priority, team: n.team.key, parent: n.parent?.identifier ?? null},
   };
 }
 
@@ -283,6 +284,44 @@ export async function resolveLinear(ids) {
     for (const [j] of chunk.entries()) if (data?.[`i${j}`]) out.push(linearItem(data[`i${j}`]));
   }
   return out;
+}
+
+const TREE_FIELDS = `
+  identifier title url state { name type }
+  children(first: 100) { nodes { identifier title url state { name type } attachments { nodes { url } } } }
+`;
+
+const treeNode = n => ({
+  id: n.identifier,
+  title: n.title,
+  url: n.url,
+  state: n.state.name,
+  stateType: n.state.type,
+  prs: [...new Set((n.attachments?.nodes ?? []).flatMap(a => prRefs(a.url)))],
+});
+
+// Sub-issues are display data, not items: one parent can hold 80 of them, and making each
+// a task would bury the board. Only issues that have children get an entry.
+export async function fetchTrees(ids) {
+  const trees = {};
+  const batches = [];
+  for (let i = 0; i < ids.length; i += 10) batches.push(ids.slice(i, i + 10));
+  await Promise.all(
+    batches.map(async chunk => {
+      const parts = chunk.map((id, j) => `t${j}: issue(id: ${JSON.stringify(id)}) { ${TREE_FIELDS} }`);
+      let data = {};
+      try {
+        data = await linearApi(`query { ${parts.join('\n')} }`);
+      } catch {
+        // The tree is extra: a failed batch leaves those issues without one.
+      }
+      for (const [j] of chunk.entries()) {
+        const n = data?.[`t${j}`];
+        if (n?.children.nodes.length) trees[n.identifier] = {...treeNode(n), children: n.children.nodes.map(treeNode)};
+      }
+    })
+  );
+  return trees;
 }
 
 export async function linearTeams() {

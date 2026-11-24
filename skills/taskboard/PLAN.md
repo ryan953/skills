@@ -48,7 +48,9 @@ For each owner session, show whether it is running and when its turn started:
 
 The session files have no `isRunning` field. Infer the state from the file (decided 2026-11-24): a session is running when `latestUserFrameAt` is later than `lastTurnEdgeAt`, and the turn started at `latestUserFrameAt`. This is an internal format, so keep the check in one function and test it on real files.
 
-### 6.3 Linear parent and children
+### 6.3 Linear parent and children (built 2026-11-24)
+
+As built: the tree is display data, not items. The board lists only open sub-issues and at most 10 open siblings, behind a **Tree** button, so a parent with 80 sub-issues does not fill the pane. The full sibling list can go in the 6.4 detail pane.
 
 Fetch the parent and the children with `linear api`. The pane then shows:
 

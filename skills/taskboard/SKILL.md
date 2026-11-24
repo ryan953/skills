@@ -102,12 +102,20 @@ Each open PR has a detail line in the report and the pane, for example `+81 −3
 
 The detail comes from a second, batched query, only for open PRs, because a single search with these fields times out.
 
+## Linear tree
+
+The sync fetches each ticket's parent, its sub-issues and the parent's other sub-issues (the siblings). The tree is display data only. Sub-issues do not become items or tasks, because one parent can hold 80 of them.
+
+- Progress: "18 of 73 done". Canceled sub-issues count toward neither side.
+- The board lists only open sub-issues, and at most 10 open siblings, with a count for the others.
+- A sub-issue with no PR attached can be dispatched. When no task tracks it, `dispatch <id>` makes a one-ticket task from the tree and writes a new-session brief.
+
 ## Mod: pane, band and timer
 
 `mod/` is a Claude Code mod for the management session.
 
 - **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive), with **Board** and **Sync** buttons.
-- **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). **Clean up** shows when there are actions to approve.
+- **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). A row with a Linear tree shows "↑ parent · N of M done" and a **Tree** button. The button opens the parent, the open sub-issues and the open siblings, and each one without a PR has its own **Dispatch**. **Clean up** shows when there are actions to approve.
 - **Workers:** every minute it runs `workers`, which reads only local files. The band shows "N workers running · 6m" (the oldest turn). A row with a running session shows "Implementing · 6m" ("Validating", "Reviewing" or "Verifying" in those stages). A PR whose head commit is less than an hour old shows "pushed 3m ago", and its pending checks show as ◌ in the detail line.
 - **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, or when new clean-up shows up. Then the prompt box suggests `/taskboard`.
 

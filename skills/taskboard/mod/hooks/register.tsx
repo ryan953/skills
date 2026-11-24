@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Board, BoardTask, Worker } from '../types'
+import type { Board, BoardTask, Progress, TreeNode, Worker } from '../types'
 
 const PANE = 'taskboard'
 const SYNC_EVERY_MS = 10 * 60 * 1000
@@ -12,8 +12,10 @@ const STAGES = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', '
 const NO_DISPATCH = new Set(['needs-you', 'merge'])
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-4' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-5' })
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
+// Task ids whose tree is open in the pane.
+const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   isSyncing: false,
   error: null,
@@ -30,6 +32,8 @@ async function cli<T = Board>($: EngineInterface, args: string[]): Promise<T> {
   if (exitCode !== 0) throw new Error(stderr.trim().split('\n').pop() || `exit ${exitCode}`)
   return JSON.parse(stdout) as T
 }
+
+const pct = (p: Progress | null) => (p ? `${p.done} of ${p.total} done` : '')
 
 const VERB: Record<string, string> = { validate: 'Validating', review: 'Reviewing', verify: 'Verifying' }
 
@@ -147,8 +151,56 @@ export const register: Register = on => {
     const b = await read($, board)
     const s = await read($, sync)
     const ws = await read($, workers)
+    const open = new Set(await read($, expanded))
     const now = await $.clock.now()
     const { Box, Button, Link, Text } = $.ui.resolve(e)
+
+    const dispatchTo = (id: string) => void $.command.run({ command: 'taskboard', args: `dispatch ${id}` })
+    const subRow = (t: BoardTask, c: TreeNode) => (
+      <Box key={`sub:${t.id}:${c.id}`} gap={1}>
+        <Text dimColor>  ▸</Text>
+        <Link href={c.url} label={c.id} />
+        <Text>{c.title}</Text>
+        <Text dimColor>
+          {c.state}
+          {c.prs.length ? ` · ${c.prs.join(', ')}` : ''}
+        </Text>
+        {c.canDispatch && <Button key={`dispatch-sub:${t.id}:${c.id}`} label="Dispatch" onPress={() => dispatchTo(c.task ?? c.id)} />}
+      </Box>
+    )
+    const tree = (t: BoardTask) => {
+      const tr = t.tree
+      if (!tr) return null
+      const summary = [
+        tr.parent && `↑ ${tr.parent.id}${tr.parent.progress ? ` · ${pct(tr.parent.progress)}` : ''}`,
+        tr.progress && `sub-issues ${pct(tr.progress)}`,
+      ].filter(Boolean)
+      const isOpen = open.has(t.id)
+      return (
+        <Box key={`tree:${t.id}`} flexDirection="column">
+          <Box gap={1}>
+            <Text dimColor>{summary.join(' · ')}</Text>
+            <Button
+              key={`tree-toggle:${t.id}`}
+              label={isOpen ? 'Hide tree' : 'Tree'}
+              onPress={() => update($, expanded, ids => (ids.includes(t.id) ? ids.filter(i => i !== t.id) : [...ids, t.id]))}
+            />
+          </Box>
+          {isOpen && tr.parent && (
+            <Box gap={1}>
+              <Text dimColor>parent</Text>
+              {tr.parent.url ? <Link href={tr.parent.url} label={tr.parent.id} /> : <Text>{tr.parent.id}</Text>}
+              <Text>{tr.parent.title ?? ''}</Text>
+            </Box>
+          )}
+          {isOpen && tr.children.length > 0 && <Text dimColor>open sub-issues ({tr.children.length})</Text>}
+          {isOpen && tr.children.map(c => subRow(t, c))}
+          {isOpen && tr.siblings.length > 0 && <Text dimColor>open siblings</Text>}
+          {isOpen && tr.siblings.map(c => subRow(t, c))}
+          {isOpen && tr.moreSiblings > 0 && <Text dimColor>  and {tr.moreSiblings} more</Text>}
+        </Box>
+      )
+    }
     if (!b) return <Text dimColor>{s.error ? `No ledger: ${s.error}` : 'Loading the ledger…'}</Text>
 
     const row = (t: BoardTask) => (
@@ -179,6 +231,7 @@ export const register: Register = on => {
               <Text dimColor>{p.detail}</Text>
             </Box>
           ))}
+        {tree(t)}
         <Box gap={1}>
           <Text dimColor>{t.parts}</Text>
           {t.url && <Link href={t.url} label="Open" />}
@@ -186,7 +239,7 @@ export const register: Register = on => {
             <Button
               key={`dispatch:${t.id}`}
               label="Dispatch"
-              onPress={() => void $.command.run({ command: 'taskboard', args: `dispatch ${t.id}` })}
+              onPress={() => dispatchTo(t.id)}
             />
           )}
         </Box>

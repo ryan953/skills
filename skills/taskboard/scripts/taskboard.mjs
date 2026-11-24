@@ -19,10 +19,12 @@ import {join} from 'node:path';
 
 import {dispatch} from './lib/dispatch.mjs';
 import {prDetailText} from './lib/format.mjs';
+import {subIssueTask, taskTree} from './lib/tree.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
   fetchGithub,
   fetchPrDetail,
+  fetchTrees,
   fetchLinear,
   linearTeams,
   normalizeJr,
@@ -87,10 +89,14 @@ async function collect() {
     const [morePrs, moreLinear] = await Promise.all([resolvePrs([...wantPrs], me, teams), resolveLinear([...wantLinear])]);
     items = [...items, ...morePrs, ...moreLinear];
   }
-  const detail = await fetchPrDetail(items.filter(i => i.type === 'pr' && i.open).map(i => i.key), me);
+  const linearIds = items.filter(i => i.type === 'linear').flatMap(i => [i.key, i.meta.parent ?? []].flat());
+  const [detail, trees] = await Promise.all([
+    fetchPrDetail(items.filter(i => i.type === 'pr' && i.open).map(i => i.key), me),
+    fetchTrees([...new Set(linearIds)]),
+  ]);
   items = items.map(i => (detail.has(i.key) ? {...i, meta: {...i.meta, detail: detail.get(i.key)}} : i));
   // jr is re-read from its snapshot on every build, so an ingest shows up in `sync --offline`.
-  return {me, teams: [...teams], items: items.filter(i => i.type !== 'jr'), fetchedAt: new Date().toISOString()};
+  return {me, teams: [...teams], items: items.filter(i => i.type !== 'jr'), trees, fetchedAt: new Date().toISOString()};
 }
 
 function readJr(teams) {
@@ -108,7 +114,7 @@ function buildLedger(fetched) {
   const all = [...fetched.items, ...readJr(new Set(fetched.teams))];
   const result = link(all, {previous, overrides, checks: readJson(paths.checks, {})});
   const items = Object.fromEntries(all.map(i => [i.key, i]));
-  return {version: 1, generatedAt: fetched.fetchedAt, me: fetched.me, ...result, items};
+  return {version: 1, generatedAt: fetched.fetchedAt, me: fetched.me, ...result, items, trees: fetched.trees ?? {}};
 }
 
 // ---------- report ----------
@@ -204,6 +210,7 @@ function board(ledger) {
         .map(k => items[k])
         .filter(i => i.type === 'pr' && i.open)
         .map(i => ({key: i.key, label: itemLabel(i), url: i.url, detail: prDetailText(i.meta.detail), headAt: i.meta.detail?.headAt ?? null})),
+      tree: taskTree(t, {items, trees: ledger.trees ?? {}, itemTask: ledger.itemTask}, k => (items[k] ? itemLabel(items[k]) : k.replace(/^getsentry\/sentry/, ''))),
     })),
     changes: ledger.changes,
   };
@@ -280,7 +287,13 @@ async function main() {
     return;
   }
   if (cmd === 'dispatch') {
-    const {ledger, task} = findTask(args[0]);
+    const ledger = readJson(paths.ledger, null);
+    const sub = ledger && !ledger.itemTask[args[0]] && !ledger.tasks.some(t => t.id === args[0]) ? subIssueTask(args[0], ledger.trees ?? {}) : null;
+    if (sub) {
+      console.log(JSON.stringify(dispatch(sub.task, sub.members, opts), null, 2));
+      return;
+    }
+    const {task} = findTask(args[0]);
     console.log(JSON.stringify(dispatch(task, task.items.map(k => ledger.items[k]), opts), null, 2));
     return;
   }

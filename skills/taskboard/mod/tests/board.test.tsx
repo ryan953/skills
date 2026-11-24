@@ -22,6 +22,7 @@ const task = (id: string, stage: string) => ({
   owner: null,
   url: `https://linear.app/x/${id}`,
   parts: `${id} In Progress`,
+  tree: null,
   actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
   prs:
     stage === 'iterate'
@@ -36,6 +37,17 @@ const BOARD = {
     task('VDY-432', 'needs-you'),
     task('VDY-433', 'iterate'),
     { ...task('VDY-381', 'follow-up'), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
+    {
+      ...task('VDY-423', 'fix'),
+      tree: {
+        self: 'VDY-423',
+        parent: { id: 'VDY-376', title: 'Parent', url: 'https://linear.app/x/VDY-376', progress: { done: 18, total: 73 } },
+        progress: { done: 1, total: 3 },
+        children: [{ id: 'VDY-12', title: 'Child', url: 'https://linear.app/x/VDY-12', state: 'Triage', prs: [], task: null, canDispatch: true }],
+        siblings: [],
+        moreSiblings: 0,
+      },
+    },
   ],
 }
 
@@ -107,5 +119,19 @@ test('the band counts running workers and how long the oldest has run', async ($
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /running/ }))?.text).toBe('1 worker running · 6m')
+  await ui.unmount()
+})
+
+test('the tree opens on press and dispatches an untracked sub-issue', async ($, on) => {
+  const prompts: string[] = []
+  engine(on, [], prompts)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^↑/ }))?.text).toBe('↑ VDY-376 · 18 of 73 done · sub-issues 1 of 3 done')
+  expect(await ui.find({ type: 'Text', text: /^open sub-issues/ })).toBeFalsy()
+  await $.ui.press({ plugin: 'taskboard', key: 'tree-toggle:VDY-423' })
+  expect((await ui.find({ type: 'Text', text: /^open sub-issues/ }))?.text).toBe('open sub-issues (1)')
+  await $.ui.press({ plugin: 'taskboard', key: 'dispatch-sub:VDY-423:VDY-12' })
+  expect(prompts).toEqual(['/taskboard dispatch VDY-12'])
   await ui.unmount()
 })
