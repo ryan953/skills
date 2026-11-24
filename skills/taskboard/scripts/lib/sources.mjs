@@ -13,6 +13,8 @@ import {closingRefs, DEFAULT_REPO, linearRefs, orderedRefs, prKey, prRefs} from 
 
 const run = promisify(execFile);
 const BOTS = (process.env.TASKBOARD_BOTS ?? 'sentry-junior,cursor,seer-by-sentry,claude').split(',');
+// Review requests that touch these paths are your area, so they are tasks, not queue noise.
+const WATCH = new RegExp(process.env.TASKBOARD_WATCH ?? 'onboarding|agent[_-]?handoff', 'i');
 
 
 // ---------- GitHub ----------
@@ -23,6 +25,7 @@ const PR_FIELDS = `
   repository { nameWithOwner isArchived }
   reviewDecision
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+  files(first: 100) { nodes { path } }
 `;
 
 async function gql(query, variables = {}) {
@@ -66,7 +69,16 @@ function prItem(node, me, roles, teams) {
     roles: [...new Set(author === me ? ['author', ...roles] : roles)],
     strong,
     weak: [],
-    meta: {repo, number: node.number, author, branch: node.headRefName, draft: node.isDraft, review: node.reviewDecision, checks},
+    meta: {
+      repo,
+      number: node.number,
+      author,
+      branch: node.headRefName,
+      draft: node.isDraft,
+      review: node.reviewDecision,
+      checks,
+      watched: (node.files?.nodes ?? []).some(f => WATCH.test(f.path)),
+    },
   };
 }
 

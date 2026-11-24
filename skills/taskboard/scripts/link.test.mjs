@@ -182,3 +182,15 @@ test('an old question in a session about finished work does not ask for you', ()
   assert.equal(tasks[0].stage, 'done');
   assert.deepEqual(tasks[0].actions, [{type: 'archive', item: 'cc-412', reason: 'task is done'}]);
 });
+
+test('a team review request in a watched path is a review task; a bot PR stays in the queue', () => {
+  const watched = pr => ({...pr, meta: {...pr.meta, watched: true}});
+  const items = [
+    watched(pr(132140, {status: 'open', roles: ['review'], author: 'scttcper'})),
+    watched(pr(131726, {status: 'open', roles: ['review'], author: 'dependabot'})),
+    pr(132216, {status: 'open', roles: ['review'], author: 'cvxluo'}),
+  ];
+  const {tasks, queue} = link(items);
+  assert.deepEqual(queue, ['getsentry/sentry#131726', 'getsentry/sentry#132216']);
+  assert.deepEqual(tasks.map(t => [t.id, t.kind, t.stage]), [['getsentry/sentry#132140', 'review', 'review']]);
+});

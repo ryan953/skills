@@ -29,12 +29,12 @@ function edgesOf(item, known) {
   return firstWeak ? [...item.strong, firstWeak] : item.strong;
 }
 
-// Items that stand alone and only matter in bulk: team review requests and tickets you
-// filed but nobody linked to your work. They are counted, not shown as tasks.
+// Items that stand alone and only matter in bulk: bot PRs, team review requests outside
+// your watched paths, and tickets you filed but nobody linked to your work. They are counted, not shown as tasks.
 function bucketOf(item) {
   if (item.type === 'pr') {
     if (NOISE_AUTHORS.has(item.meta.author)) return 'queue';
-    if (item.roles.length > 0 && item.roles.every(r => r === 'review')) return 'queue';
+    if (item.roles.length > 0 && item.roles.every(r => r === 'review') && !item.meta.watched) return 'queue';
   }
   if (item.type === 'linear' && item.roles.length > 0 && !item.roles.includes('assignee')) return 'backlog';
   return null;

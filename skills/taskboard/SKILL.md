@@ -96,7 +96,7 @@ Load it in one session: `claude --plugin-dir <skill>/mod`, or copy it to the ses
 - **Never used:** branch names a session wrote to. Sessions share checkouts, so one branch shows up in many unrelated sessions.
 - **Bare `#123`** means `getsentry/sentry` only when it has 6 or more digits. Shorter numbers are another repo.
 - **Archived repos:** PRs there are dropped at fetch time. They can never change.
-- **Buckets:** a lone team review request (from CODEOWNERS) goes to `queue`. A lone ticket that you filed but that is not assigned to you goes to `backlog`. Both are counted, not listed.
+- **Buckets:** a PR from a dependency bot (dependabot, renovate) goes to `queue`. So does a lone team review request (from CODEOWNERS), unless it changes a file whose path matches `TASKBOARD_WATCH` (default `onboarding|agent[_-]?handoff`, case-insensitive): then it is a review task. The match is made at fetch time, so after you change `TASKBOARD_WATCH`, run `sync`, not `sync --offline`. A lone ticket that you filed but that is not assigned to you goes to `backlog`. Both are counted, not listed.
 
 Stages, in report order: `needs-you`, `merge`, `iterate`, `review`, `fix`, `validate`, `verify` (PRs merged, ticket open), `adhoc` (only sessions or jr), `done`.
 
