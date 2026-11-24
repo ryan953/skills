@@ -78,6 +78,8 @@ Today the board is a flat list by stage, and each task's tree is behind a **Tree
 
 ### 7.1 Tree view as the default
 
+Built 2026-11-24 as the user asked it: projects → your tickets → their PRs; tickets with no project by team; PRs with no ticket by repo → role → team → author; then Other. The parent-ticket level below is not built.
+
 The stage list stays as a second view or a filter.
 
 - **Level 1, the group.** Start from the team/project grouping that the "Taskboard grouping by team/project" session is building (`lib/group.mjs`, `taskGroup`). Do not build a second grouping. Tasks with no project go under "No project". Review tasks with no ticket go under their repo, or under "Reviews".

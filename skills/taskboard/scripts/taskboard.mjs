@@ -22,7 +22,7 @@ import {join} from 'node:path';
 
 import {dispatch} from './lib/dispatch.mjs';
 import {prDetailText} from './lib/format.mjs';
-import {taskGroup} from './lib/group.mjs';
+import {boardSections} from './lib/group.mjs';
 import {fullTree, subIssueTask, taskTree} from './lib/tree.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
@@ -31,6 +31,7 @@ import {
   fetchPrDetail,
   fetchTrees,
   fetchLinear,
+  fetchLinearProjects,
   linearTeams,
   localSessionId,
   normalizeJr,
@@ -74,7 +75,12 @@ for (let i = 0; i < rest.length; i++) {
 
 async function collect() {
   const teams = new Set(process.env.TASKBOARD_LINEAR_TEAMS?.split(',') ?? (await linearTeams()));
-  const [{me, items: prs}, linear] = await Promise.all([fetchGithub(teams), fetchLinear()]);
+  const [{me, myTeams, items: prs}, linear, projects] = await Promise.all([
+    fetchGithub(teams),
+    fetchLinear(),
+    // Projects are extra: without them the board still groups by each ticket's own project.
+    fetchLinearProjects().catch(() => []),
+  ]);
   const claude = readClaudeSessions(teams, managers());
   const jr = readJr(teams);
 
@@ -94,7 +100,7 @@ async function collect() {
       }
     }
     if (!wantPrs.size && !wantLinear.size) break;
-    const [morePrs, moreLinear] = await Promise.all([resolvePrs([...wantPrs], me, teams), resolveLinear([...wantLinear])]);
+    const [morePrs, moreLinear] = await Promise.all([resolvePrs([...wantPrs], me, teams, new Set(myTeams)), resolveLinear([...wantLinear])]);
     items = [...items, ...morePrs, ...moreLinear];
   }
   const linearIds = items.filter(i => i.type === 'linear').flatMap(i => [i.key, i.meta.parent ?? []].flat());
@@ -104,7 +110,7 @@ async function collect() {
   ]);
   items = items.map(i => (detail.has(i.key) ? {...i, meta: {...i.meta, detail: detail.get(i.key)}} : i));
   // jr is re-read from its snapshot on every build, so an ingest shows up in `sync --offline`.
-  return {me, teams: [...teams], items: items.filter(i => i.type !== 'jr'), trees, fetchedAt: new Date().toISOString()};
+  return {me, teams: [...teams], items: items.filter(i => i.type !== 'jr'), trees, projects, fetchedAt: new Date().toISOString()};
 }
 
 function readJr(teams) {
@@ -122,7 +128,7 @@ function buildLedger(fetched) {
   const all = [...fetched.items, ...readJr(new Set(fetched.teams))];
   const result = link(all, {previous, overrides, checks: readJson(paths.checks, {})});
   const items = Object.fromEntries(all.map(i => [i.key, i]));
-  return {version: 1, generatedAt: fetched.fetchedAt, me: fetched.me, ...result, items, trees: fetched.trees ?? {}};
+  return {version: 1, generatedAt: fetched.fetchedAt, me: fetched.me, ...result, items, trees: fetched.trees ?? {}, projects: fetched.projects ?? []};
 }
 
 // ---------- report ----------
@@ -180,6 +186,8 @@ function report(ledger, {all = false} = {}) {
   return lines.join('\n');
 }
 
+const prRow = i => ({key: i.key, label: itemLabel(i), title: i.title, url: i.url, detail: prDetailText(i.meta.detail), headAt: i.meta.detail?.headAt ?? null});
+
 // The mod draws from this, so it holds only what a row shows, not every item's metadata.
 function board(ledger) {
   const {tasks, items} = ledger;
@@ -210,7 +218,6 @@ function board(ledger) {
       kind: t.kind,
       owner: t.owner,
       url: urlOf(t),
-      group: taskGroup(t, items),
       parts: ['linear', 'pr', 'jr', 'claude']
         .flatMap(type => t.items.map(k => items[k]).filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel))
         .join(', '),
@@ -218,9 +225,17 @@ function board(ledger) {
       prs: t.items
         .map(k => items[k])
         .filter(i => i.type === 'pr' && i.open)
-        .map(i => ({key: i.key, label: itemLabel(i), url: i.url, detail: prDetailText(i.meta.detail), headAt: i.meta.detail?.headAt ?? null})),
+        .map(prRow),
       tree: taskTree(t, {items, trees: ledger.trees ?? {}, itemTask: ledger.itemTask}, k => (items[k] ? itemLabel(items[k]) : k.replace(/^getsentry\/sentry/, ''))),
     })),
+    // Lone PRs are not tasks, but the board lists them under "PRs with no ticket".
+    sections: boardSections({
+      tasks: open,
+      items,
+      queue: ledger.queue.map(k => items[k]).filter(i => i?.type === 'pr' && i.open).map(prRow),
+      projects: ledger.projects ?? [],
+      me: ledger.me,
+    }),
     changes: ledger.changes,
   };
 }

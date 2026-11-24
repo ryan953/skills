@@ -14,35 +14,94 @@ const PANE = {
   },
 } as const
 
-const team = (project: string | null) => ({ kind: 'team', team: 'Value Discovery', project }) as const
-
-const task = (id: string, stage: string, group: object = team('Onboarding')) => ({
+const task = (id: string, stage: string) => ({
   id,
   title: `Title ${id}`,
   stage,
   kind: 'cycle',
   owner: null,
   url: `https://linear.app/x/${id}`,
-  group,
   parts: `${id} In Progress`,
   tree: null,
   actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
   prs:
     stage === 'iterate'
-      ? [{ key: 'getsentry/sentry#131651', label: '#131651 draft', url: 'https://github.com/getsentry/sentry/pull/131651', detail: '+12 −3 · 2 files · ✓40 ✗1 · warden: no problems', headAt: '2026-11-24T16:27:00Z' }]
+      ? [{ key: 'getsentry/sentry#131651', label: '#131651 draft', title: 'Clipboard fallback', url: 'https://github.com/getsentry/sentry/pull/131651', detail: '+12 −3 · 2 files · ✓40 ✗1 · warden: no problems', headAt: '2026-11-24T16:27:00Z' }]
       : [],
 })
+
+// The script builds this tree (scripts/lib/group.mjs); the pane only draws it.
+const branch = (key: string, title: string, opts: { tasks?: string[]; prs?: object[]; children?: any[]; folded?: boolean; needsYou?: number; url?: string } = {}): any => {
+  const children = opts.children ?? []
+  const tasks = opts.tasks ?? []
+  const prs = opts.prs ?? []
+  return {
+    key,
+    title,
+    url: opts.url ?? null,
+    folded: opts.folded ?? false,
+    count: tasks.length + prs.length + children.reduce((n: number, c: any) => n + c.count, 0),
+    needsYou: (opts.needsYou ?? 0) + children.reduce((n: number, c: any) => n + c.needsYou, 0),
+    children,
+    tasks,
+    prs,
+  }
+}
+const DEPS_PR = {
+  key: 'getsentry/sentry#127684',
+  label: '#127684 open',
+  title: 'chore(deps): bump tanstack-query',
+  url: 'https://github.com/getsentry/sentry/pull/127684',
+  detail: '+40 −40 · 2 files · ✓60',
+  headAt: null,
+}
+const SECTIONS = [
+  branch('projects', 'Projects', {
+    children: [
+      branch('project:Agent handoff', 'Agent handoff'),
+      branch('project:Agents', 'Agents', { tasks: ['VDY-423'] }),
+      branch('project:Onboarding', 'Onboarding', { tasks: ['VDY-432', 'VDY-433'], needsYou: 1, url: 'https://linear.app/x/project/onboarding' }),
+    ],
+  }),
+  branch('teams', 'Tickets with no project', { children: [branch('team:Value Discovery', 'Value Discovery', { tasks: ['VDY-381'] })] }),
+  branch('adhoc', 'PRs with no ticket', {
+    children: [
+      branch('repo:getsentry/sentry', 'getsentry/sentry', {
+        children: [
+          branch('repo:getsentry/sentry:team', 'Team review', {
+            folded: true,
+            children: [
+              branch('repo:getsentry/sentry:team:app-frontend', 'app-frontend', {
+                children: [branch('repo:getsentry/sentry:team:app-frontend:author:dependabot', 'dependabot', { prs: [DEPS_PR] })],
+              }),
+            ],
+          }),
+        ],
+      }),
+      branch('repo:ryan953/skills', 'ryan953/skills', {
+        children: [
+          branch('repo:ryan953/skills:direct', 'Review requested of you', {
+            children: [branch('repo:ryan953/skills:direct:author:human', 'human', { tasks: ['skills#21'] })],
+          }),
+        ],
+      }),
+    ],
+  }),
+  branch('other', 'Other', { tasks: ['local_1'] }),
+]
 
 const BOARD = {
   generatedAt: '2026-11-23T23:09:22.202Z',
   counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, queue: 38, backlog: 46 },
+  sections: SECTIONS,
   tasks: [
     task('VDY-433', 'iterate'),
     task('VDY-432', 'needs-you'),
-    { ...task('VDY-381', 'follow-up', team(null)), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
-    { ...task('skills#21', 'review', { kind: 'repo', repo: 'ryan953/skills' }), url: 'https://github.com/ryan953/skills/pull/21' },
+    { ...task('VDY-381', 'follow-up'), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
+    { ...task('skills#21', 'review'), url: 'https://github.com/ryan953/skills/pull/21' },
+    { ...task('local_1', 'adhoc'), title: 'Dashboard: number of tests', url: 'https://junior-prod.sentry.dev/conversations/local_1', parts: 'jr:active' },
     {
-      ...task('VDY-423', 'fix', team('Agents')),
+      ...task('VDY-423', 'fix'),
       tree: {
         self: 'VDY-423',
         parent: { id: 'VDY-376', title: 'Parent', url: 'https://linear.app/x/VDY-376', progress: { done: 18, total: 73 } },
@@ -256,65 +315,111 @@ test('the manager session and the other sessions get different backdrops', async
   expect(back).toBe(worker)
 })
 
-test('the grid draws on every surface, narrow and wide', async ($, on) => {
+test('the tree draws on every surface, narrow and wide', async ($, on) => {
   engine(on, [], [])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   for (const surface of ['terminal', 'desktop'] as const) {
     for (const bodyColumns of [60, 120, 180]) {
       const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns }, surface })
-      expect(await ui.find({ type: 'Text', text: /^Value Discovery$/ })).toBeTruthy()
-      expect(await ui.find({ type: 'Text', text: /^ryan953\/skills$/ })).toBeTruthy()
+      for (const text of ['Projects', 'Onboarding', 'Tickets with no project', 'Value Discovery', 'PRs with no ticket', 'ryan953/skills', 'Other']) {
+        expect(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) })).toBeTruthy()
+      }
       await ui.unmount()
     }
   }
 })
 
-test('tasks group by team and project, PRs with no ticket by repo, most urgent first', async ($, on) => {
+test('projects, then tickets by team, then PRs by repo, role and author, then other; most urgent first', async ($, on) => {
   engine(on, [], [])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
   const at = (s: string) => texts.indexOf(s)
-  // Projects sort by name with the ticket-less ones last, and repos come after every team.
-  const order = ['Value Discovery', 'Agents', 'Onboarding', 'No project', 'ryan953/skills'].map(at)
+  const order = ['Projects', 'Agents', 'Onboarding', 'Tickets with no project', 'Value Discovery', 'PRs with no ticket', 'getsentry/sentry', 'Team review', 'ryan953/skills', 'Review requested of you', 'human', 'Other'].map(at)
   expect(order.every(n => n >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
-  // Inside a project, the task that needs the user comes before one being iterated on.
+  // Each ticket sits under its project with its PR inside the card.
+  expect(at('VDY-423')).toBeGreaterThan(at('Agents'))
+  const all = await ui.findAll({})
+  const pos = (f: (el: (typeof all)[number]) => boolean) => all.findIndex(f)
+  const pr = pos(el => el.type === 'Link' && el.text === '#131651 draft')
+  expect(pr).toBeGreaterThan(pos(el => el.key === 'row:VDY-433'))
+  expect(pr).toBeLessThan(pos(el => el.key === 'row:VDY-381'))
   expect(at('VDY-432')).toBeLessThan(at('VDY-433'))
   expect(texts[at('VDY-432') + 1]).toBe('Needs you')
+  // A project you belong to with no ticket of yours still shows.
+  expect(texts[at('Agent handoff') + 2]).toBe('No open tickets of yours')
+  // A lone session keeps its card, with its buttons, under Other.
+  expect(at('local_1')).toBeGreaterThan(at('Other'))
+  await $.ui.press({ plugin: 'taskboard', key: 'overview:local_1' })
   await ui.unmount()
 })
 
-test('a section or project heading folds its cards and unfolds them again, on every surface', async ($, on) => {
+test('team review starts folded, keeps its count, and opens to the lone PRs with their detail', async ($, on) => {
   engine(on, [], [])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
-    const marker = async () => (await ui.find({ type: 'Button', key: 'fold:team:Value Discovery' }))?.props.label
-    // The marker is the only control and shows only the glyph; the title appears once, as text.
-    expect(await marker()).toBe('▾')
-    expect(await ui.findAll({ type: 'Button', text: /Value Discovery/ })).toHaveLength(0)
-    expect(await ui.findAll({ type: 'Text', text: /^Value Discovery$/ })).toHaveLength(1)
+    const marker = async (key: string) => (await ui.find({ type: 'Button', key: `fold:${key}` }))?.props.label
+    expect(await marker('repo:getsentry/sentry:team')).toBe('▸')
+    expect(await has('Team review')).toBe(true)
+    expect(await has('app-frontend')).toBe(false)
+    expect(await has('chore\\(deps\\): bump tanstack-query')).toBe(false)
 
-    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
-    expect(await marker()).toBe('▸')
-    // A folded section keeps its heading and count; its projects and cards are gone, other sections stay.
-    expect(await has('Value Discovery')).toBe(true)
-    expect(await has('4')).toBe(true)
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:repo:getsentry/sentry:team' })
+    expect(await marker('repo:getsentry/sentry:team')).toBe('▾')
+    expect(await has('dependabot')).toBe(true)
+    expect(await has('chore\\(deps\\): bump tanstack-query')).toBe(true)
+    expect(await has('\\+40 −40 · 2 files · ✓60')).toBe(true)
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:repo:getsentry/sentry:team' })
+    expect(await has('dependabot')).toBe(false)
+    await ui.unmount()
+  }
+})
+
+test('every heading folds its rows and unfolds them again, and a folded heading still says it needs you', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
+    const marker = async (key: string) => (await ui.find({ type: 'Button', key: `fold:${key}` }))?.props.label
+
+    // The marker is the only control and shows only the glyph; the title appears once, as text.
+    expect(await marker('projects')).toBe('▾')
+    expect(await ui.findAll({ type: 'Button', text: /Projects/ })).toHaveLength(0)
+    expect(await ui.findAll({ type: 'Text', text: /^Projects$/ })).toHaveLength(1)
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:projects' })
+    expect(await marker('projects')).toBe('▸')
+    // A folded heading keeps its title, count and needs-you count.
+    expect(await has('Projects')).toBe(true)
+    expect(await has('3')).toBe(true)
+    expect(await has('1 need you')).toBe(true)
     expect(await has('Agents')).toBe(false)
     expect(await has('VDY-433')).toBe(false)
-    expect(await has('skills#21')).toBe(true)
-    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
+    expect(await has('VDY-381')).toBe(true)
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:projects' })
     expect(await has('VDY-433')).toBe(true)
-    expect(await marker()).toBe('▾')
+    expect(await marker('projects')).toBe('▾')
 
-    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery:Agents' })
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:project:Agents' })
     expect(await has('Agents')).toBe(true)
     expect(await has('VDY-423')).toBe(false)
     expect(await has('VDY-433')).toBe(true)
-    await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery:Agents' })
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:project:Agents' })
     expect(await has('VDY-423')).toBe(true)
+
+    for (const key of ['team:Value Discovery', 'repo:ryan953/skills:direct:author:human', 'other']) {
+      await $.ui.press({ plugin: 'taskboard', key: `fold:${key}` })
+    }
+    expect(await has('VDY-381')).toBe(false)
+    expect(await has('skills#21')).toBe(false)
+    expect(await has('local_1')).toBe(false)
+    for (const key of ['team:Value Discovery', 'repo:ryan953/skills:direct:author:human', 'other']) {
+      await $.ui.press({ plugin: 'taskboard', key: `fold:${key}` })
+    }
+    expect(await has('skills#21')).toBe(true)
     await ui.unmount()
   }
 })

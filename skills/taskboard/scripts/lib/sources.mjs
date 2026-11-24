@@ -21,8 +21,9 @@ const WATCH = new RegExp(process.env.TASKBOARD_WATCH ?? 'onboarding|agent[_-]?ha
 
 const PR_FIELDS = `
   number title url state isDraft updatedAt headRefName body
-  author { login }
+  author { login __typename }
   repository { nameWithOwner isArchived }
+  reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on Team { combinedSlug } } } }
   reviewDecision
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   files(first: 100) { nodes { path } }
@@ -44,7 +45,14 @@ async function searchPrs(q) {
   return data.search.nodes.filter(n => n?.number && !n.repository.isArchived);
 }
 
-function prItem(node, me, roles, teams) {
+// The requested teams that you are in. With no team list (missing org scope), every requested team counts.
+function reviewTeams(node, myTeams) {
+  const asked = (node.reviewRequests?.nodes ?? []).map(r => r.requestedReviewer).filter(r => r?.__typename === 'Team').map(r => r.combinedSlug);
+  const mine = myTeams?.size ? asked.filter(t => myTeams.has(t)) : asked;
+  return mine.map(t => t.split('/').pop());
+}
+
+export function prItem(node, me, roles, teams, myTeams = null) {
   const repo = node.repository.nameWithOwner;
   const author = (node.author?.login ?? 'ghost').replace(/\[bot\]$/, '');
   const status = node.state === 'MERGED' ? 'merged' : node.state === 'CLOSED' ? 'closed' : node.isDraft ? 'draft' : 'open';
@@ -73,6 +81,8 @@ function prItem(node, me, roles, teams) {
       repo,
       number: node.number,
       author,
+      isBot: node.author?.__typename === 'Bot',
+      reviewTeams: reviewTeams(node, myTeams),
       branch: node.headRefName,
       draft: node.isDraft,
       review: node.reviewDecision,
@@ -82,8 +92,18 @@ function prItem(node, me, roles, teams) {
   };
 }
 
+async function myGithubTeams(me) {
+  try {
+    const data = await gql(`query { viewer { organizations(first: 50) { nodes { teams(first: 100, userLogins: [${JSON.stringify(me)}]) { nodes { combinedSlug } } } } } }`);
+    return new Set(data.viewer.organizations.nodes.flatMap(o => o.teams.nodes.map(t => t.combinedSlug)));
+  } catch {
+    return new Set();
+  }
+}
+
 export async function fetchGithub(teams) {
   const me = (await run('gh', ['api', 'user', '--jq', '.login'])).stdout.trim();
+  const myTeams = await myGithubTeams(me);
   const queries = [
     ['author', `is:pr is:open author:${me}`],
     ['review', `is:pr is:open review-requested:${me}`],
@@ -100,7 +120,7 @@ export async function fetchGithub(teams) {
       byKey.set(key, {node: n, roles: [...(prev?.roles ?? []), ...(role === 'author' ? [] : [role])]});
     }
   }
-  return {me, items: [...byKey.values()].map(({node, roles}) => prItem(node, me, roles, teams))};
+  return {me, myTeams: [...myTeams], items: [...byKey.values()].map(({node, roles}) => prItem(node, me, roles, teams, myTeams))};
 }
 
 // Review detail is heavy (threads, every check run), so it is fetched only for open PRs,
@@ -183,7 +203,7 @@ export async function fetchPrDetail(keys, me) {
   return out;
 }
 
-export async function resolvePrs(keys, me, teams) {
+export async function resolvePrs(keys, me, teams, myTeams = null) {
   if (!keys.length) return [];
   const out = [];
   for (let i = 0; i < keys.length; i += 40) {
@@ -209,7 +229,7 @@ export async function resolvePrs(keys, me, teams) {
     }
     for (const [j] of chunk.entries()) {
       const node = data?.[`p${j}`]?.pullRequest;
-      if (node && !node.repository.isArchived) out.push(prItem(node, me, ['ref'], teams));
+      if (node && !node.repository.isArchived) out.push(prItem(node, me, ['ref'], teams, myTeams));
     }
   }
   return out;
@@ -265,6 +285,15 @@ export async function fetchLinear() {
   const byKey = new Map();
   for (const n of [...data.viewer.assignedIssues.nodes, ...data.viewer.createdIssues.nodes]) byKey.set(n.identifier, n);
   return [...byKey.values()].map(linearItem);
+}
+
+// Projects you lead or are a member of, so one with no ticket of yours still shows on the board.
+export async function fetchLinearProjects() {
+  const data = await linearApi(`query { projects(first: 100, filter: {
+    or: [{ lead: { isMe: { eq: true } } }, { members: { some: { isMe: { eq: true } } } }],
+    state: { nin: ["completed", "canceled"] }
+  }) { nodes { id name url } } }`);
+  return data.projects.nodes.map(p => ({id: p.id, name: p.name, url: p.url}));
 }
 
 export async function resolveLinear(ids) {

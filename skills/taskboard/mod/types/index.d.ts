@@ -1,6 +1,6 @@
 export type BoardAction = { type: string; item: string; reason: string | null }
 
-export type BoardPr = { key: string; label: string; url: string; detail: string | null; headAt: string | null }
+export type BoardPr = { key: string; label: string; title: string; url: string; detail: string | null; headAt: string | null }
 
 export type Progress = { done: number; total: number }
 
@@ -23,7 +23,19 @@ export type BoardTree = {
   moreSiblings: number
 }
 
-export type BoardGroup = { kind: 'team'; team: string; project: string | null } | { kind: 'repo'; repo: string } | { kind: 'other' }
+// One heading in the board's tree. `tasks` are ids in Board.tasks; `prs` are lone PRs that are not tasks.
+// `folded` is the default; the pane keeps the keys the user flipped.
+export type BoardNode = {
+  key: string
+  title: string
+  url: string | null
+  folded: boolean
+  count: number
+  needsYou: number
+  children: BoardNode[]
+  tasks: string[]
+  prs: BoardPr[]
+}
 
 export type BoardTask = {
   id: string
@@ -32,7 +44,6 @@ export type BoardTask = {
   kind: string
   owner: string | null
   url: string | null
-  group: BoardGroup
   parts: string
   actions: BoardAction[]
   prs: BoardPr[]
@@ -52,6 +63,7 @@ export type Board = {
     backlog: number
   }
   tasks: BoardTask[]
+  sections: BoardNode[]
 }
 
 export type Worker = {

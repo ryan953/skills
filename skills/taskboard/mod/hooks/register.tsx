@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, ThemeSetArgs } from 'claude-code'
 
-import type { Board, BoardTask, Overview, OverviewNode, Progress, TreeNode, Worker } from '../types'
+import type { Board, BoardNode, BoardPr, BoardTask, Overview, OverviewNode, Progress, TreeNode, Worker } from '../types'
 
 const PANE = 'taskboard'
 const OVERVIEW = 'taskboard-overview'
@@ -11,7 +11,6 @@ const COMMENT_LIMIT = 1500
 const SYNC_EVERY_MS = 10 * 60 * 1000
 // Worker state is local files only, so it can refresh far more often than the full sync.
 const WORKERS_EVERY_MS = 60 * 1000
-const STAGES = ['needs-you', 'follow-up', 'merge', 'iterate', 'review', 'fix', 'validate', 'verify', 'adhoc']
 // Stages where the next move is the user's; dispatch would only answer "ask the user".
 const NO_DISPATCH = new Set(['needs-you', 'merge'])
 const STAGE_LABEL: Record<string, string> = {
@@ -29,15 +28,16 @@ const STAGE_LABEL: Record<string, string> = {
 const STAGE_COLOR: Record<string, string | undefined> = { 'needs-you': 'warning', 'follow-up': 'warning', merge: 'success' }
 // Percent widths leave room for the column gap.
 const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
-// Each level under a heading starts this many cells further in, so team > project > card reads as a tree.
+// Each level under a heading starts this many cells further in, so the tree reads as one.
 const INDENT = 2
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-6' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-7' })
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
-// Section and project keys folded in the pane. Every section starts open, so a new team or repo is never hidden.
+// Heading keys the user flipped from their default fold. Each node says whether it starts folded
+// (team review does), so a new team or repo still opens or folds the way its kind does.
 const folded = atom({ plugin: 'taskboard', key: 'folded' } as const, [] as string[])
 const overview = atom({ plugin: 'taskboard', key: 'overview' } as const, null, { shape: 'overview-1' })
 const overviewState = atom({ plugin: 'taskboard', key: 'overviewState' } as const, { id: null, isLoading: false, error: null })
@@ -91,47 +91,6 @@ async function enabledSessions($: EngineInterface): Promise<string[]> {
 }
 
 const pct = (p: Progress | null) => (p ? `${p.done} of ${p.total} done` : '')
-
-type Section = { key: string; title: string; projects: { key: string; title: string | null; tasks: BoardTask[] }[] }
-
-const NO_PROJECT = 'No project'
-const byName = (a: string, b: string) => a.localeCompare(b)
-
-// Teams first, then repos for PRs with no ticket, then the rest. Names sort alphabetically so a
-// section stays put between syncs; each card carries its stage instead, sorted by urgency inside a group.
-function sections(tasks: BoardTask[]): Section[] {
-  const stageRank = (t: BoardTask) => STAGES.indexOf(t.stage)
-  const sorted = [...tasks].sort((a, b) => stageRank(a) - stageRank(b))
-  const teams = new Map<string, Map<string, BoardTask[]>>()
-  const repos = new Map<string, BoardTask[]>()
-  const other: BoardTask[] = []
-  for (const t of sorted) {
-    const g = t.group
-    if (g.kind === 'team') {
-      const projects = teams.get(g.team) ?? new Map<string, BoardTask[]>()
-      teams.set(g.team, projects)
-      const name = g.project ?? NO_PROJECT
-      projects.set(name, [...(projects.get(name) ?? []), t])
-    } else if (g.kind === 'repo') repos.set(g.repo, [...(repos.get(g.repo) ?? []), t])
-    else other.push(t)
-  }
-  const projectOrder = (a: string, b: string) => (a === NO_PROJECT ? 1 : b === NO_PROJECT ? -1 : byName(a, b))
-  return [
-    ...[...teams.keys()].sort(byName).map(team => {
-      const projects = teams.get(team)!
-      const names = [...projects.keys()].sort(projectOrder)
-      // A team whose tickets have no project needs no project heading.
-      const solo = names.length === 1 && names[0] === NO_PROJECT
-      return {
-        key: `team:${team}`,
-        title: team,
-        projects: names.map(name => ({ key: `team:${team}:${name}`, title: solo ? null : name, tasks: projects.get(name)! })),
-      }
-    }),
-    ...[...repos.keys()].sort(byName).map(repo => ({ key: `repo:${repo}`, title: repo, projects: [{ key: `repo:${repo}`, title: null, tasks: repos.get(repo)! }] })),
-    ...(other.length ? [{ key: 'other', title: 'Other', projects: [{ key: 'other', title: null, tasks: other }] }] : []),
-  ]
-}
 
 const VERB: Record<string, string> = { validate: 'Validating', review: 'Reviewing', verify: 'Verifying' }
 
@@ -369,6 +328,18 @@ export const register: Register = on => {
       )
     }
 
+    // A task's PRs show inside its card; a lone PR (no task) shows its title too.
+    const prLine = (p: BoardPr, kind: 'pr' | 'queue') => (
+      <Box key={`${kind}:${p.key}`} flexDirection="column">
+        <Box gap={1} alignItems="center">
+          <Link href={p.url} label={p.label} />
+          {kind === 'queue' && <Text wrap="truncate-end">{p.title}</Text>}
+          {p.headAt && now - Date.parse(p.headAt) < 60 * 60_000 && <Text color="success" size="caption">pushed {ago(p.headAt, now)} ago</Text>}
+        </Box>
+        {p.detail && <Text dimColor size="caption">{p.detail}</Text>}
+      </Box>
+    )
+
     const card = (t: BoardTask) => {
       const w = ws.find(x => x.task === t.id)
       const accent = STAGE_COLOR[t.stage]
@@ -402,21 +373,7 @@ export const register: Register = on => {
             .map(a => (
               <Text key={`follow:${t.id}:${a.item}`} color="warning">Left to do: {a.reason}</Text>
             ))}
-          {t.prs.some(p => p.detail) && (
-            <Box flexDirection="column">
-              {t.prs
-                .filter(p => p.detail)
-                .map(p => (
-                  <Box key={`pr:${p.key}`} flexDirection="column">
-                    <Box gap={1}>
-                      <Link href={p.url} label={p.label} />
-                      {p.headAt && now - Date.parse(p.headAt) < 60 * 60_000 && <Text color="success" size="caption">pushed {ago(p.headAt, now)} ago</Text>}
-                    </Box>
-                    <Text dimColor size="caption">{p.detail}</Text>
-                  </Box>
-                ))}
-            </Box>
-          )}
+          {t.prs.length > 0 && <Box flexDirection="column">{t.prs.map(p => prLine(p, 'pr'))}</Box>}
           {tree(t)}
           <Box flexDirection="column">
             <Text dimColor size="caption" wrap="truncate-end">{t.parts}</Text>
@@ -431,24 +388,43 @@ export const register: Register = on => {
     }
 
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
+    const byId = new Map(b.tasks.map(t => [t.id, t]))
+    const isShut = (n: BoardNode) => n.folded !== shut.has(n.key)
     // A desktop draws every Button as a native button showing its label, so only the marker is one
-    // and its label is the glyph alone; the title beside it is plain text.
-    const heading = (key: string, title: string, count: number, size: 'heading' | 'body') => {
-      const isShut = shut.has(key)
-      return (
-        <Box gap={1} alignItems="center">
-          <Button
-            key={`fold:${key}`}
-            plain
-            dimColor
-            label={isShut ? '▸' : '▾'}
-            onPress={() => update($, folded, keys => (keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]))}
-          />
-          <Text size={size} weight="semibold">{title}</Text>
-          <Text dimColor size="caption" tabular>{count}</Text>
-        </Box>
-      )
-    }
+    // and its label is the glyph alone; the title beside it is plain text. The needs-you count
+    // shows even when folded, so a folded group cannot hide a task that waits for the user.
+    const heading = (n: BoardNode, depth: number) => (
+      <Box key={`head:${n.key}`} gap={1} alignItems="center">
+        <Button
+          key={`fold:${n.key}`}
+          plain
+          dimColor
+          label={isShut(n) ? '▸' : '▾'}
+          onPress={() => update($, folded, keys => (keys.includes(n.key) ? keys.filter(k => k !== n.key) : [...keys, n.key]))}
+        />
+        <Text size={depth === 0 ? 'heading' : 'body'} weight="semibold">{n.title}</Text>
+        <Text dimColor size="caption" tabular>{n.count}</Text>
+        {n.needsYou > 0 && <Text color="warning" size="caption">{n.needsYou} need you</Text>}
+        {n.url && <Link href={n.url} label="Open project" />}
+      </Box>
+    )
+    const branch = (n: BoardNode, depth: number): JSX.Element => (
+      <Box key={n.key} flexDirection="column" gap={1}>
+        {heading(n, depth)}
+        {!isShut(n) && (
+          <Box flexDirection="column" gap={1} paddingLeft={INDENT}>
+            {n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
+            {n.tasks.length > 0 && (
+              <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                {n.tasks.flatMap(id => byId.get(id) ?? []).map(card)}
+              </Box>
+            )}
+            {n.prs.length > 0 && <Box flexDirection="column" gap={1}>{n.prs.map(p => prLine(p, 'queue'))}</Box>}
+            {n.children.map(c => branch(c, depth + 1))}
+          </Box>
+        )}
+      </Box>
+    )
 
     return (
       <Box flexDirection="column" gap={2} paddingX={1} paddingY={1}>
@@ -472,25 +448,7 @@ export const register: Register = on => {
           </Text>
           {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
         </Box>
-        {sections(b.tasks).map(sec => (
-          <Box key={sec.key} flexDirection="column" gap={1}>
-            {heading(sec.key, sec.title, sec.projects.reduce((n, p) => n + p.tasks.length, 0), 'heading')}
-            {!shut.has(sec.key) && (
-              <Box flexDirection="column" gap={1} paddingLeft={INDENT}>
-                {sec.projects.map(p => (
-                  <Box key={p.key} flexDirection="column" gap={1}>
-                    {p.title && heading(p.key, p.title, p.tasks.length, 'body')}
-                    {!(p.title && shut.has(p.key)) && (
-                      <Box flexWrap="wrap" columnGap={2} rowGap={1} paddingLeft={p.title ? INDENT : 0}>
-                        {p.tasks.map(card)}
-                      </Box>
-                    )}
-                  </Box>
-                ))}
-              </Box>
-            )}
-          </Box>
-        ))}
+        {b.sections.map(sec => branch(sec, 0))}
       </Box>
     )
   })
