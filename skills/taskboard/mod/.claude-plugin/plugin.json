@@ -1,0 +1,6 @@
+{
+  "name": "taskboard",
+  "version": "0.1.0",
+  "description": "Taskboard pane and band: tasks by stage, synced every 10 minutes without model tokens",
+  "types": "./types/index.d.ts"
+}
