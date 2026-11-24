@@ -294,7 +294,12 @@ test('a section or project heading folds its cards and unfolds them again, on ev
     expect(await has('▾')).toBe(true)
     expect(await has('▸')).toBe(false)
 
+    const label = async () => (await ui.find({ type: 'Button', key: 'fold:team:Value Discovery' }))?.props.label
+    // The heading row's own text names the control; folding changes only the marker.
+    expect(await label()).toBe('▾ Value Discovery 4')
+
     await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
+    expect(await label()).toBe('▸ Value Discovery 4')
     // A folded section keeps its heading and count; its projects and cards are gone, other sections stay.
     expect(await has('Value Discovery')).toBe(true)
     expect(await has('4')).toBe(true)

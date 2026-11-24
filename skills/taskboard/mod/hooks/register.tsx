@@ -429,14 +429,14 @@ export const register: Register = on => {
     }
 
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
-    // The whole heading row is one press target, so a fold is one click or one Enter.
+    // The whole heading row is one press target, as a <summary> is. With no label the row's own
+    // text names it, so only the marker changes when it folds.
     const heading = (key: string, title: string, count: number, size?: 'heading') => {
       const isShut = shut.has(key)
       return (
         <Button
           key={`fold:${key}`}
           plain
-          label={`${isShut ? 'Unfold' : 'Fold'} ${title}`}
           onPress={() => update($, folded, keys => (keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]))}
         >
           <Text dimColor>{isShut ? '▸' : '▾'}</Text> <Text size={size} weight="semibold">{title}</Text> <Text dimColor tabular>{count}</Text>
