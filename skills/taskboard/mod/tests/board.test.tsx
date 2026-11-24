@@ -427,3 +427,53 @@ test('every heading folds its rows and unfolds them again, and a folded heading 
     await ui.unmount()
   }
 })
+
+test('stage filters add up, All others is their inverse, and All clears them', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
+    const chip = async (f: string) => (await ui.find({ type: 'Button', key: `filter:${f}` }))?.props
+    const press = (f: string) => $.ui.press({ plugin: 'taskboard', key: `filter:${f}` })
+
+    expect((await chip('needs-you'))?.label).toBe('Needs you 1')
+    expect((await chip('follow-up'))?.label).toBe('Follow-up 1')
+    expect((await chip('merge'))?.label).toBe('Ready to merge 0')
+    expect((await chip('others'))?.label).toMatch(/^All others \d+$/)
+    expect((await chip('all'))?.variant).toBe('primary')
+
+    await press('needs-you')
+    expect((await chip('needs-you'))?.variant).toBe('primary')
+    expect((await chip('all'))?.variant).toBeUndefined()
+    expect(await has('VDY-432')).toBe(true)
+    expect(await has('VDY-433')).toBe(false)
+    expect(await has('VDY-381')).toBe(false)
+    // A group with nothing left in it is gone, heading and all.
+    expect(await has('Other')).toBe(false)
+
+    await press('follow-up')
+    expect(await has('VDY-432')).toBe(true)
+    expect(await has('VDY-381')).toBe(true)
+    expect(await has('VDY-433')).toBe(false)
+
+    await press('all')
+    expect(await has('VDY-433')).toBe(true)
+    expect((await chip('all'))?.variant).toBe('primary')
+
+    await press('others')
+    expect(await has('VDY-433')).toBe(true)
+    expect(await has('VDY-423')).toBe(true)
+    expect(await has('local_1')).toBe(true)
+    expect(await has('VDY-432')).toBe(false)
+    expect(await has('VDY-381')).toBe(false)
+    // Lone PRs have no stage, so they count as others.
+    expect(await has('Team review')).toBe(true)
+
+    await press('others')
+    await press('merge')
+    expect(await has('Nothing matches these filters.')).toBe(true)
+    await press('all')
+    await ui.unmount()
+  }
+})

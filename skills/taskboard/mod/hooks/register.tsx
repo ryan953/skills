@@ -26,6 +26,9 @@ const STAGE_LABEL: Record<string, string> = {
 }
 // Only the stages that ask for the user get a colored border; the rest stay quiet.
 const STAGE_COLOR: Record<string, string | undefined> = { 'needs-you': 'warning', 'follow-up': 'warning', merge: 'success' }
+// The stages that ask for the user each get a filter; 'others' is the inverse, lone PRs included.
+const FILTERS = ['needs-you', 'follow-up', 'merge']
+const OTHERS = 'others'
 // Percent widths leave room for the column gap.
 const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
 // Each level under a heading starts this many cells further in, so the tree reads as one.
@@ -39,6 +42,8 @@ const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as s
 // Heading keys the user flipped from their default fold. Each node says whether it starts folded
 // (team review does), so a new team or repo still opens or folds the way its kind does.
 const folded = atom({ plugin: 'taskboard', key: 'folded' } as const, [] as string[])
+// Filters picked in the pane; none picked shows everything.
+const filter = atom({ plugin: 'taskboard', key: 'filter' } as const, [] as string[])
 const overview = atom({ plugin: 'taskboard', key: 'overview' } as const, null, { shape: 'overview-1' })
 const overviewState = atom({ plugin: 'taskboard', key: 'overviewState' } as const, { id: null, isLoading: false, error: null })
 const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
@@ -267,6 +272,7 @@ export const register: Register = on => {
     const ws = await read($, workers)
     const open = new Set(await read($, expanded))
     const shut = new Set(await read($, folded))
+    const picked = new Set(await read($, filter))
     const now = await $.clock.now()
     const { Box, Button, Link, Text } = $.ui.resolve(e)
 
@@ -390,6 +396,20 @@ export const register: Register = on => {
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
     const byId = new Map(b.tasks.map(t => [t.id, t]))
     const isShut = (n: BoardNode) => n.folded !== shut.has(n.key)
+    // Filters add up: a task shows when any picked filter takes it.
+    const isFiltered = picked.size > 0
+    const keeps = (stage: string) => !isFiltered || picked.has(stage) || (picked.has(OTHERS) && !FILTERS.includes(stage))
+    const tasksOf = (n: BoardNode) => n.tasks.flatMap(id => byId.get(id) ?? []).filter(t => keeps(t.stage))
+    const prsOf = (n: BoardNode) => (!isFiltered || picked.has(OTHERS) ? n.prs : [])
+    const shown = (n: BoardNode): number => tasksOf(n).length + prsOf(n).length + n.children.reduce((k, c) => k + shown(c), 0)
+    const lonePrs = new Set<string>()
+    const walk = (n: BoardNode) => {
+      for (const p of n.prs) lonePrs.add(p.key)
+      n.children.forEach(walk)
+    }
+    b.sections.forEach(walk)
+    const filterCount = (f: string) =>
+      f === OTHERS ? b.tasks.filter(t => !FILTERS.includes(t.stage)).length + lonePrs.size : b.tasks.filter(t => t.stage === f).length
     // A desktop draws every Button as a native button showing its label, so only the marker is one
     // and its label is the glyph alone; the title beside it is plain text. Button has no size, so
     // the full-size triangles and the terminal's bracketed form make the target bigger. The
@@ -402,33 +422,39 @@ export const register: Register = on => {
           onPress={() => update($, folded, keys => (keys.includes(n.key) ? keys.filter(k => k !== n.key) : [...keys, n.key]))}
         />
         <Text size={depth === 0 ? 'heading' : 'body'} weight="semibold">{n.title}</Text>
-        <Text dimColor size="caption" tabular>{n.count}</Text>
+        <Text dimColor size="caption" tabular>{isFiltered ? shown(n) : n.count}</Text>
         {n.needsYou > 0 && <Text color="warning" size="caption">{n.needsYou} need you</Text>}
         {n.url && <Link href={n.url} label="Open project" />}
       </Box>
     )
-    const branch = (n: BoardNode, depth: number): JSX.Element => (
-      <Box key={n.key} flexDirection="column" gap={1}>
-        {heading(n, depth)}
-        {!isShut(n) && (
-          // The kit has no one-sided border, so the rail is a one-cell Box that the row stretches
-          // to the height of what the heading holds.
-          <Box gap={INDENT - 1}>
-            <Box key={`rail:${n.key}`} width={1} flexShrink={0} backgroundColor="subtle" />
-            <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
-              {n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
-              {n.tasks.length > 0 && (
-                <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-                  {n.tasks.flatMap(id => byId.get(id) ?? []).map(card)}
-                </Box>
-              )}
-              {n.prs.length > 0 && <Box flexDirection="column" gap={1}>{n.prs.map(p => prLine(p, 'queue'))}</Box>}
-              {n.children.map(c => branch(c, depth + 1))}
+    // A group with nothing the filter keeps is left out, heading and all.
+    const branch = (n: BoardNode, depth: number): JSX.Element | null => {
+      if (isFiltered && shown(n) === 0) return null
+      const tasks = tasksOf(n)
+      const prs = prsOf(n)
+      return (
+        <Box key={n.key} flexDirection="column" gap={1}>
+          {heading(n, depth)}
+          {!isShut(n) && (
+            // The kit has no one-sided border, so the rail is a one-cell Box that the row stretches
+            // to the height of what the heading holds.
+            <Box gap={INDENT - 1}>
+              <Box key={`rail:${n.key}`} width={1} flexShrink={0} backgroundColor="subtle" />
+              <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
+                {!isFiltered && n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
+                {tasks.length > 0 && (
+                  <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                    {tasks.map(card)}
+                  </Box>
+                )}
+                {prs.length > 0 && <Box flexDirection="column" gap={1}>{prs.map(p => prLine(p, 'queue'))}</Box>}
+                {n.children.map(c => branch(c, depth + 1))}
+              </Box>
             </Box>
-          </Box>
-        )}
-      </Box>
-    )
+          )}
+        </Box>
+      )
+    }
 
     return (
       <Box flexDirection="column" gap={2} paddingX={1} paddingY={1}>
@@ -451,8 +477,20 @@ export const register: Register = on => {
             {b.counts.open} open · {b.counts.queue} in review queue · {b.counts.backlog} filed, unlinked
           </Text>
           {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
+          <Box gap={1} flexWrap="wrap" alignItems="center">
+            <Button key="filter:all" label="All" variant={isFiltered ? undefined : 'primary'} onPress={() => update($, filter, () => [])} />
+            {[...FILTERS, OTHERS].map(f => (
+              <Button
+                key={`filter:${f}`}
+                label={`${f === OTHERS ? 'All others' : STAGE_LABEL[f]} ${filterCount(f)}`}
+                variant={picked.has(f) ? 'primary' : undefined}
+                onPress={() => update($, filter, fs => (fs.includes(f) ? fs.filter(x => x !== f) : [...fs, f]))}
+              />
+            ))}
+          </Box>
         </Box>
         {b.sections.map(sec => branch(sec, 0))}
+        {isFiltered && b.sections.every(sec => shown(sec) === 0) && <Text dimColor>Nothing matches these filters.</Text>}
       </Box>
     )
   })
