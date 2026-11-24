@@ -29,6 +29,8 @@ const STAGE_LABEL: Record<string, string> = {
 const STAGE_COLOR: Record<string, string | undefined> = { 'needs-you': 'warning', 'follow-up': 'warning', merge: 'success' }
 // Percent widths leave room for the column gap.
 const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
+// Each level under a heading starts this many cells further in, so team > project > card reads as a tree.
+const INDENT = 2
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
 const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-6' })
@@ -429,18 +431,24 @@ export const register: Register = on => {
     }
 
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
-    // The whole heading row is one press target, as a <summary> is. With no label the row's own
-    // text names it, so only the marker changes when it folds.
-    const heading = (key: string, title: string, count: number, size?: 'heading') => {
+    // A desktop draws every Button as a native button, so only the marker is one and the title
+    // stays plain text. The label names the marker by the title, so it reads the same folded or not.
+    const heading = (key: string, title: string, count: number, size: 'heading' | 'body') => {
       const isShut = shut.has(key)
       return (
-        <Button
-          key={`fold:${key}`}
-          plain
-          onPress={() => update($, folded, keys => (keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]))}
-        >
-          <Text dimColor>{isShut ? '▸' : '▾'}</Text> <Text size={size} weight="semibold">{title}</Text> <Text dimColor tabular>{count}</Text>
-        </Button>
+        <Box gap={1} alignItems="center">
+          <Button
+            key={`fold:${key}`}
+            plain
+            dimColor
+            label={title}
+            onPress={() => update($, folded, keys => (keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]))}
+          >
+            {isShut ? '▸' : '▾'}
+          </Button>
+          <Text size={size} weight="semibold">{title}</Text>
+          <Text dimColor size="caption" tabular>{count}</Text>
+        </Box>
       )
     }
 
@@ -469,17 +477,20 @@ export const register: Register = on => {
         {sections(b.tasks).map(sec => (
           <Box key={sec.key} flexDirection="column" gap={1}>
             {heading(sec.key, sec.title, sec.projects.reduce((n, p) => n + p.tasks.length, 0), 'heading')}
-            {!shut.has(sec.key) &&
-              sec.projects.map(p => (
-                <Box key={p.key} flexDirection="column" gap={1}>
-                  {p.title && heading(p.key, p.title, p.tasks.length)}
-                  {!(p.title && shut.has(p.key)) && (
-                    <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-                      {p.tasks.map(card)}
-                    </Box>
-                  )}
-                </Box>
-              ))}
+            {!shut.has(sec.key) && (
+              <Box flexDirection="column" gap={1} paddingLeft={INDENT}>
+                {sec.projects.map(p => (
+                  <Box key={p.key} flexDirection="column" gap={1}>
+                    {p.title && heading(p.key, p.title, p.tasks.length, 'body')}
+                    {!(p.title && shut.has(p.key)) && (
+                      <Box flexWrap="wrap" columnGap={2} rowGap={1} paddingLeft={p.title ? INDENT : 0}>
+                        {p.tasks.map(card)}
+                      </Box>
+                    )}
+                  </Box>
+                ))}
+              </Box>
+            )}
           </Box>
         ))}
       </Box>

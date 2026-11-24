@@ -291,25 +291,24 @@ test('a section or project heading folds its cards and unfolds them again, on ev
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
-    expect(await has('▾')).toBe(true)
-    expect(await has('▸')).toBe(false)
-
-    const label = async () => (await ui.find({ type: 'Button', key: 'fold:team:Value Discovery' }))?.props.label
-    // The heading row's own text names the control; folding changes only the marker.
-    expect(await label()).toBe('▾ Value Discovery 4')
+    const marker = async () => {
+      const b = await ui.find({ type: 'Button', key: 'fold:team:Value Discovery' })
+      return { glyph: b?.text, label: b?.props.label }
+    }
+    // The marker is the only control; it is named by the title, folded or not.
+    expect(await marker()).toEqual({ glyph: '▾', label: 'Value Discovery' })
 
     await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
-    expect(await label()).toBe('▸ Value Discovery 4')
+    expect(await marker()).toEqual({ glyph: '▸', label: 'Value Discovery' })
     // A folded section keeps its heading and count; its projects and cards are gone, other sections stay.
     expect(await has('Value Discovery')).toBe(true)
     expect(await has('4')).toBe(true)
-    expect(await has('▸')).toBe(true)
     expect(await has('Agents')).toBe(false)
     expect(await has('VDY-433')).toBe(false)
     expect(await has('skills#21')).toBe(true)
     await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery' })
     expect(await has('VDY-433')).toBe(true)
-    expect(await has('▸')).toBe(false)
+    expect((await marker()).glyph).toBe('▾')
 
     await $.ui.press({ plugin: 'taskboard', key: 'fold:team:Value Discovery:Agents' })
     expect(await has('Agents')).toBe(true)
