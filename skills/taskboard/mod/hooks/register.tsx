@@ -81,19 +81,46 @@ const CLEANUP_BACKGROUND =
 
 // The backdrop tells the management session apart from the sessions it dispatches to at a glance.
 // Palette names, not raw colors, so each ground follows light and dark mode.
+// The manager gets a pattern, not a second wash: two washes in different hues read as one look,
+// while pinstripes read as another kind of session. It stays still because it sits beside hours of
+// work, and the stripes use the pale `bg-pro` so text over them stays readable.
+const MANAGER_GROUND: ThemeSetArgs = {
+  backdrop: {
+    vector: {
+      viewBox: 16,
+      size: [16, 16],
+      repeat: true,
+      paths: [
+        { d: 'M0 0H16V16H0Z', color: 'surface-0' },
+        // The two corner stubs carry each stripe across the tile seams.
+        { d: 'M0 16L16 0M-2 2L2 -2M14 18L18 14', strokeWidth: 2, color: 'bg-pro' },
+      ],
+    },
+  },
+}
+// On desktop the person's own messages get a violet frame too, so the marker shows even where
+// the transcript covers the backdrop. A build that refuses `style` refuses the whole set.
 const MANAGER_LOOK: ThemeSetArgs = {
-  backdrop: { gradient: { shape: 'radial', stops: [{ at: 0, color: 'bg-pro' }, { at: 0.7, color: 'surface-0' }] } },
+  ...MANAGER_GROUND,
+  style: { UserMessage: { backgroundColor: 'bg-user-message', borderColor: 'border-pro', borderWidth: 2 } },
 }
 const WORKER_LOOK: ThemeSetArgs = {
   backdrop: { gradient: { angle: 180, stops: [{ at: 0.6, color: 'surface-0' }, { at: 1, color: 'bg-accent' }] } },
 }
+// The status line is the one marker the terminal draws, since no surface there draws a look.
+const MANAGER_STATUS = '◆ Taskboard manager'
 
 async function applyLook($: EngineInterface, isManager: boolean) {
-  try {
-    await $.theme.set(isManager ? MANAGER_LOOK : WORKER_LOOK)
-  } catch (err) {
-    // A build or surface that refuses the look still gets a working board.
-    $.ui.log(`taskboard: backdrop not set: ${String((err as Error).message ?? err)}`)
+  $.ui.status(isManager ? MANAGER_STATUS : undefined)
+  const looks = isManager ? [MANAGER_LOOK, MANAGER_GROUND] : [WORKER_LOOK]
+  for (const look of looks) {
+    try {
+      await $.theme.set(look)
+      return
+    } catch (err) {
+      // A build or surface that refuses the look still gets a working board.
+      $.ui.log(`taskboard: look not set: ${String((err as Error).message ?? err)}`)
+    }
   }
 }
 
@@ -352,7 +379,8 @@ export const register: Register = on => {
     ].filter(Boolean)
     return (
       <Box gap={1}>
-        <Text color={b.counts.needsYou ? 'warning' : undefined}>taskboard: {parts.join(' · ') || 'nothing waiting'}</Text>
+        <Text color="merged" weight="semibold" inverse> Manager </Text>
+        <Text color={b.counts.needsYou ? 'warning' : undefined}>taskboard:{parts.join(' · ') || 'nothing waiting'}</Text>
         {oldest && (
           <Text color="success">
             {ws.length} {ws.length === 1 ? 'worker' : 'workers'} running · {ago(oldest, now)}

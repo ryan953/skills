@@ -191,11 +191,24 @@ const OVERVIEW_DATA = {
 
 type Run = { fail: boolean; board?: object; store?: Record<string, unknown> }
 
-function engine(on: any, calls: string[][], prompts: string[], run: Run = { fail: false }, sessions: string[] = ['cli-main'], looks: any[] = []) {
+function engine(
+  on: any,
+  calls: string[][],
+  prompts: string[],
+  run: Run = { fail: false },
+  sessions: string[] = ['cli-main'],
+  looks: any[] = [],
+  statuses: (string | undefined)[] = [],
+  theme = { refusesStyle: false },
+) {
   mock.store(on, { enabledSessions: sessions, ...run.store })
   on('theme.set', (_: unknown, e: any) => {
     looks.push(e)
-    return { value: { isDrawn: true, requestId: 'theme' } }
+    return theme.refusesStyle && e.style ? { deny: 'style is not supported' } : { value: { isDrawn: true, requestId: 'theme' } }
+  })
+  on('ui.status', (_: unknown, e: any) => {
+    statuses.push(e.text)
+    return { value: undefined }
   })
   on('session.id', () => ({ value: 'cli-main' }))
   // Refusing the first period ends the interval, so no timer runs in a test.
@@ -474,6 +487,44 @@ test('the manager session and the other sessions get different backdrops', async
   const [worker, manager, back] = looks.map(l => JSON.stringify(l.backdrop))
   expect(manager).not.toBe(worker)
   expect(back).toBe(worker)
+})
+
+test('a manager session is marked by a striped ground, a message frame, a status line and a band badge', async ($, on) => {
+  const looks: any[] = []
+  const statuses: (string | undefined)[] = []
+  engine(on, [], [], { fail: false }, [], looks, statuses)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(statuses).toEqual([undefined])
+
+  await $.command.run({ command: 'board', args: 'on', ...TYPED })
+  const manager = looks.at(-1)
+  // A still, tiled pattern in palette names, so it follows light and dark mode.
+  expect(manager.backdrop.vector.repeat).toBe(true)
+  expect(manager.backdrop.gradient).toBeUndefined()
+  const colors = manager.backdrop.vector.paths.map((p: any) => p.color)
+  expect(colors).toEqual(['surface-0', 'bg-pro'])
+  expect(manager.style.UserMessage.borderColor).toBe('border-pro')
+  expect(statuses.at(-1)).toBe('◆ Taskboard manager')
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const band = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface } as any)
+    const texts = (await band.findAll({ type: 'Text' })).map(t => t.text)
+    expect(texts[0]).toBe(' Manager ')
+    expect(texts[1]).toMatch(/^taskboard:/)
+    await band.unmount()
+  }
+
+  await $.command.run({ command: 'board', args: 'off', ...TYPED })
+  expect(statuses.at(-1)).toBeUndefined()
+  expect(looks.at(-1).style).toBeUndefined()
+})
+
+test('a build that refuses the message style still gets the striped ground', async ($, on) => {
+  const looks: any[] = []
+  engine(on, [], [], { fail: false }, ['cli-main'], looks, [], { refusesStyle: true })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(looks.map(l => Boolean(l.style))).toEqual([true, false])
+  expect(looks.at(-1).backdrop.vector.repeat).toBe(true)
 })
 
 test('the tree draws on every surface, narrow and wide', async ($, on) => {

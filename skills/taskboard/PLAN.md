@@ -137,3 +137,56 @@ In the mock, a ticket showed "Planned" while an agent was "Implementing" it.
 ### Decisions recorded with phase 8
 
 - The managers list holds only sessions that manage the board. A session that changes into a worker is removed from it (2026-11-24: `local_870120ee` was removed, the newest "Taskboard" session was added).
+
+## Phase 9: the management session
+
+The user's ask (2026-11-24): mark the management session clearly, and make it a manager and delegator. Tasks are forked or spawned from it, and it moves them forward. **The manager makes sure that each question is considered and each step is done. It does not judge the quality of the work.**
+
+### 9.1 Marker (built 2026-11-24)
+
+- Desktop: a still, tiled pinstripe ground (`vector`, `surface-0` with `bg-pro` stripes) in place of the radial glow, and a violet `border-pro` frame on the user's messages (`style.UserMessage`). A build that refuses `style` gets the ground alone. Workers keep the faint blue wash.
+- Every surface: the status line `◆ Taskboard manager` (`$.ui.status`), cleared by `/board off`, and an inverse **Manager** badge first in the band.
+- Not done: the session title. A mod sets a title only through the classic `SessionStart` or `UserPromptSubmit` `sessionTitle`, and it is not known whether the desktop sidebar shows it. `/board on` runs no model turn, so it cannot call `set_session_title`.
+
+### 9.2 Manager behavior: options
+
+| | Agent definition (`agents/manager.md`) | `prompt.compose` section from the mod | Skill (`taskboard` gets a "Manage" section) |
+|---|---|---|---|
+| Turns on | only at session start (`--agent`, `agentType`); the desktop Code tab has no picker for a running session | at `/board on`, off at `/board off`, in that session only | when the model loads the skill: on a `/taskboard` command or a match on its description |
+| Always in force | yes | yes | no: it leaves the context at compaction, and a turn that does not load it does not follow it |
+| Cost | its prompt replaces the whole system prompt, so it loses Claude Code's own sections unless it copies them | one short `session` section after the cache boundary; one cache miss at each on and off | nothing until it is loaded |
+| Fits what exists | no: the session already exists when `/board on` runs | yes: same switch as the band, backdrop and timers | yes: dispatch, `assign`, ask-before-archive and `workers` are already there |
+
+**Recommendation: `prompt.compose` plus the skill.** The mod adds a short section (about 15 lines) only while the board is on: the stance, the close-out questions, and the approval rules below. It says "read the Manage section of the taskboard skill before you dispatch or relay". The skill holds the long playbook, so the always-on part stays small. The agent definition fails on the first row: the user turns a running session into a manager. A `$.agent.register` subagent type has the same problem, because it is a subagent and not the session itself.
+
+### 9.3 What the manager does
+
+1. **Start work.** For a task the user names: `dispatch <id>`, then `start_session` (the `/spawn` brief rules: the user's words, where, done looks like, rules, landing), then `assign`. A related piece of the current conversation is a fork; a new task is fresh.
+2. **Every brief ends with a close-out block.** Each worker answers it in the report that ends its turn, with yes or no and one line each:
+   - Is implementation needed, or is this already done or not a bug?
+   - Is more review needed (agent review, bot threads, `deep-pr-review`)?
+   - Are the tests enough for the change? Which tests were added or run?
+   - Which of the user's skills apply (`commit`, `pr-writer`, `iterate-pr`, `deep-pr-review`, `verify-sentry`, `agent-browser`, `frontend-conventions`, …), and were they used?
+   - Does this need the user's review, or a review request to the team?
+   - The next step, and who owns it: the worker, the user or the team.
+3. **When a side-session note comes back**, the manager checks only that each close-out question has an answer and that the next step is named. A missing answer goes back to the worker with `SendMessage` ("you did not say whether the tests are enough"). The manager does not grade the answers or redo the work.
+4. **Move it forward.** A next step owned by the worker gets the next `dispatch` without asking (the dispatch is to a session this manager started for a task the user named). A next step owned by the user or the team goes on the needs-you list.
+5. **Review nudge.** A PR that is ready for review and has no review activity for `TASKBOARD_REVIEW_NUDGE_HOURS` (default 4) gets a `nudge` action in the script, so the timer toasts it. The manager then asks the user: "ask the team for review on #123?" It drafts the request; it never sends it alone.
+6. **Raise what needs the user**, in one list at the end of each turn: answers it waits for, merges, review requests to send, clean-up to approve, workers that stopped without a next step.
+
+### 9.4 What the manager may do alone, and what needs the user's yes
+
+| Alone | Needs the user's yes | Never |
+|---|---|---|
+| sync, read sessions, PRs and tickets | start a session for a task the user did not name | merge a PR |
+| `dispatch` and `assign` for a task the user named | archive a session or jr conversation (ask before archive) | post a review, comment or message as the user without a yes for that text |
+| send a worker its next step, or ask it for a missing close-out answer | a review request to a person or a team, Slack or Linear posts | approve a permission prompt for a worker |
+| `checked`, `join`, `split`, `ignore` | a Linear state change on a ticket not assigned to the user (8.2) | |
+
+### 9.5 Build steps, once an option is picked
+
+- Mod: `prompt.compose` hook that appends `taskboard:manager` (`scope: 'session'`) when `enabled`; a test that the section is present only while the board is on.
+- `lib/dispatch.mjs`: the close-out block in `RULES` (session messages and new-session briefs); tests.
+- Script: the `nudge` action and `TASKBOARD_REVIEW_NUDGE_HOURS`; the band and pane count it.
+- `SKILL.md`: a "Manage" section with 9.3 and 9.4.
+- No file in dotFiles is needed for this option. The agent-definition option would add `templates/.claude/agents/taskboard-manager.md` there.
