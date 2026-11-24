@@ -362,13 +362,13 @@ test('team review starts folded, keeps its count, and opens to the lone PRs with
     const ui = await $.ui.mount({ ...PANE, surface })
     const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
     const marker = async (key: string) => (await ui.find({ type: 'Button', key: `fold:${key}` }))?.props.label
-    expect(await marker('repo:getsentry/sentry:team')).toBe('▸')
+    expect(await marker('repo:getsentry/sentry:team')).toBe('▶')
     expect(await has('Team review')).toBe(true)
     expect(await has('app-frontend')).toBe(false)
     expect(await has('chore\\(deps\\): bump tanstack-query')).toBe(false)
 
     await $.ui.press({ plugin: 'taskboard', key: 'fold:repo:getsentry/sentry:team' })
-    expect(await marker('repo:getsentry/sentry:team')).toBe('▾')
+    expect(await marker('repo:getsentry/sentry:team')).toBe('▼')
     expect(await has('dependabot')).toBe(true)
     expect(await has('chore\\(deps\\): bump tanstack-query')).toBe(true)
     expect(await has('\\+40 −40 · 2 files · ✓60')).toBe(true)
@@ -387,11 +387,15 @@ test('every heading folds its rows and unfolds them again, and a folded heading 
     const marker = async (key: string) => (await ui.find({ type: 'Button', key: `fold:${key}` }))?.props.label
 
     // The marker is the only control and shows only the glyph; the title appears once, as text.
-    expect(await marker('projects')).toBe('▾')
+    expect(await marker('projects')).toBe('▼')
     expect(await ui.findAll({ type: 'Button', text: /Projects/ })).toHaveLength(0)
     expect(await ui.findAll({ type: 'Text', text: /^Projects$/ })).toHaveLength(1)
+    // An open heading draws a rail down the side of what it holds; a folded one has nothing to mark.
+    const rail = async (key: string) => (await ui.find({ type: 'Box', key: `rail:${key}` }))?.props.backgroundColor
+    expect(await rail('projects')).toBe('subtle')
     await $.ui.press({ plugin: 'taskboard', key: 'fold:projects' })
-    expect(await marker('projects')).toBe('▸')
+    expect(await marker('projects')).toBe('▶')
+    expect(await rail('projects')).toBeUndefined()
     // A folded heading keeps its title, count and needs-you count.
     expect(await has('Projects')).toBe(true)
     expect(await has('3')).toBe(true)
@@ -401,7 +405,7 @@ test('every heading folds its rows and unfolds them again, and a folded heading 
     expect(await has('VDY-381')).toBe(true)
     await $.ui.press({ plugin: 'taskboard', key: 'fold:projects' })
     expect(await has('VDY-433')).toBe(true)
-    expect(await marker('projects')).toBe('▾')
+    expect(await marker('projects')).toBe('▼')
 
     await $.ui.press({ plugin: 'taskboard', key: 'fold:project:Agents' })
     expect(await has('Agents')).toBe(true)

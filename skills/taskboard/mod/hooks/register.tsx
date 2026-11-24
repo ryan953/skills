@@ -391,15 +391,14 @@ export const register: Register = on => {
     const byId = new Map(b.tasks.map(t => [t.id, t]))
     const isShut = (n: BoardNode) => n.folded !== shut.has(n.key)
     // A desktop draws every Button as a native button showing its label, so only the marker is one
-    // and its label is the glyph alone; the title beside it is plain text. The needs-you count
-    // shows even when folded, so a folded group cannot hide a task that waits for the user.
+    // and its label is the glyph alone; the title beside it is plain text. Button has no size, so
+    // the full-size triangles and the terminal's bracketed form make the target bigger. The
+    // needs-you count shows even when folded, so a folded group cannot hide a task that waits for the user.
     const heading = (n: BoardNode, depth: number) => (
       <Box key={`head:${n.key}`} gap={1} alignItems="center">
         <Button
           key={`fold:${n.key}`}
-          plain
-          dimColor
-          label={isShut(n) ? '▸' : '▾'}
+          label={isShut(n) ? '▶' : '▼'}
           onPress={() => update($, folded, keys => (keys.includes(n.key) ? keys.filter(k => k !== n.key) : [...keys, n.key]))}
         />
         <Text size={depth === 0 ? 'heading' : 'body'} weight="semibold">{n.title}</Text>
@@ -412,15 +411,20 @@ export const register: Register = on => {
       <Box key={n.key} flexDirection="column" gap={1}>
         {heading(n, depth)}
         {!isShut(n) && (
-          <Box flexDirection="column" gap={1} paddingLeft={INDENT}>
-            {n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
-            {n.tasks.length > 0 && (
-              <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-                {n.tasks.flatMap(id => byId.get(id) ?? []).map(card)}
-              </Box>
-            )}
-            {n.prs.length > 0 && <Box flexDirection="column" gap={1}>{n.prs.map(p => prLine(p, 'queue'))}</Box>}
-            {n.children.map(c => branch(c, depth + 1))}
+          // The kit has no one-sided border, so the rail is a one-cell Box that the row stretches
+          // to the height of what the heading holds.
+          <Box gap={INDENT - 1}>
+            <Box key={`rail:${n.key}`} width={1} flexShrink={0} backgroundColor="subtle" />
+            <Box flexDirection="column" gap={1} flexGrow={1} flexShrink={1}>
+              {n.count === 0 && <Text dimColor size="caption">No open tickets of yours</Text>}
+              {n.tasks.length > 0 && (
+                <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                  {n.tasks.flatMap(id => byId.get(id) ?? []).map(card)}
+                </Box>
+              )}
+              {n.prs.length > 0 && <Box flexDirection="column" gap={1}>{n.prs.map(p => prLine(p, 'queue'))}</Box>}
+              {n.children.map(c => branch(c, depth + 1))}
+            </Box>
           </Box>
         )}
       </Box>
