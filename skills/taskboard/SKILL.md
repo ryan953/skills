@@ -1,7 +1,7 @@
 ---
 name: taskboard
-description: Keep one ledger of all your work - Linear tickets, your PRs, bot PRs made for you, review requests, jr (Junior) conversations, and Claude Code sessions - linked into tasks with a stage and suggested clean-up. Use when asked to "sync the taskboard", "what's on my plate", "show my tasks", "what needs me", "which sessions can I archive", "link my tickets and PRs", or to refresh the management session.
-argument-hint: "[sync | show | task <id>]"
+description: Keep one ledger of all your work - Linear tickets, your PRs, bot PRs made for you, review requests, jr (Junior) conversations, and Claude Code sessions - linked into tasks with a stage and suggested clean-up. Use when asked to "sync the taskboard", "what's on my plate", "show my tasks", "what needs me", "which sessions can I archive", "link my tickets and PRs", to "dispatch VDY-123", "send this task to a session", "start work on the next task", or to refresh the management session.
+argument-hint: "[sync | show | task <id> | dispatch <id>]"
 ---
 
 # Taskboard
@@ -18,6 +18,8 @@ Requires authenticated `gh`, the `linear` CLI, `node` 22+, and the jr MCP tools 
 | `node scripts/taskboard.mjs show [--all] [--json]` | print the saved ledger; `--all` includes done tasks |
 | `node scripts/taskboard.mjs task <task-id or item-key>` | one task with all its items, as JSON |
 | `node scripts/taskboard.mjs join <a> <b>` / `split <key>` / `ignore <key>` | fix a wrong link, then `sync --offline` |
+| `node scripts/taskboard.mjs dispatch <id> [--brief full\|review\|validate] [--route session\|jr\|new] [--step <text>]` | pick where the next step goes and write the message or brief, as JSON |
+| `node scripts/taskboard.mjs assign <id> <item-key> [--notes <text>]` | record the session or jr conversation that works the task |
 
 State lives in `~/.local/state/taskboard/` (`TASKBOARD_DIR` overrides): `ledger.json`, `overrides.json`, `sources/`.
 
@@ -42,6 +44,46 @@ Every action needs the user's yes. Group them so one yes covers a kind (for exam
 Then run `sync --offline` so the ledger shows the result.
 
 Before you archive a Claude session, check it with `get_session`. Skip it if it is running, or if it has uncommitted work in a worktree.
+
+## Dispatch
+
+Dispatch sends a task's next step to a worker. Do it only for a task the user names, or after the user says yes to a list.
+
+1. `node scripts/taskboard.mjs dispatch <id>`. Read `route`:
+
+   | `route` | Do |
+   |---|---|
+   | `user` | Do not send. Tell the user `reason` (it waits for their answer, the merge is theirs, or an adhoc task needs `--step`). |
+   | `session` | `SendMessage` (or `mcp__ccd_session_mgmt__send_message`) to `target.key` with `message`. A busy session queues it. |
+   | `jr` | jr `sendMessage` to `target.key` with `message`. |
+   | `new` | `mcp__ccd_session__start_session`: `initiation: "user_asked"`, `context: "fresh"`, `use_worktree: true`, and `title`, `prompt`, `background` from the output. Pass `cwd` only when it is not this project's folder. When `cwd` is null, ask the user for the folder. |
+
+2. `node scripts/taskboard.mjs assign <id> <session or jr id>`. The owner is reused first next time, is never suggested as a duplicate to archive, and stays in the task even when its title names nothing.
+3. Put a new session in the sidebar group "Tasks": `list_groups`, then `create_group` if it is missing, then `move_sessions`.
+
+Reuse order: the task owner, then the newest live Claude session, then the newest active jr conversation, then a new session. `--route` forces one.
+
+Briefs (`--brief` overrides; the default comes from the task kind and stage):
+
+- `full`: validate, fix, open a draft PR, iterate. It starts at the task's current stage.
+- `review`: review with `deep-pr-review` (or `code-review` when it is not installed), draft the review, ask before it is posted. No code changes.
+- `validate`: reproduce, report with screenshots, stop.
+
+Every message has the same rules: never merge, ask before posting anything others see, commit only on the task's own branch, end each stop with one line of status. A worker stops at "ready to merge"; the merge stays with the user.
+
+Sessions started from here report back when they end a turn. For a reused session or jr conversation, read its state with `get_session` and `list_events`, or jr `getConversation`, then `sync`.
+
+## Mod: pane, band and timer
+
+`mod/` is a Claude Code mod for the management session.
+
+- **Band** above the prompt: the counts (need you, to merge, iterate, review, to archive), with **Board** and **Sync** buttons.
+- **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). **Clean up** shows when there are actions to approve.
+- **Timer:** every 10 minutes it runs `sync --board` without model tokens. A toast shows when a task newly needs you or can merge, or when new clean-up shows up. Then the prompt box suggests `/taskboard`.
+
+The timer cannot reach jr, because jr needs MCP tools. jr stays as of the last `/taskboard sync`.
+
+Load it in one session: `claude --plugin-dir <skill>/mod`, or copy it to the session's mods folder. Tests: `claude plugin test mod`.
 
 ## How items link
 
@@ -68,4 +110,4 @@ A task id comes from its lowest Linear ID, then its first PR, then its jr or ses
 - Linear `createdIssues` includes every sub-issue that jr filed for you (80 under VDY-376). That is why lone filed tickets go to `backlog`.
 - jr `searchConversations` has no archived flag in its result. `ingest` treats a conversation that left the active list as archived.
 
-Tests: `node --test scripts/`.
+Tests: `node --test scripts/` and `claude plugin test mod`.

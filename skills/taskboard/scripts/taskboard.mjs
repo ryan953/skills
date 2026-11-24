@@ -4,13 +4,17 @@
 //   taskboard.mjs sync [--json] [--offline]     fetch, link, save the ledger, print the report
 //   taskboard.mjs ingest jr <file|-> [--archived]  save jr searchConversations output
 //   taskboard.mjs show [--json] [--all]          print the saved ledger without fetching
+//   --board (sync or show)                       print a compact summary for the taskboard mod
 //   taskboard.mjs task <id|item-key>             print one task with its items, as JSON
 //   taskboard.mjs join <keyA> <keyB> | split <key> | ignore <key>   manual link fixes
+//   taskboard.mjs dispatch <id> [--brief full|review|validate] [--route session|jr|new] [--step <text>]
+//   taskboard.mjs assign <id> <item-key> [--notes <text>]   record who works the task
 
 import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 
+import {dispatch} from './lib/dispatch.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
   fetchGithub,
@@ -39,9 +43,17 @@ function writeJson(p, value) {
 }
 const readStdinOrFile = f => readFileSync(f === '-' ? 0 : f, 'utf8');
 
+const VALUE_FLAGS = new Set(['--brief', '--route', '--step', '--notes']);
 const [cmd = 'show', ...rest] = process.argv.slice(2);
-const flags = new Set(rest.filter(a => a.startsWith('--')));
-const args = rest.filter(a => !a.startsWith('--'));
+const flags = new Set();
+const opts = {};
+const args = [];
+for (let i = 0; i < rest.length; i++) {
+  const a = rest[i];
+  if (VALUE_FLAGS.has(a)) opts[a.slice(2)] = rest[++i];
+  else if (a.startsWith('--')) flags.add(a);
+  else args.push(a);
+}
 
 async function collect() {
   const teams = new Set(process.env.TASKBOARD_LINEAR_TEAMS?.split(',') ?? (await linearTeams()));
@@ -141,7 +153,59 @@ function report(ledger, {all = false} = {}) {
   return lines.join('\n');
 }
 
+// The mod draws from this, so it holds only what a row shows, not every item's metadata.
+function board(ledger) {
+  const {tasks, items} = ledger;
+  const actions = tasks.flatMap(t => t.actions);
+  const count = t => actions.filter(a => a.type === t).length;
+  const open = tasks.filter(t => t.stage !== 'done');
+  const urlOf = t => {
+    const members = t.items.map(k => items[k]);
+    const pick = type => members.find(i => i.type === type && i.open && i.url)?.url;
+    return items[t.owner]?.url ?? pick('pr') ?? pick('linear') ?? pick('jr') ?? pick('claude') ?? null;
+  };
+  return {
+    generatedAt: ledger.generatedAt,
+    counts: {
+      open: open.length,
+      needsYou: count('needs-you'),
+      archive: count('archive'),
+      close: count('close-linear'),
+      queue: ledger.queue.length,
+      backlog: ledger.backlog.length,
+    },
+    tasks: open.map(t => ({
+      id: t.id,
+      title: t.title,
+      stage: t.stage,
+      kind: t.kind,
+      owner: t.owner,
+      url: urlOf(t),
+      parts: ['linear', 'pr', 'jr', 'claude']
+        .flatMap(type => t.items.map(k => items[k]).filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel))
+        .join(', '),
+      actions: t.actions.map(a => ({type: a.type, item: a.item})),
+    })),
+    changes: ledger.changes,
+  };
+}
+
+function print(ledger) {
+  if (flags.has('--board')) console.log(JSON.stringify(board(ledger)));
+  else if (flags.has('--json')) console.log(JSON.stringify(ledger, null, 2));
+  else console.log(report(ledger, {all: flags.has('--all')}));
+}
+
 // ---------- commands ----------
+
+function findTask(ref) {
+  const ledger = readJson(paths.ledger, null);
+  if (!ledger) throw new Error('No ledger yet; run sync.');
+  const id = ledger.itemTask[ref] ?? ref;
+  const task = ledger.tasks.find(t => t.id === id);
+  if (!task) throw new Error(`No task for ${ref}`);
+  return {ledger, task};
+}
 
 async function main() {
   if (cmd === 'sync') {
@@ -150,7 +214,7 @@ async function main() {
     if (!flags.has('--offline')) writeJson(paths.cache, fetched);
     const ledger = buildLedger(fetched);
     writeJson(paths.ledger, ledger);
-    console.log(flags.has('--json') ? JSON.stringify(ledger, null, 2) : report(ledger, {all: flags.has('--all')}));
+    print(ledger);
     return;
   }
   if (cmd === 'ingest') {
@@ -176,15 +240,26 @@ async function main() {
   if (cmd === 'show') {
     const ledger = readJson(paths.ledger, null);
     if (!ledger) throw new Error('No ledger yet; run sync.');
-    console.log(flags.has('--json') ? JSON.stringify(ledger, null, 2) : report(ledger, {all: flags.has('--all')}));
+    print(ledger);
     return;
   }
   if (cmd === 'task') {
-    const ledger = readJson(paths.ledger, null);
-    const id = ledger?.itemTask[args[0]] ?? args[0];
-    const task = ledger?.tasks.find(t => t.id === id);
-    if (!task) throw new Error(`No task for ${args[0]}`);
+    const {ledger, task} = findTask(args[0]);
     console.log(JSON.stringify({...task, items: task.items.map(k => ledger.items[k])}, null, 2));
+    return;
+  }
+  if (cmd === 'dispatch') {
+    const {ledger, task} = findTask(args[0]);
+    console.log(JSON.stringify(dispatch(task, task.items.map(k => ledger.items[k]), opts), null, 2));
+    return;
+  }
+  if (cmd === 'assign') {
+    const {ledger, task} = findTask(args[0]);
+    if (!args[1]) throw new Error('Usage: assign <id> <item-key> [--notes <text>]');
+    task.owner = args[1];
+    if (opts.notes) task.notes = opts.notes;
+    writeJson(paths.ledger, ledger);
+    console.log(`${task.id}: owner ${task.owner}`);
     return;
   }
   if (['join', 'split', 'ignore'].includes(cmd)) {

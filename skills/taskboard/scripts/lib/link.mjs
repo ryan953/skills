@@ -107,11 +107,12 @@ function actionsFor(task, items) {
       out.push({type: 'archive', item: i.key, reason: 'task is done'});
     }
   } else {
-    // Keep the most recent session per task; older ones are leftovers from re-runs.
+    // Keep one session per task: the owner, or else the most recent. Others are leftovers from re-runs.
     const sessions = live('claude').sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
-    for (const s of sessions.slice(1)) {
-      if (s.meta.running) continue;
-      out.push({type: 'archive', item: s.key, reason: `duplicate of ${sessions[0].key}`});
+    const keep = sessions.find(s => s.key === task.owner) ?? sessions[0];
+    for (const s of sessions) {
+      if (s === keep || s.meta.running) continue;
+      out.push({type: 'archive', item: s.key, reason: `duplicate of ${keep.key}`});
     }
   }
 
@@ -141,6 +142,11 @@ export function link(allItems, {previous = null, overrides = {}} = {}) {
     }
   }
   for (const [a, b] of overrides.join ?? []) if (known.has(a) && known.has(b)) uf.union(a, b);
+  // A dispatched worker belongs to its task even when its title names nothing the linker knows.
+  for (const t of previous?.tasks ?? []) {
+    const anchor = t.items.find(k => known.has(k) && k !== t.owner);
+    if (t.owner && known.has(t.owner) && anchor && !split.has(t.owner)) uf.union(anchor, t.owner);
+  }
 
   const groups = new Map();
   for (const item of items) {
