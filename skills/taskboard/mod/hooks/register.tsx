@@ -381,16 +381,7 @@ export const register: Register = on => {
       )
     }
 
-    const by = (stage: string) => b.tasks.filter(t => t.stage === stage).length
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
-    const tile = (label: string, n: number, color?: string) => (
-      <Box key={`tile:${label}`} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={14}>
-        <Text size="title" weight="semibold" tabular color={n ? color : undefined} dimColor={!n}>
-          {n}
-        </Text>
-        <Text dimColor size="caption">{label}</Text>
-      </Box>
-    )
 
     return (
       <Box flexDirection="column" gap={2} paddingX={1} paddingY={1}>
@@ -408,15 +399,6 @@ export const register: Register = on => {
               )}
               <Button key="pane-sync" label={s.isSyncing ? 'Syncing…' : 'Sync'} onPress={() => void runSync($)} />
             </Box>
-          </Box>
-          <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-            {tile('need you', b.counts.needsYou, 'warning')}
-            {tile('follow-ups', b.counts.followUp, 'warning')}
-            {tile('to merge', by('merge'), 'success')}
-            {tile('iterate', by('iterate'))}
-            {tile('review', by('review'))}
-            {tile('workers', ws.length, 'success')}
-            {tile('clean-up', cleanup, 'warning')}
           </Box>
           <Text dimColor size="caption">
             {b.counts.open} open · {b.counts.queue} in review queue · {b.counts.backlog} filed, unlinked

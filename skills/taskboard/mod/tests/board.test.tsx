@@ -132,7 +132,6 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /^Needs you$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Iterate$/ })).toBeTruthy()
-  expect((await ui.find({ type: 'Text', text: /^need you$/ }))).toBeTruthy()
   expect((await ui.find({ type: 'Text', text: /^Left to do/ }))?.text).toBe('Left to do: file the Safari ticket')
   expect((await ui.find({ type: 'Text', text: /warden/ }))?.text).toBe('+12 −3 · 2 files · ✓40 ✗1 · warden: no problems')
   expect((await ui.find({ type: 'Text', text: /^Implementing/ }))?.text).toBe('Implementing · 6m')
