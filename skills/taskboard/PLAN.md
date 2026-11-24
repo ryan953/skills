@@ -20,7 +20,7 @@ SKILL.md does not load this file. It records what is built, what is next, and th
 
 The mock is built from the Linear ticket tree: parent → ticket → sub-issues → PRs. Each PR row has review detail. The items are in order of size, smallest first.
 
-### 6.1 PR detail (built 2026-11-24)
+### 6.1 PR detail (built 2026-11-24, as a second batched query, not in `PR_FIELDS`)
 
 Add these fields to `PR_FIELDS` in `lib/sources.mjs`:
 
