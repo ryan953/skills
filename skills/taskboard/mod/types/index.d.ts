@@ -23,6 +23,8 @@ export type BoardTree = {
   moreSiblings: number
 }
 
+export type BoardGroup = { kind: 'team'; team: string; project: string | null } | { kind: 'repo'; repo: string } | { kind: 'other' }
+
 export type BoardTask = {
   id: string
   title: string
@@ -30,6 +32,7 @@ export type BoardTask = {
   kind: string
   owner: string | null
   url: string | null
+  group: BoardGroup
   parts: string
   actions: BoardAction[]
   prs: BoardPr[]

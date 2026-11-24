@@ -31,7 +31,7 @@ const STAGE_COLOR: Record<string, string | undefined> = { 'needs-you': 'warning'
 const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-5' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-6' })
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
@@ -87,6 +87,47 @@ async function enabledSessions($: EngineInterface): Promise<string[]> {
 }
 
 const pct = (p: Progress | null) => (p ? `${p.done} of ${p.total} done` : '')
+
+type Section = { key: string; title: string; projects: { key: string; title: string | null; tasks: BoardTask[] }[] }
+
+const NO_PROJECT = 'No project'
+const byName = (a: string, b: string) => a.localeCompare(b)
+
+// Teams first, then repos for PRs with no ticket, then the rest. Names sort alphabetically so a
+// section stays put between syncs; each card carries its stage instead, sorted by urgency inside a group.
+function sections(tasks: BoardTask[]): Section[] {
+  const stageRank = (t: BoardTask) => STAGES.indexOf(t.stage)
+  const sorted = [...tasks].sort((a, b) => stageRank(a) - stageRank(b))
+  const teams = new Map<string, Map<string, BoardTask[]>>()
+  const repos = new Map<string, BoardTask[]>()
+  const other: BoardTask[] = []
+  for (const t of sorted) {
+    const g = t.group
+    if (g.kind === 'team') {
+      const projects = teams.get(g.team) ?? new Map<string, BoardTask[]>()
+      teams.set(g.team, projects)
+      const name = g.project ?? NO_PROJECT
+      projects.set(name, [...(projects.get(name) ?? []), t])
+    } else if (g.kind === 'repo') repos.set(g.repo, [...(repos.get(g.repo) ?? []), t])
+    else other.push(t)
+  }
+  const projectOrder = (a: string, b: string) => (a === NO_PROJECT ? 1 : b === NO_PROJECT ? -1 : byName(a, b))
+  return [
+    ...[...teams.keys()].sort(byName).map(team => {
+      const projects = teams.get(team)!
+      const names = [...projects.keys()].sort(projectOrder)
+      // A team whose tickets have no project needs no project heading.
+      const solo = names.length === 1 && names[0] === NO_PROJECT
+      return {
+        key: `team:${team}`,
+        title: team,
+        projects: names.map(name => ({ key: `team:${team}:${name}`, title: solo ? null : name, tasks: projects.get(name)! })),
+      }
+    }),
+    ...[...repos.keys()].sort(byName).map(repo => ({ key: `repo:${repo}`, title: repo, projects: [{ key: `repo:${repo}`, title: null, tasks: repos.get(repo)! }] })),
+    ...(other.length ? [{ key: 'other', title: 'Other', projects: [{ key: 'other', title: null, tasks: other }] }] : []),
+  ]
+}
 
 const VERB: Record<string, string> = { validate: 'Validating', review: 'Reviewing', verify: 'Verifying' }
 
@@ -339,7 +380,10 @@ export const register: Register = on => {
         >
           <Box flexDirection="column">
             <Box gap={1} justifyContent="space-between">
-              <Text weight="semibold" tabular>{t.id}</Text>
+              <Box gap={1} alignItems="center">
+                <Text weight="semibold" tabular>{t.id}</Text>
+                <Text size="caption" color={accent} dimColor={!accent}>{STAGE_LABEL[t.stage] ?? t.stage}</Text>
+              </Box>
               {w && (
                 <Text color="success" size="caption">
                   {VERB[t.stage] ?? 'Implementing'} · {ago(w.turnStartedAt, now)}
@@ -405,21 +449,27 @@ export const register: Register = on => {
           </Text>
           {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
         </Box>
-        {STAGES.map(stage => {
-          const ts = b.tasks.filter(t => t.stage === stage)
-          if (!ts.length) return null
-          return (
-            <Box key={`stage:${stage}`} flexDirection="column" gap={1}>
-              <Box gap={1} alignItems="center">
-                <Text size="heading" weight="semibold" color={STAGE_COLOR[stage]}>{STAGE_LABEL[stage] ?? stage}</Text>
-                <Text dimColor tabular>{ts.length}</Text>
-              </Box>
-              <Box flexWrap="wrap" columnGap={2} rowGap={1}>
-                {ts.map(card)}
-              </Box>
+        {sections(b.tasks).map(sec => (
+          <Box key={sec.key} flexDirection="column" gap={1}>
+            <Box gap={1} alignItems="center">
+              <Text size="heading" weight="semibold">{sec.title}</Text>
+              <Text dimColor tabular>{sec.projects.reduce((n, p) => n + p.tasks.length, 0)}</Text>
             </Box>
-          )
-        })}
+            {sec.projects.map(p => (
+              <Box key={p.key} flexDirection="column" gap={1}>
+                {p.title && (
+                  <Box gap={1} alignItems="center">
+                    <Text weight="semibold">{p.title}</Text>
+                    <Text dimColor tabular>{p.tasks.length}</Text>
+                  </Box>
+                )}
+                <Box flexWrap="wrap" columnGap={2} rowGap={1}>
+                  {p.tasks.map(card)}
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        ))}
       </Box>
     )
   })

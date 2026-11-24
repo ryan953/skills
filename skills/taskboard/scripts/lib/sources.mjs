@@ -222,7 +222,8 @@ const ISSUE_FIELDS = `
   state { name type }
   assignee { name isMe }
   creator { isMe }
-  team { key }
+  team { key name }
+  project { name }
   attachments { nodes { url } }
   parent { identifier }
 `;
@@ -250,7 +251,7 @@ function linearItem(n) {
     roles: [n.assignee?.isMe && 'assignee', n.creator?.isMe && 'creator'].filter(Boolean),
     strong,
     weak: [],
-    meta: {stateType: n.state.type, assignee: n.assignee?.name ?? null, priority: n.priority, team: n.team.key, parent: n.parent?.identifier ?? null},
+    meta: {stateType: n.state.type, assignee: n.assignee?.name ?? null, priority: n.priority, team: n.team.key, teamName: n.team.name, project: n.project?.name ?? null, parent: n.parent?.identifier ?? null},
   };
 }
 

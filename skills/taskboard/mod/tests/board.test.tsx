@@ -14,13 +14,16 @@ const PANE = {
   },
 } as const
 
-const task = (id: string, stage: string) => ({
+const team = (project: string | null) => ({ kind: 'team', team: 'Value Discovery', project }) as const
+
+const task = (id: string, stage: string, group: object = team('Onboarding')) => ({
   id,
   title: `Title ${id}`,
   stage,
   kind: 'cycle',
   owner: null,
   url: `https://linear.app/x/${id}`,
+  group,
   parts: `${id} In Progress`,
   tree: null,
   actions: stage === 'needs-you' ? [{ type: 'needs-you', item: 'jr-1', reason: 'jr needs input' }] : [],
@@ -34,11 +37,12 @@ const BOARD = {
   generatedAt: '2026-11-23T23:09:22.202Z',
   counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, queue: 38, backlog: 46 },
   tasks: [
-    task('VDY-432', 'needs-you'),
     task('VDY-433', 'iterate'),
-    { ...task('VDY-381', 'follow-up'), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
+    task('VDY-432', 'needs-you'),
+    { ...task('VDY-381', 'follow-up', team(null)), actions: [{ type: 'follow-up', item: 'cc-1', reason: 'file the Safari ticket' }] },
+    { ...task('skills#21', 'review', { kind: 'repo', repo: 'ryan953/skills' }), url: 'https://github.com/ryan953/skills/pull/21' },
     {
-      ...task('VDY-423', 'fix'),
+      ...task('VDY-423', 'fix', team('Agents')),
       tree: {
         self: 'VDY-423',
         parent: { id: 'VDY-376', title: 'Parent', url: 'https://linear.app/x/VDY-376', progress: { done: 18, total: 73 } },
@@ -258,9 +262,25 @@ test('the grid draws on every surface, narrow and wide', async ($, on) => {
   for (const surface of ['terminal', 'desktop'] as const) {
     for (const bodyColumns of [60, 120, 180]) {
       const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns }, surface })
-      expect(await ui.find({ type: 'Text', text: /^Needs you$/ })).toBeTruthy()
-      expect(await ui.find({ type: 'Text', text: /^Iterate$/ })).toBeTruthy()
+      expect(await ui.find({ type: 'Text', text: /^Value Discovery$/ })).toBeTruthy()
+      expect(await ui.find({ type: 'Text', text: /^ryan953\/skills$/ })).toBeTruthy()
       await ui.unmount()
     }
   }
+})
+
+test('tasks group by team and project, PRs with no ticket by repo, most urgent first', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const at = (s: string) => texts.indexOf(s)
+  // Projects sort by name with the ticket-less ones last, and repos come after every team.
+  const order = ['Value Discovery', 'Agents', 'Onboarding', 'No project', 'ryan953/skills'].map(at)
+  expect(order.every(n => n >= 0)).toBe(true)
+  expect(order).toEqual([...order].sort((a, b) => a - b))
+  // Inside a project, the task that needs the user comes before one being iterated on.
+  expect(at('VDY-432')).toBeLessThan(at('VDY-433'))
+  expect(texts[at('VDY-432') + 1]).toBe('Needs you')
+  await ui.unmount()
 })

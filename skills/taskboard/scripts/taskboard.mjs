@@ -22,6 +22,7 @@ import {join} from 'node:path';
 
 import {dispatch} from './lib/dispatch.mjs';
 import {prDetailText} from './lib/format.mjs';
+import {taskGroup} from './lib/group.mjs';
 import {fullTree, subIssueTask, taskTree} from './lib/tree.mjs';
 import {link, STAGE_ORDER} from './lib/link.mjs';
 import {
@@ -209,6 +210,7 @@ function board(ledger) {
       kind: t.kind,
       owner: t.owner,
       url: urlOf(t),
+      group: taskGroup(t, items),
       parts: ['linear', 'pr', 'jr', 'claude']
         .flatMap(type => t.items.map(k => items[k]).filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel))
         .join(', '),
