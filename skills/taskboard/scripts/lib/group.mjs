@@ -3,6 +3,7 @@
 // its repo, then your role on it, then its author. A task with neither goes under Other.
 // A level that would only repeat its parent is left out: your own PRs sit straight under
 // "Your PRs" (only bot authors get a level there), and a team review with one team is one heading.
+// PRs with no ticket that you unsubscribed from go last, under Unsubscribed, folded.
 
 import {edgesOf, STAGE_ORDER} from './link.mjs';
 
@@ -96,12 +97,14 @@ function tally(n, stageOf) {
 }
 
 // `tasks` are the open tasks. `queue` holds rows for the lone PRs (bot PRs and team review
-// requests): they are not tasks, but this is where the board lists them.
-export function boardSections({tasks, items, queue = [], projects = [], me = null}) {
+// requests): they are not tasks, but this is where the board lists them. `unsubscribed` holds
+// the lone PRs you unsubscribed from; a task carries its own `unsubscribed` flag.
+export function boardSections({tasks, items, queue = [], unsubscribed = [], projects = [], me = null}) {
   const projectSec = node('projects', 'Projects');
   const teamSec = node('teams', 'Tickets with no project');
   const prSec = node('adhoc', 'PRs with no ticket', {caption: 'By repo, then how the PR involves you, then who opened it. Your PRs include bot PRs made for you.'});
   const otherSec = node('other', 'Other');
+  const unsubSec = node('unsubscribed', 'Unsubscribed', {folded: true});
 
   // Projects you lead or belong to show even with no ticket of yours; a ticket's project shows either way.
   // Keyed by name, since a ticket carries only its project's name.
@@ -123,6 +126,10 @@ export function boardSections({tasks, items, queue = [], projects = [], me = nul
   const stage = new Map(tasks.map(t => [t.id, t.stage]));
   const rank = id => STAGE_ORDER.indexOf(stage.get(id));
   for (const t of [...tasks].sort((a, b) => rank(a.id) - rank(b.id) || byName(a.id, b.id))) {
+    if (t.unsubscribed) {
+      unsubSec.tasks.push(t.id);
+      continue;
+    }
     const place = taskPlace(t, items, me);
     if (place.kind === 'project') {
       const name = place.project;
@@ -134,6 +141,7 @@ export function boardSections({tasks, items, queue = [], projects = [], me = nul
   const updated = row => items[row.key]?.updatedAt ?? '';
   const newest = (a, b) => updated(b).localeCompare(updated(a));
   for (const row of [...queue].sort(newest)) prNode(prPlace(items[row.key], me)).prs.push(row);
+  unsubSec.prs.push(...[...unsubscribed].sort(newest));
 
   // The merged heading keeps the role's key, so its fold state stays put; the author levels below keep theirs.
   const oneTeam = repo => {
@@ -150,11 +158,13 @@ export function boardSections({tasks, items, queue = [], projects = [], me = nul
     for (const c of n.children) sortTree(c);
     delete n.rank;
   };
-  const out = [projectSec, teamSec, prSec, otherSec];
+  const out = [projectSec, teamSec, prSec, otherSec, unsubSec];
   for (const s of out) {
     sortTree(s);
     tally(s, id => stage.get(id));
   }
+  // You chose not to hear about these, so the heading never says they need you.
+  unsubSec.needsYou = 0;
   // An empty Projects section still matters when you belong to a project; the others hide when empty.
   return out.filter(s => s.count || s.children.length);
 }

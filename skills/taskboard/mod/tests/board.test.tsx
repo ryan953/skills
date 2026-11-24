@@ -20,6 +20,7 @@ const task = (id: string, stage: string) => ({
   stage,
   kind: 'cycle',
   owner: null,
+  unsubscribed: false,
   url: `https://linear.app/x/${id}`,
   parts: `${id} In Progress`,
   linkedBy: null,
@@ -63,6 +64,14 @@ const DEPS_PR = {
 }
 const ADHOC_CAPTION = 'By repo, then how the PR involves you, then who opened it. Your PRs include bot PRs made for you.'
 const LINKED = 'Linked: both PRs are named by 3 Claude sessions'
+const UNSUB_PR = {
+  key: 'getsentry/sentry#130433',
+  label: '#130433 open',
+  title: 'feat(onboarding): Drop the old wizard',
+  url: 'https://github.com/getsentry/sentry/pull/130433',
+  detail: '+5 −90 · 4 files · ✓52',
+  headAt: null,
+}
 const SECTIONS = [
   branch('projects', 'Projects', {
     children: [
@@ -101,11 +110,13 @@ const SECTIONS = [
     ],
   }),
   branch('other', 'Other', { tasks: ['local_1'] }),
+  // The script zeroes this section's needs-you count, so the fixture does too.
+  branch('unsubscribed', 'Unsubscribed', { folded: true, tasks: ['getsentry/sentry#131412'], prs: [UNSUB_PR] }),
 ]
 
 const BOARD = {
   generatedAt: '2026-11-23T23:09:22.202Z',
-  counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, queue: 38, backlog: 46 },
+  counts: { open: 3, needsYou: 1, followUp: 1, check: 0, archive: 0, close: 0, queue: 38, backlog: 46, unsubscribed: 2 },
   sections: SECTIONS,
   tasks: [
     task('VDY-433', 'iterate'),
@@ -121,6 +132,8 @@ const BOARD = {
       ],
       linkedBy: LINKED,
     },
+    // Your own approved PR that you unsubscribed from: it could merge, but it is out of sight.
+    { ...task('getsentry/sentry#131412', 'merge'), unsubscribed: true, url: 'https://github.com/getsentry/sentry/pull/131412' },
     { ...task('local_1', 'adhoc'), title: 'Dashboard: number of tests', url: 'https://junior-prod.sentry.dev/conversations/local_1', parts: 'jr:active' },
     {
       ...task('VDY-423', 'fix'),
@@ -649,4 +662,45 @@ test('stage filters add up, All others is their inverse, and All clears them', a
     await press('all')
     await ui.unmount()
   }
+})
+
+test('unsubscribed PRs start folded at the bottom, out of every count, and open on press', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const has = async (text: string) => Boolean(await ui.find({ type: 'Text', text: new RegExp(`^${text}$`) }))
+    const marker = async (key: string) => (await ui.find({ type: 'Button', key: `fold:${key}` }))?.props.label
+    const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+    expect(texts.indexOf('Unsubscribed')).toBeGreaterThan(texts.indexOf('Other'))
+    expect(await marker('unsubscribed')).toBe('▶')
+    expect(texts[texts.indexOf('Unsubscribed') + 1]).toBe('2')
+    expect(await has('getsentry/sentry#131412')).toBe(false)
+    expect(await has('feat\\(onboarding\\): Drop the old wizard')).toBe(false)
+    // Its task could merge, but no filter counts it.
+    expect((await ui.find({ type: 'Button', key: 'filter:merge' }))?.props.label).toBe('Ready to merge 0')
+    expect(await has('3 open · 38 in review queue · 46 filed, unlinked · 2 unsubscribed')).toBe(true)
+
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:unsubscribed' })
+    expect(await marker('unsubscribed')).toBe('▼')
+    expect(await has('getsentry/sentry#131412')).toBe(true)
+    expect(await has('feat\\(onboarding\\): Drop the old wizard')).toBe(true)
+    expect(await has('\\+5 −90 · 4 files · ✓52')).toBe(true)
+
+    // A filter shows only what asks for you, so the section is gone while one is picked.
+    await $.ui.press({ plugin: 'taskboard', key: 'filter:merge' })
+    expect(await has('Unsubscribed')).toBe(false)
+    expect(await has('getsentry/sentry#131412')).toBe(false)
+    await $.ui.press({ plugin: 'taskboard', key: 'filter:all' })
+    await $.ui.press({ plugin: 'taskboard', key: 'fold:unsubscribed' })
+    await ui.unmount()
+  }
+})
+
+test('the band leaves unsubscribed tasks out of its counts', async ($, on) => {
+  engine(on, [], [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /^taskboard:/ }))?.text).toBe('taskboard: 1 need you · 1 follow-ups · 2 iterate · 1 review')
+  await ui.unmount()
 })

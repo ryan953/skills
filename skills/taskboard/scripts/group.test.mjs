@@ -243,3 +243,20 @@ test('a PR item keeps its bot flag and only the requested teams you are in', () 
   const bot = prItem({...node, author: {login: 'dependabot', __typename: 'Bot'}}, 'ryan953', ['review'], new Set(['VDY']), mine);
   assert.equal(bot.meta.isBot, true);
 });
+
+test('unsubscribed PRs with no ticket go last, folded, and never say they need you', () => {
+  const mutedTask = {...task('getsentry/getsentry#22485', ['getsentry/getsentry#22485'], 'needs-you'), unsubscribed: true};
+  const mutedRow = row('getsentry/sentry#126704');
+  const out = boardSections({tasks: [...tasks.filter(t => t.id !== mutedTask.id), mutedTask], items, queue: queue.filter(r => r.key !== mutedRow.key), unsubscribed: [mutedRow], projects, me: 'ryan953'});
+  const sec = out.at(-1);
+  assert.equal(sec.key, 'unsubscribed');
+  assert.equal(sec.title, 'Unsubscribed');
+  assert.equal(sec.folded, true);
+  assert.deepEqual(sec.tasks, ['getsentry/getsentry#22485']);
+  assert.deepEqual(sec.prs.map(p => p.key), ['getsentry/sentry#126704']);
+  assert.equal(sec.count, 2);
+  assert.equal(sec.needsYou, 0);
+  assert.equal(find(out, 'repo:getsentry/getsentry'), null);
+  // With nothing unsubscribed the section is not drawn.
+  assert.equal(find(sections, 'unsubscribed'), null);
+});

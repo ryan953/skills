@@ -35,9 +35,12 @@ const CARD_WIDTH: Record<number, string> = { 1: '100%', 2: '48%', 3: '31%' }
 // gutter's middle. The terminal draws the button as `[ ▼ ]`, five cells, centered at cell 2.
 const GUTTER: Record<string, number> = { terminal: 5 }
 const GUTTER_DEFAULT = 4
+// The section the script fills with ticketless PRs you unsubscribed from. It is out of every
+// count and every filter, so it only shows with no filter picked.
+const UNSUBSCRIBED = 'unsubscribed'
 
 // Bump the shape when Board's fields change, so a reload declines the old stored value.
-const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-8' })
+const board = atom({ plugin: 'taskboard', key: 'board' } as const, null, { shape: 'board-9' })
 const workers = atom({ plugin: 'taskboard', key: 'workers' } as const, [], { shape: 'workers-1' })
 // Task ids whose tree is open in the pane.
 const expanded = atom({ plugin: 'taskboard', key: 'expanded' } as const, [] as string[])
@@ -215,7 +218,7 @@ function alerts(before: Board | null, after: Board): string[] {
   if (!before) return []
   const was = new Map(before.tasks.map(t => [t.id, t.stage]))
   const out: string[] = []
-  for (const t of after.tasks) {
+  for (const t of after.tasks.filter(t => !t.unsubscribed)) {
     if ((t.stage === 'needs-you' || t.stage === 'merge') && was.get(t.id) !== t.stage) {
       out.push(`${t.id} ${t.stage === 'merge' ? 'can merge' : 'needs you'}`)
     }
@@ -335,7 +338,7 @@ export const register: Register = on => {
     const ws = await read($, workers)
     const now = await $.clock.now()
     const { Box, Button, Text } = $.ui.resolve(e)
-    const by = (stage: string) => b.tasks.filter(t => t.stage === stage).length
+    const by = (stage: string) => b.tasks.filter(t => !t.unsubscribed && t.stage === stage).length
     const oldest = ws.map(w => w.turnStartedAt).sort()[0]
     const parts = [
       b.counts.needsYou && `${b.counts.needsYou} need you`,
@@ -505,14 +508,16 @@ export const register: Register = on => {
     const tasksOf = (n: BoardNode) => n.tasks.flatMap(id => byId.get(id) ?? []).filter(t => keeps(t.stage))
     const prsOf = (n: BoardNode) => (!isFiltered || picked.has(OTHERS) ? n.prs : [])
     const shown = (n: BoardNode): number => tasksOf(n).length + prsOf(n).length + n.children.reduce((k, c) => k + shown(c), 0)
+    const sections = b.sections.filter(sec => !isFiltered || sec.key !== UNSUBSCRIBED)
+    const inView = b.tasks.filter(t => !t.unsubscribed)
     const lonePrs = new Set<string>()
     const walk = (n: BoardNode) => {
       for (const p of n.prs) lonePrs.add(p.key)
       n.children.forEach(walk)
     }
-    b.sections.forEach(walk)
+    b.sections.filter(sec => sec.key !== UNSUBSCRIBED).forEach(walk)
     const filterCount = (f: string) =>
-      f === OTHERS ? b.tasks.filter(t => !FILTERS.includes(t.stage)).length + lonePrs.size : b.tasks.filter(t => t.stage === f).length
+      f === OTHERS ? inView.filter(t => !FILTERS.includes(t.stage)).length + lonePrs.size : inView.filter(t => t.stage === f).length
     // A desktop draws every Button as a native button showing its label, so only the marker is one
     // and its label is the glyph alone; the title beside it is plain text. Button has no size, so
     // the full-size triangles and the terminal's bracketed form make the target bigger. The
@@ -596,6 +601,7 @@ export const register: Register = on => {
           </Box>
           <Text dimColor size="caption">
             {b.counts.open} open · {b.counts.queue} in review queue · {b.counts.backlog} filed, unlinked
+            {b.counts.unsubscribed ? ` · ${b.counts.unsubscribed} unsubscribed` : ''}
           </Text>
           {s.error && <Text color="error">Last sync failed: {s.error}</Text>}
           {cleaned && <Text color={cleaned.isError ? 'error' : undefined} dimColor={!cleaned.isError} size="caption">{cleaned.text}</Text>}
@@ -611,8 +617,8 @@ export const register: Register = on => {
             ))}
           </Box>
         </Box>
-        {b.sections.map(sec => branch(sec, 0))}
-        {isFiltered && b.sections.every(sec => shown(sec) === 0) && <Text dimColor>Nothing matches these filters.</Text>}
+        {sections.map(sec => branch(sec, 0))}
+        {isFiltered && sections.every(sec => shown(sec) === 0) && <Text dimColor>Nothing matches these filters.</Text>}
       </Box>
     )
   })

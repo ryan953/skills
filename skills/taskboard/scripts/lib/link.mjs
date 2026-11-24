@@ -40,6 +40,14 @@ function bucketOf(item) {
   return null;
 }
 
+// Out of sight: a PR with no ticket that you unsubscribed from or ignored. A ticket keeps
+// its PRs in view whatever their subscription, because the ticket is still your work.
+function isUnsubscribed(members) {
+  if (members.some(i => i.type === 'linear')) return false;
+  const open = members.filter(i => i.type === 'pr' && i.open);
+  return open.length > 0 && open.every(p => p.meta.unsubscribed);
+}
+
 function taskTitle(items) {
   const pick = t => items.find(i => i.type === t)?.title;
   return pick('linear') ?? pick('pr') ?? pick('jr') ?? pick('claude') ?? '(untitled)';
@@ -167,8 +175,13 @@ export function link(allItems, {previous = null, overrides = {}, checks = {}} = 
   const tasks = [];
   const queue = [];
   const backlog = [];
+  const unsubscribed = [];
   for (const members of groups.values()) {
     const bucket = members.length === 1 && bucketOf(members[0]);
+    if (bucket === 'queue' && isUnsubscribed(members)) {
+      unsubscribed.push(members[0].key);
+      continue;
+    }
     if (bucket) {
       (bucket === 'queue' ? queue : backlog).push(members[0].key);
       continue;
@@ -187,6 +200,7 @@ export function link(allItems, {previous = null, overrides = {}, checks = {}} = 
       notes: prevTask?.notes ?? null,
       titleOverride: prevTask?.titleOverride ?? null,
       kindOverride: prevTask?.kindOverride ?? null,
+      unsubscribed: isUnsubscribed(members),
     };
     task.actions = actionsFor(task, items, checks);
     // Remaining work a conversation named keeps the task in view, above the routine stages.
@@ -198,7 +212,8 @@ export function link(allItems, {previous = null, overrides = {}, checks = {}} = 
   const itemTask = {};
   for (const t of tasks) for (const k of t.items) itemTask[k] = t.id;
 
-  return {tasks, queue: queue.sort(), backlog: backlog.sort(), itemTask, changes: diff(previous, tasks, items)};
+  // `unsubscribed` holds the lone PRs that would be in the queue; a task says so itself.
+  return {tasks, queue: queue.sort(), backlog: backlog.sort(), unsubscribed: unsubscribed.sort(), itemTask, changes: diff(previous, tasks, items)};
 }
 
 function diff(previous, tasks, items) {

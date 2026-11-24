@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
 import {prDetailText} from './lib/format.mjs';
-import {prDetail} from './lib/sources.mjs';
+import {isUnsubscribed, prDetail} from './lib/sources.mjs';
 
 const thread = (login, isResolved = false) => ({isResolved, comments: {nodes: [{author: {login}}]}});
 const node = ({threads = [], runs = [], counts = [], pending = []} = {}) => ({
@@ -55,4 +55,24 @@ test('a session is running when a turn was sent after the last turn ended', asyn
   assert.equal(turnState({latestUserFrameAt: String(sent), lastTurnEdgeAt: String(sent + 1)}).running, false);
   assert.equal(turnState({latestUserFrameAt: sent, lastTurnEdgeAt: sent - 5000, isArchived: true}).running, false);
   assert.equal(turnState({}).running, false);
+});
+
+// Shaped like the replies for real PRs on 2026-11-24.
+const subscription = (viewerSubscription, events = []) => ({
+  viewerSubscription,
+  subscriptionEvents: {nodes: events.map(([__typename, login]) => ({__typename, actor: {login}}))},
+});
+
+test('only your own unsubscribe, or ignoring, counts as unsubscribed', () => {
+  // You pressed Unsubscribe.
+  assert.equal(isUnsubscribed(subscription('UNSUBSCRIBED', [['UnsubscribedEvent', 'me']]), 'me'), true);
+  // A team review request you never subscribed to reads the same, but has no event of yours.
+  assert.equal(isUnsubscribed(subscription('UNSUBSCRIBED', [['SubscribedEvent', 'KyleTryon'], ['UnsubscribedEvent', 'sl0thentr0py']]), 'me'), false);
+  assert.equal(isUnsubscribed(subscription('UNSUBSCRIBED'), 'me'), false);
+  // You subscribed again after an unsubscribe.
+  assert.equal(isUnsubscribed(subscription('UNSUBSCRIBED', [['UnsubscribedEvent', 'me'], ['SubscribedEvent', 'me']]), 'me'), false);
+  assert.equal(isUnsubscribed(subscription('SUBSCRIBED', [['UnsubscribedEvent', 'me']]), 'me'), false);
+  assert.equal(isUnsubscribed(subscription('IGNORED'), 'me'), true);
+  assert.equal(prDetail({...node(), ...subscription('UNSUBSCRIBED', [['UnsubscribedEvent', 'me']])}, 'me').unsubscribed, true);
+  assert.equal(prDetail(node(), 'me').unsubscribed, false);
 });

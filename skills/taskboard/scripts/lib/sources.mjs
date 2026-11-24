@@ -20,7 +20,7 @@ const WATCH = new RegExp(process.env.TASKBOARD_WATCH ?? 'onboarding|agent[_-]?ha
 // ---------- GitHub ----------
 
 const PR_FIELDS = `
-  number title url state isDraft updatedAt headRefName body
+  number title url state isDraft updatedAt headRefName body viewerSubscription
   author { login __typename }
   repository { nameWithOwner isArchived }
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on Team { combinedSlug } } } }
@@ -88,6 +88,9 @@ export function prItem(node, me, roles, teams, myTeams = null) {
       review: node.reviewDecision,
       checks,
       watched: (node.files?.nodes ?? []).some(f => WATCH.test(f.path)),
+      subscription: node.viewerSubscription ?? null,
+      // The detail fetch decides this for open PRs; it needs the timeline.
+      unsubscribed: false,
     },
   };
 }
@@ -137,12 +140,27 @@ const DETAIL_FIELDS = `
   headCommit: commits(last: 1) { nodes { commit { committedDate } } }
   reviewThreads(first: 100) { nodes { isResolved comments(first: 1) { nodes { author { login } } } } }
   reviews(states: PENDING, first: 5) { nodes { author { login } comments { totalCount } } }
+  viewerSubscription
+  subscriptionEvents: timelineItems(last: 50, itemTypes: [SUBSCRIBED_EVENT, UNSUBSCRIBED_EVENT]) {
+    nodes { __typename ... on SubscribedEvent { actor { login } } ... on UnsubscribedEvent { actor { login } } }
+  }
   commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
     checkRunCountsByState { state count }
     statusContextCountsByState { state count }
     nodes { ... on CheckRun { name conclusion } }
   } } } } }
 `;
+
+// viewerSubscription is UNSUBSCRIBED both after you unsubscribe and when you were never
+// subscribed, which is how most team review requests start. Only your own unsubscribe
+// leaves an event in the timeline, so that event tells the two apart. IGNORED comes from
+// ignoring the repo or the thread, and it is always your choice.
+export function isUnsubscribed(node, me) {
+  if (node.viewerSubscription === 'IGNORED') return true;
+  if (node.viewerSubscription !== 'UNSUBSCRIBED') return false;
+  const mine = (node.subscriptionEvents?.nodes ?? []).filter(e => e?.actor?.login === me);
+  return mine.at(-1)?.__typename === 'UnsubscribedEvent';
+}
 
 export function prDetail(node, me) {
   const login = t => (t.comments.nodes[0]?.author?.login ?? '').replace(/\[bot\]$/, '');
@@ -175,6 +193,7 @@ export function prDetail(node, me) {
     warden,
     minorBots: threads.filter(t => !t.isResolved && MINOR_REVIEW.has(login(t))).length,
     draftComments: pending ? pending.comments.totalCount : 0,
+    unsubscribed: isUnsubscribed(node, me),
   };
 }
 

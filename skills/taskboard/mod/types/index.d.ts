@@ -45,6 +45,8 @@ export type BoardTask = {
   stage: string
   kind: string
   owner: string | null
+  // A PR with no ticket that you unsubscribed from: drawn only under Unsubscribed, and never counted.
+  unsubscribed: boolean
   url: string | null
   parts: string
   actions: BoardAction[]
@@ -65,6 +67,7 @@ export type Board = {
     close: number
     queue: number
     backlog: number
+    unsubscribed: number
   }
   tasks: BoardTask[]
   sections: BoardNode[]

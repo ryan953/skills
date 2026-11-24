@@ -108,7 +108,10 @@ async function collect() {
     fetchPrDetail(items.filter(i => i.type === 'pr' && i.open).map(i => i.key), me),
     fetchTrees([...new Set(linearIds)]),
   ]);
-  items = items.map(i => (detail.has(i.key) ? {...i, meta: {...i.meta, detail: detail.get(i.key)}} : i));
+  items = items.map(i => {
+    const d = detail.get(i.key);
+    return d ? {...i, meta: {...i.meta, detail: d, unsubscribed: d.unsubscribed}} : i;
+  });
   // jr is re-read from its snapshot on every build, so an ingest shows up in `sync --offline`.
   return {me, teams: [...teams], items: items.filter(i => i.type !== 'jr'), trees, projects, fetchedAt: new Date().toISOString()};
 }
@@ -144,14 +147,17 @@ function itemLabel(i) {
 }
 
 function report(ledger, {all = false} = {}) {
-  const {tasks, items, queue, changes} = ledger;
+  const {items, queue, changes} = ledger;
+  // Unsubscribed work is only counted, so it never asks for you here.
+  const tasks = ledger.tasks.filter(t => !t.unsubscribed);
+  const unsubscribed = ledger.tasks.length - tasks.length + (ledger.unsubscribed ?? []).length;
   const lines = [];
   const actions = tasks.flatMap(t => t.actions.map(a => ({...a, task: t.id})));
   const count = t => actions.filter(a => a.type === t).length;
   lines.push(
     `taskboard ${ledger.generatedAt}: ${tasks.filter(t => t.stage !== 'done').length} open tasks, ` +
       `${count('needs-you')} need you, ${count('follow-up')} follow-ups, ${count('check')} to check, ${count('archive')} to archive, ${count('close-linear')} tickets to close, ` +
-      `${queue.length} in the review queue, ${ledger.backlog.length} unlinked tickets you filed`
+      `${queue.length} in the review queue, ${ledger.backlog.length} unlinked tickets you filed, ${unsubscribed} unsubscribed`
   );
 
   if (changes.length) {
@@ -191,9 +197,13 @@ const prRow = i => ({key: i.key, label: itemLabel(i), title: i.title, url: i.url
 // The mod draws from this, so it holds only what a row shows, not every item's metadata.
 function board(ledger) {
   const {tasks, items} = ledger;
-  const actions = tasks.flatMap(t => t.actions);
-  const count = t => actions.filter(a => a.type === t).length;
   const open = tasks.filter(t => t.stage !== 'done');
+  // Unsubscribed tasks are drawn in their own section, but no count includes them.
+  const inView = open.filter(t => !t.unsubscribed);
+  const actions = tasks.filter(t => !t.unsubscribed).flatMap(t => t.actions);
+  const count = t => actions.filter(a => a.type === t).length;
+  const lonePrs = keys => (keys ?? []).map(k => items[k]).filter(i => i?.type === 'pr' && i.open).map(prRow);
+  const unsubscribed = lonePrs(ledger.unsubscribed);
   const urlOf = t => {
     const members = t.items.map(k => items[k]);
     const pick = type => members.find(i => i.type === type && i.open && i.url)?.url;
@@ -202,7 +212,7 @@ function board(ledger) {
   return {
     generatedAt: ledger.generatedAt,
     counts: {
-      open: open.length,
+      open: inView.length,
       needsYou: count('needs-you'),
       followUp: count('follow-up'),
       check: count('check'),
@@ -210,6 +220,7 @@ function board(ledger) {
       close: count('close-linear'),
       queue: ledger.queue.length,
       backlog: ledger.backlog.length,
+      unsubscribed: open.length - inView.length + unsubscribed.length,
     },
     tasks: open.map(t => ({
       id: t.id,
@@ -217,6 +228,7 @@ function board(ledger) {
       stage: t.stage,
       kind: t.kind,
       owner: t.owner,
+      unsubscribed: Boolean(t.unsubscribed),
       url: urlOf(t),
       parts: ['linear', 'pr', 'jr', 'claude']
         .flatMap(type => t.items.map(k => items[k]).filter(i => i.type === type && (i.open || type === 'pr' || type === 'linear')).map(itemLabel))
@@ -233,7 +245,8 @@ function board(ledger) {
     sections: boardSections({
       tasks: open,
       items,
-      queue: ledger.queue.map(k => items[k]).filter(i => i?.type === 'pr' && i.open).map(prRow),
+      queue: lonePrs(ledger.queue),
+      unsubscribed,
       projects: ledger.projects ?? [],
       me: ledger.me,
     }),

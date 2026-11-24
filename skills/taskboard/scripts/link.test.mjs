@@ -218,3 +218,35 @@ test('a session with another open PR is left alone when one of its tasks is done
   const task = link(items).tasks.find(t => t.id === 'VDY-381');
   assert.deepEqual(task.actions, []);
 });
+
+test('a PR with no ticket that you unsubscribed from is out of sight; a ticket keeps its PRs', () => {
+  const items = [
+    // A lone team review request, out of the queue.
+    pr(130433, {status: 'open', roles: ['review'], author: 'sentry-junior', unsubscribed: true}),
+    // Never subscribed: still in the queue.
+    pr(131412, {status: 'open', roles: ['review'], author: 'Ultroncn', unsubscribed: false}),
+    // Your own PR with no ticket: a task, marked.
+    pr(131000, {status: 'open', unsubscribed: true}),
+    // Under a ticket: it stays with the ticket.
+    pr(131651, {status: 'open', linear: ['VDY-433'], unsubscribed: true}),
+    issue('VDY-433'),
+  ];
+  const {tasks, queue, unsubscribed} = link(items);
+  assert.deepEqual(unsubscribed, ['getsentry/sentry#130433']);
+  assert.deepEqual(queue, ['getsentry/sentry#131412']);
+  const byId = Object.fromEntries(tasks.map(t => [t.id, t]));
+  assert.equal(byId['getsentry/sentry#131000'].unsubscribed, true);
+  assert.equal(byId['VDY-433'].unsubscribed, false);
+  assert.deepEqual(byId['VDY-433'].items, ['VDY-433', 'getsentry/sentry#131651']);
+});
+
+test('a task with no ticket stays in view while any of its open PRs is subscribed', () => {
+  const items = [
+    pr(131000, {status: 'open', unsubscribed: true}),
+    pr(131001, {status: 'open', unsubscribed: false}),
+    session('cc-1', 'Fix #131000 and #131001', {prs: ['getsentry/sentry#131000', 'getsentry/sentry#131001']}),
+  ];
+  const {tasks} = link(items);
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].unsubscribed, false);
+});
