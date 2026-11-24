@@ -431,8 +431,8 @@ export const register: Register = on => {
     }
 
     const cleanup = b.counts.archive + b.counts.close + b.counts.check
-    // A desktop draws every Button as a native button, so only the marker is one and the title
-    // stays plain text. The label names the marker by the title, so it reads the same folded or not.
+    // A desktop draws every Button as a native button showing its label, so only the marker is one
+    // and its label is the glyph alone; the title beside it is plain text.
     const heading = (key: string, title: string, count: number, size: 'heading' | 'body') => {
       const isShut = shut.has(key)
       return (
@@ -441,11 +441,9 @@ export const register: Register = on => {
             key={`fold:${key}`}
             plain
             dimColor
-            label={title}
+            label={isShut ? '▸' : '▾'}
             onPress={() => update($, folded, keys => (keys.includes(key) ? keys.filter(k => k !== key) : [...keys, key]))}
-          >
-            {isShut ? '▸' : '▾'}
-          </Button>
+          />
           <Text size={size} weight="semibold">{title}</Text>
           <Text dimColor size="caption" tabular>{count}</Text>
         </Box>
