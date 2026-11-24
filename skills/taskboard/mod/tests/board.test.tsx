@@ -154,8 +154,10 @@ const OVERVIEW_DATA = {
   actions: [],
 }
 
-function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }, sessions: string[] = ['cli-main'], looks: any[] = []) {
-  mock.store(on, { enabledSessions: sessions })
+type Run = { fail: boolean; board?: object; store?: Record<string, unknown> }
+
+function engine(on: any, calls: string[][], prompts: string[], run: Run = { fail: false }, sessions: string[] = ['cli-main'], looks: any[] = []) {
+  mock.store(on, { enabledSessions: sessions, ...run.store })
   on('theme.set', (_: unknown, e: any) => {
     looks.push(e)
     return { value: { isDrawn: true, requestId: 'theme' } }
@@ -175,7 +177,7 @@ function engine(on: any, calls: string[][], prompts: string[], run = { fail: fal
     if (e.argv.includes('workers')) return { value: { exitCode: 0, stdout: JSON.stringify(WORKERS), stderr: '' } }
     return run.fail
       ? { value: { exitCode: 1, stdout: '', stderr: 'gh: not logged in' } }
-      : { value: { exitCode: 0, stdout: JSON.stringify(BOARD), stderr: '' } }
+      : { value: { exitCode: 0, stdout: JSON.stringify(run.board ?? BOARD), stderr: '' } }
   })
   on('command.run', (_: unknown, e: any) => {
     prompts.push(`/${e.command} ${e.args}`)
@@ -206,6 +208,109 @@ test('start draws the saved ledger without fetching, and Dispatch submits the ta
   expect(prompts).toEqual(['/taskboard dispatch VDY-433'])
   await ui.unmount()
 })
+
+const CLEANUP_BOARD = { ...BOARD, counts: { ...BOARD.counts, check: 2, archive: 1 } }
+
+// The desktop app's session tools as the mod calls them, over a list of known sessions.
+function desktop(on: any, known: Record<string, { isArchived: boolean }>) {
+  const tools: any[] = []
+  const sends: any[] = []
+  const toasts: string[] = []
+  on('tool.call', (_: unknown, e: any) => {
+    tools.push(e)
+    if (e.tool === 'mcp__ccd_session_mgmt__get_session') {
+      const s = known[e.session_id]
+      return s
+        ? { result: {}, text: JSON.stringify({ sessionId: e.session_id, title: 'Taskboard clean-up', isArchived: s.isArchived }) }
+        : { result: {}, text: `No session ${e.session_id}`, isError: true }
+    }
+    if (e.tool === 'mcp__ccd_session__start_session') {
+      known['local_new-1'] = { isArchived: false }
+      return { result: {}, text: 'Started session "Taskboard clean-up" (session_id: local_new-1, name: taskboard-cleanup). It runs on its own.' }
+    }
+    return { result: {}, text: 'Detached.' }
+  })
+  on('session.send', (_: unknown, e: any) => {
+    sends.push(e)
+    return { isDelivered: true }
+  })
+  on('ui.toast', (_: unknown, e: any) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  return { tools, sends, toasts, names: () => tools.map(t => t.tool.split('__').pop()) }
+}
+
+test('Clean up with no kept session starts one, keeps it, and runs nothing here', async ($, on) => {
+  const calls: string[][] = []
+  const prompts: string[] = []
+  engine(on, calls, prompts, { fail: false, board: CLEANUP_BOARD })
+  const app = desktop(on, {})
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  await $.ui.press({ plugin: 'taskboard', key: 'pane-cleanup' })
+  expect(prompts).toEqual([])
+  expect(app.names()).toEqual(['start_session', 'detach_session'])
+  const start = app.tools[0]
+  expect(start).toMatchObject({ initiation: 'user_asked', title: 'Taskboard clean-up', context: 'fresh' })
+  // A fresh session reads only this, so the request names the skill and the whole flow.
+  expect(start.prompt).toMatch(/^\/taskboard clean up/)
+  expect(start.prompt).toMatch(/`ask`, then `checked`/)
+  expect(start.consent).toBe('The user pressed "Clean up (3)" on the Taskboard pane.')
+  expect(app.tools[1]).toMatchObject({ session_id: 'local_new-1' })
+  expect(calls.at(-1)?.slice(-3)).toEqual(['manager', 'add', 'local_new-1'])
+  expect(app.toasts).toEqual(['Started "Taskboard clean-up" for the clean-up.'])
+
+  // The store keeps it, so the next press goes to the same session.
+  app.tools.length = 0
+  await $.ui.press({ plugin: 'taskboard', key: 'pane-cleanup' })
+  expect(app.names()).toEqual(['get_session'])
+  expect(app.sends.map(m => m.to)).toEqual(['local_new-1'])
+  await ui.unmount()
+})
+
+test('Clean up sends the request to the kept session while it is live', async ($, on) => {
+  const calls: string[][] = []
+  const prompts: string[] = []
+  engine(on, calls, prompts, { fail: false, board: CLEANUP_BOARD, store: { cleanupSession: { id: 'local_kept', title: 'Taskboard clean-up' } } })
+  const app = desktop(on, { local_kept: { isArchived: false } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  calls.length = 0
+
+  await $.ui.press({ plugin: 'taskboard', key: 'pane-cleanup' })
+  expect(prompts).toEqual([])
+  expect(app.names()).toEqual(['get_session'])
+  expect(app.sends).toHaveLength(1)
+  expect(app.sends[0].to).toBe('local_kept')
+  expect(app.sends[0].text).toMatch(/^\/taskboard clean up/)
+  expect(calls).toEqual([])
+  expect(app.toasts).toEqual(['Clean-up sent to "Taskboard clean-up".'])
+  await ui.unmount()
+})
+
+async function replaced($: any, on: any, known: Record<string, { isArchived: boolean }>) {
+  const calls: string[][] = []
+  engine(on, calls, [], { fail: false, board: CLEANUP_BOARD, store: { cleanupSession: { id: 'local_kept', title: 'Taskboard clean-up' } } })
+  const app = desktop(on, known)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  await $.ui.press({ plugin: 'taskboard', key: 'pane-cleanup' })
+  expect(app.sends).toEqual([])
+  expect(app.names()).toEqual(['get_session', 'start_session', 'detach_session'])
+  expect(calls.map(c => c.slice(-3)).filter(c => c[0] === 'manager')).toEqual([
+    ['manager', 'remove', 'local_kept'],
+    ['manager', 'add', 'local_new-1'],
+  ])
+  expect(app.toasts).toEqual(['Started "Taskboard clean-up" for the clean-up.'])
+  await ui.unmount()
+}
+
+test('Clean up replaces a kept session that was archived', ($, on) => replaced($, on, { local_kept: { isArchived: true } }))
+
+test('Clean up replaces a kept session that is gone', ($, on) => replaced($, on, {}))
 
 test('Sync fetches, and a failed sync shows its error', async ($, on) => {
   const calls: string[][] = []

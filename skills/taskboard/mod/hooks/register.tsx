@@ -59,6 +59,22 @@ const enabled = atom({ plugin: 'taskboard', key: 'enabled' } as const, false)
 const ENABLED_SESSIONS = 'enabledSessions'
 const OFF_TEXT = 'The taskboard is off in this session. Type /board on in the session that manages the others.'
 
+// Clean-up is a long back-and-forth with every finished conversation, so it runs in a desktop
+// session kept for it, never in the session that draws the pane. The store remembers that
+// session for every manager and across restarts.
+const CLEANUP_SESSION = 'cleanupSession'
+const CLEANUP_TITLE = 'Taskboard clean-up'
+// The same text starts a new session and goes to a kept one, so it must stand on its own.
+const CLEANUP_REQUEST = [
+  '/taskboard clean up: ask the conversations to check, then offer the archive and close actions.',
+  '',
+  'Use the taskboard skill. Sync the ledger, ask each `check` item whether anything is left (`ask`, then `checked`), and sync again.',
+  'Then list the `archive` and `close` actions and wait for my yes before you archive or close anything.',
+].join('\n')
+const CLEANUP_BACKGROUND =
+  "The taskboard (the `taskboard` skill and its mod) keeps a ledger of the user's Linear tickets, PRs, jr conversations and Claude sessions, and suggests clean-up actions. " +
+  "This session is kept for that clean-up: the Taskboard pane's Clean up button sends each later request here, so the long exchange stays out of the sessions the user works in."
+
 // The backdrop tells the management session apart from the sessions it dispatches to at a glance.
 // Palette names, not raw colors, so each ground follows light and dark mode.
 const MANAGER_LOOK: ThemeSetArgs = {
@@ -95,6 +111,75 @@ async function cli<T = Board>($: EngineInterface, args: string[]): Promise<T> {
 async function enabledSessions($: EngineInterface): Promise<string[]> {
   const v = await $.store.get(ENABLED_SESSIONS)
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
+}
+
+type KeptSession = { id: string; title: string }
+
+async function keptCleanup($: EngineInterface): Promise<KeptSession | null> {
+  const v = (await $.store.get(CLEANUP_SESSION)) as Partial<KeptSession> | null | undefined
+  return typeof v?.id === 'string' ? { id: v.id, title: typeof v.title === 'string' ? v.title : CLEANUP_TITLE } : null
+}
+
+// The desktop's own session tools answer what the mod API cannot: whether a session is
+// archived, and starting one. Its answer is null for a session that is archived or gone.
+async function liveSession($: EngineInterface, id: string): Promise<KeptSession | null> {
+  const r = await $.tool.call({ tool: 'mcp__ccd_session_mgmt__get_session', session_id: id }).catch(() => null)
+  if (!r?.text || r.isError) return null
+  try {
+    const s = JSON.parse(r.text) as { sessionId?: string; title?: string; isArchived?: boolean }
+    return s.sessionId === id && s.isArchived !== true ? { id, title: s.title ?? CLEANUP_TITLE } : null
+  } catch {
+    return null
+  }
+}
+
+async function startCleanup($: EngineInterface, consent: string): Promise<KeptSession> {
+  const r = await $.tool.call({
+    tool: 'mcp__ccd_session__start_session',
+    initiation: 'user_asked',
+    title: CLEANUP_TITLE,
+    name: 'taskboard-cleanup',
+    context: 'fresh',
+    prompt: CLEANUP_REQUEST,
+    background: CLEANUP_BACKGROUND,
+    consent,
+  })
+  if (r.deny) throw new Error(r.deny)
+  const id = r.text?.match(/session_id: (local_[\w-]+)/)?.[1]
+  // No id means nothing started; the answer says why (a folder to trust, a limit).
+  if (!id) throw new Error(r.text?.trim() || 'the app started no session')
+  // A started session is nested under this one, and the app wakes this one at the end of each
+  // of its turns. Detached, its reports stay out of the session the user works in.
+  await $.tool.call({ tool: 'mcp__ccd_session_mgmt__detach_session', session_id: id }).catch(() => {})
+  // A manager is left out of the ledger, so the clean-up session never suggests archiving itself.
+  await run($, ['manager', 'add', id]).catch(() => {})
+  const kept = { id, title: CLEANUP_TITLE }
+  await $.store.set(CLEANUP_SESSION, kept)
+  return kept
+}
+
+// One press at a time, so a double press cannot start two sessions.
+let cleaningUp = false
+
+async function cleanUp($: EngineInterface, consent: string) {
+  if (cleaningUp) return
+  cleaningUp = true
+  try {
+    const kept = await keptCleanup($)
+    const live = kept && (await liveSession($, kept.id))
+    if (live) {
+      const sent = await $.session.send({ to: live.id, text: CLEANUP_REQUEST })
+      $.ui.toast(sent.isDelivered ? `Clean-up sent to "${live.title}".` : `Clean-up not sent to "${live.title}": ${sent.reason}`, { timeoutMs: 8000 })
+      return
+    }
+    if (kept) await run($, ['manager', 'remove', kept.id]).catch(() => {})
+    const started = await startCleanup($, consent)
+    $.ui.toast(`Started "${started.title}" for the clean-up.`, { timeoutMs: 8000 })
+  } catch (err) {
+    $.ui.toast(`Clean-up not started: ${String((err as Error).message ?? err)}`, { timeoutMs: 8000 })
+  } finally {
+    cleaningUp = false
+  }
 }
 
 const pct = (p: Progress | null) => (p ? `${p.done} of ${p.total} done` : '')
@@ -477,7 +562,8 @@ export const register: Register = on => {
                 <Button
                   key="pane-cleanup"
                   label={`Clean up (${cleanup})`}
-                  onPress={() => void $.command.run({ command: 'taskboard', args: 'ask the sessions to check, then offer the archive and close actions' })}
+                  // Returned, not voided: the tool calls count as the press only while it runs.
+                  onPress={() => cleanUp($, `The user pressed "Clean up (${cleanup})" on the Taskboard pane.`)}
                 />
               )}
               <Button key="pane-sync" label={s.isSyncing ? 'Syncing…' : 'Sync'} onPress={() => void runSync($)} />
