@@ -104,3 +104,34 @@ Each node gets one main button:
 - **Resume**, when the only session is archived: `/taskboard open <task-id>` calls `unarchive_session`, then opens the session in a split view. It asks the user **each time**, as for archive (decided 2026-11-24).
 - **Dispatch**, when there is no session: the existing reuse rule.
 - **jr conversations:** an **Open** link to their `url`.
+
+## Phase 8: merge order, Linear status, Overview activity
+
+More gaps from the mock analysis (2026-11-24).
+
+### 8.1 Merge order between PRs
+
+In the mock, a `sentry` UI PR needs a `getsentry` API PR in the same task. Neither the mock nor the taskboard shows that the API PR must merge first.
+
+- Find tasks that have open PRs in more than one repo.
+- **How the order is known** (decided 2026-11-24):
+  - a `Depends on <PR>` or `Requires <PR>` line in the PR body
+  - an `order <a> <b>` override, stored like `join`, which wins over the body
+- Show "merge <PR> first" on the PR that must wait, and keep that PR out of the `merge` stage until the other PR merges.
+
+### 8.2 Linear status on dispatch
+
+In the mock, a ticket showed "Planned" while an agent was "Implementing" it.
+
+- When dispatch starts a worker on a ticket in Backlog, Planned, Triage or Todo, move the ticket to the team's In Progress state with Linear MCP `save_issue`.
+- Statuses are different for each team, so read them with `list_issue_statuses`.
+- **Approval** (decided 2026-11-24): the user's yes to the dispatch also covers the status move for a ticket assigned to the user. A ticket assigned to someone else, or to no one, still gets its own question.
+
+### 8.3 Activity and a comment box in the Overview pane
+
+- **Activity timeline** (decided 2026-11-24): merge Linear history (status changes, PR links and merges) with taskboard events. The taskboard writes an event log when it dispatches, archives, resumes or records a check, because those events are not in Linear.
+- **Comment box:** a button that runs `/taskboard comment <id>`. The skill drafts the comment, and writes it with `save_comment` only after the user approves the text.
+
+### Decisions recorded with phase 8
+
+- The managers list holds only sessions that manage the board. A session that changes into a worker is removed from it (2026-11-24: `local_870120ee` was removed, the newest "Taskboard" session was added).
