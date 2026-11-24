@@ -114,7 +114,9 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
 
 ## Mod: pane, band and timer
 
-`mod/` is a Claude Code mod for the management session.
+`mod/` is a Claude Code mod for the management session. Every session loads it, but it does nothing until `/board on` in that session.
+
+- **`/board on`** runs the board in this session: it records the session in the mod's store (shared by all sessions, so the choice outlives a restart), runs `manager add` for it, starts the timers and opens the pane. **`/board off`** stops it and runs `manager remove`. **`/board`** opens the pane. In a session that is not on, there is no band, no timer and no CLI call.
 
 - **Band** above the prompt: the counts (need you, follow-ups, to merge, iterate, review, to check, to archive), with **Board** and **Sync** buttons.
 - **Pane** "Taskboard" (or `/board`): open tasks by stage. Each row has **Open** and **Dispatch** (it runs `/taskboard dispatch <id>`). A row with a Linear tree shows "↑ parent · N of M done" and a **Tree** button. The button opens the parent, the open sub-issues and the open siblings, and each one without a PR has its own **Dispatch**. **Overview** opens the task's detail pane (below). **Clean up** shows when there are actions to approve.
@@ -124,9 +126,9 @@ The sync fetches each ticket's parent, its sub-issues and the parent's other sub
 
 The timer cannot reach jr, because jr needs MCP tools. jr stays as of the last `/taskboard sync`.
 
-Load it only in the management session: link this folder's `mod/` into that session's mods folder (`ln -s <skill>/mod ~/.claude/dev-mods/<session-id>/taskboard`), or start the session with `claude --plugin-dir <skill>/mod`. Worker sessions do not need it. The link follows the checkout, so an edit reloads the mod. When more than one session loads it, a timer sync reuses a ledger that is less than 9 minutes old (`sync --max-age 540`), so only one session fetches each period. **Sync** always fetches. Tests: `claude plugin test mod`.
+It loads in every session through `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`, pointing at this folder's `mod/`. Only sessions started after that setting get it. The folder is watched, so an edit reloads the mod. When more than one session has the board on, a timer sync reuses a ledger that is less than 9 minutes old (`sync --max-age 540`), so only one session fetches each period. **Sync** always fetches. Tests: `claude plugin test mod`.
 
-Manager sessions (`manager add`) are left out of the ledger. Before, the sync left out the session that ran it. That broke when the mod runs the sync from a worker session, because the worker then dropped out of its own task.
+Manager sessions (`manager add`) are left out of the ledger, so the board never lists the session that runs it. `manager add` takes the app's `local_…` id or a CLI session id, which it looks up in the session files; the mod knows only the CLI id.
 
 ## How items link
 

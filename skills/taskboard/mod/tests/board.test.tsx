@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const PANE = {
   plugin: 'taskboard',
@@ -51,6 +51,9 @@ const BOARD = {
   ],
 }
 
+// What the engine stamps on a command the person typed at the prompt.
+const TYPED = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
+
 const WORKERS = [
   { session: 'cc-9', title: 'VDY-433', task: 'VDY-433', stage: 'iterate', isOwner: true, turnStartedAt: '2026-11-24T16:24:00Z' },
 ]
@@ -88,7 +91,9 @@ const OVERVIEW_DATA = {
   actions: [],
 }
 
-function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }) {
+function engine(on: any, calls: string[][], prompts: string[], run = { fail: false }, sessions: string[] = ['cli-main']) {
+  mock.store(on, { enabledSessions: sessions })
+  on('session.id', () => ({ value: 'cli-main' }))
   // Refusing the first period ends the interval, so no timer runs in a test.
   on('clock.every', () => ({ deny: 'no timer in tests' }))
   on('command.register', () => ({ value: { command: 'board' } }))
@@ -99,6 +104,7 @@ function engine(on: any, calls: string[][], prompts: string[], run = { fail: fal
   on('process.run', (_: unknown, e: any) => {
     calls.push([...e.argv])
     if (e.argv.includes('detail')) return { value: { exitCode: 0, stdout: JSON.stringify(OVERVIEW_DATA), stderr: '' } }
+    if (e.argv.includes('manager')) return { value: { exitCode: 0, stdout: 'managers: local_main. Run "sync".', stderr: '' } }
     if (e.argv.includes('workers')) return { value: { exitCode: 0, stdout: JSON.stringify(WORKERS), stderr: '' } }
     return run.fail
       ? { value: { exitCode: 1, stdout: '', stderr: 'gh: not logged in' } }
@@ -187,4 +193,45 @@ test('Overview loads the task on demand and shows properties, comments and sibli
   await $.ui.press({ plugin: 'taskboard', key: 'ov-dispatch:VDY-455' })
   expect(prompts).toEqual(['/taskboard dispatch VDY-455'])
   await ui.unmount()
+})
+
+test('a session that is not enabled draws no band and runs nothing', async ($, on) => {
+  const calls: string[][] = []
+  engine(on, calls, [], { fail: false }, [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(calls).toEqual([])
+
+  const band = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
+  expect(await band.find({ type: 'Text', text: /^taskboard:/ })).toBeFalsy()
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await pane.find({ type: 'Text', text: /off in this session/ }))?.text).toMatch(/^The taskboard is off in this session/)
+  await pane.unmount()
+})
+
+test('/board on enables this session and marks it a manager; /board off stops it', async ($, on) => {
+  const calls: string[][] = []
+  engine(on, calls, [], { fail: false }, ['cli-other'])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(calls).toEqual([])
+
+  await $.command.run({ command: 'board', args: 'on', ...TYPED })
+  expect(calls[0]?.slice(-3)).toEqual(['manager', 'add', 'cli-main'])
+  expect(calls[1]?.slice(-2)).toEqual(['show', '--board'])
+  const band = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
+  expect((await band.find({ type: 'Text', text: /^taskboard:/ }))?.text).toMatch(/1 need you/)
+  await band.unmount()
+  // The store keeps the choice, so a restart starts the board again.
+  calls.length = 0
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(calls[0]?.slice(-2)).toEqual(['show', '--board'])
+
+  await $.command.run({ command: 'board', args: 'off', ...TYPED })
+  expect(calls.at(-1)?.slice(-3)).toEqual(['manager', 'remove', 'cli-main'])
+  calls.length = 0
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(calls).toEqual([])
+  const after = await $.ui.mount({ plugin: 'taskboard', component: 'AbovePrompt', props: { hasSurvey: false }, surface: 'desktop' } as any)
+  expect(await after.find({ type: 'Text', text: /^taskboard:/ })).toBeFalsy()
+  await after.unmount()
 })

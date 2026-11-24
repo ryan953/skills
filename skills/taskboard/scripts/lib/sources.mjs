@@ -427,6 +427,17 @@ function sessionsDir(self) {
   return SESSIONS_ROOT;
 }
 
+// The mod knows its session only by the CLI id; the ledger and the app's tools use the app's local_ id.
+export function localSessionId(cliId, root = process.env.TASKBOARD_SESSIONS_DIR || SESSIONS_ROOT) {
+  for (const file of sessionFiles(root)) {
+    try {
+      const s = JSON.parse(readFileSync(file, 'utf8'));
+      if (s.cliSessionId === cliId && s.sessionId) return s.sessionId;
+    } catch {}
+  }
+  return null;
+}
+
 // `skip` holds the manager sessions. It is a fixed list, not "the session that runs this":
 // the mod runs the sync from every session, and a worker must still see itself in its task.
 export function readClaudeSessions(teams, skip = new Set()) {

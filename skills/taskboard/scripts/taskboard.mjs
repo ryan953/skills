@@ -31,6 +31,7 @@ import {
   fetchTrees,
   fetchLinear,
   linearTeams,
+  localSessionId,
   normalizeJr,
   readClaudeSessions,
   readSessionTurns,
@@ -385,8 +386,11 @@ async function main() {
     return;
   }
   if (cmd === 'manager') {
-    const [op, id] = args;
-    if (!['add', 'remove'].includes(op) || !id) throw new Error('Usage: manager add|remove <session-id>');
+    const [op, given] = args;
+    if (!['add', 'remove'].includes(op) || !given) throw new Error('Usage: manager add|remove <session-id>');
+    // The mod passes its CLI session id; the ledger keys sessions by the app's local_ id.
+    const id = given.startsWith('local_') ? given : localSessionId(given);
+    if (!id) throw new Error(`No Claude Code session file has cliSessionId ${given}`);
     const list = new Set(readJson(paths.managers, []));
     if (op === 'add') list.add(id);
     else list.delete(id);

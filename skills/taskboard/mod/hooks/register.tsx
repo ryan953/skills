@@ -27,16 +27,30 @@ const sync = atom({ plugin: 'taskboard', key: 'sync' } as const, {
   error: null,
   at: null,
 })
+// Every session loads the mod, but only the management sessions run it.
+const enabled = atom({ plugin: 'taskboard', key: 'enabled' } as const, false)
+// $.store is shared by every session, so the list of enabled sessions outlives a restart.
+const ENABLED_SESSIONS = 'enabledSessions'
+const OFF_TEXT = 'The taskboard is off in this session. Type /board on in the session that manages the others.'
 
 // The skill is installed at a fixed place; a login shell finds the right node on PATH.
-async function cli<T = Board>($: EngineInterface, args: string[]): Promise<T> {
+async function run($: EngineInterface, args: string[]): Promise<string> {
   const env = await $.process.hookEnv()
   const { exitCode, stdout, stderr } = await $.process.run(
     ['/bin/zsh', '-lc', 'exec node "$HOME/.claude/skills/taskboard/scripts/taskboard.mjs" "$@"', 'taskboard', ...args],
     { env, timeoutMs: 180_000 },
   )
   if (exitCode !== 0) throw new Error(stderr.trim().split('\n').pop() || `exit ${exitCode}`)
-  return JSON.parse(stdout) as T
+  return stdout
+}
+
+async function cli<T = Board>($: EngineInterface, args: string[]): Promise<T> {
+  return JSON.parse(await run($, args)) as T
+}
+
+async function enabledSessions($: EngineInterface): Promise<string[]> {
+  const v = await $.store.get(ENABLED_SESSIONS)
+  return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []
 }
 
 const pct = (p: Progress | null) => (p ? `${p.done} of ${p.total} done` : '')
@@ -117,31 +131,66 @@ async function runSync($: EngineInterface, mode: 'saved' | 'timer' | 'fetch' = '
   }
 }
 
+async function start($: EngineInterface) {
+  await update($, enabled, () => true)
+  // $.state outlives a reload, so a sync cut off by one would otherwise block every later sync.
+  await update($, sync, s => ({ ...s, isSyncing: false }))
+  // Draw the last saved ledger at once (a local read); the first fetch waits for the timer or Sync.
+  await runSync($, 'saved')
+  timer?.cancel()
+  // Linear, GitHub and session files only: jr needs MCP tools, so its snapshot is as of the last /taskboard sync.
+  timer = $.clock.every(SYNC_EVERY_MS, () => void runSync($, 'timer'))
+  await readWorkers($)
+  workerTimer?.cancel()
+  workerTimer = $.clock.every(WORKERS_EVERY_MS, () => void readWorkers($))
+}
+
+async function stop($: EngineInterface) {
+  timer?.cancel()
+  workerTimer?.cancel()
+  timer = workerTimer = null
+  await update($, enabled, () => false)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    await $.command.register({ name: 'board', description: 'Open the taskboard pane' })
-    // $.state outlives a reload, so a sync cut off by one would otherwise block every later sync.
-    await update($, sync, s => ({ ...s, isSyncing: false }))
-    // Draw the last saved ledger at once (a local read); the first fetch waits for the timer or Sync.
-    await runSync($, 'saved')
-    timer?.cancel()
-    // Linear, GitHub and session files only: jr needs MCP tools, so its snapshot is as of the last /taskboard sync.
-    timer = $.clock.every(SYNC_EVERY_MS, () => void runSync($, 'timer'))
-    await readWorkers($)
-    workerTimer?.cancel()
-    workerTimer = $.clock.every(WORKERS_EVERY_MS, () => void readWorkers($))
+    await $.command.register({ name: 'board', description: 'Open the taskboard pane; /board on|off runs it in this session' })
+    if ((await enabledSessions($)).includes(await $.session.id())) await start($)
+    else await stop($)
     return started
   })
 
-  on('command.run', { command: 'board' }, async $ => {
+  on('command.run', { command: 'board' }, async ($, e) => {
+    const arg = e.args.trim()
+    const id = await $.session.id()
+    const ids = await enabledSessions($)
+    if (arg === 'on') {
+      await $.store.set(ENABLED_SESSIONS, [...new Set([...ids, id])])
+      // A manager session is left out of the ledger, so the board never lists itself.
+      const note = await run($, ['manager', 'add', id]).then(
+        () => '',
+        err => ` It could not be marked as a manager: ${(err as Error).message}`,
+      )
+      await start($)
+      await $.ui.open({ id: PANE, title: 'Taskboard' })
+      return { text: `The taskboard is on in this session.${note}` }
+    }
+    if (arg === 'off') {
+      await $.store.set(ENABLED_SESSIONS, ids.filter(s => s !== id))
+      await run($, ['manager', 'remove', id]).catch(() => {})
+      await stop($)
+      return { text: 'The taskboard is off in this session.' }
+    }
+    if (arg) return { text: 'Usage: /board, /board on, or /board off' }
+    if (!(await read($, enabled))) return { text: OFF_TEXT }
     await $.ui.open({ id: PANE, title: 'Taskboard' })
     return { text: 'Taskboard pane opened.' }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const b = await read($, board)
-    if (e.props.hasSurvey || !b) return next(e)
+    if (e.props.hasSurvey || !b || !(await read($, enabled))) return next(e)
     const s = await read($, sync)
     const ws = await read($, workers)
     const now = await $.clock.now()
@@ -227,6 +276,7 @@ export const register: Register = on => {
         </Box>
       )
     }
+    if (!(await read($, enabled))) return <Text dimColor>{OFF_TEXT}</Text>
     if (!b) return <Text dimColor>{s.error ? `No ledger: ${s.error}` : 'Loading the ledger…'}</Text>
 
     const row = (t: BoardTask) => (
